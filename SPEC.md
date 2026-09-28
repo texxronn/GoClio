@@ -1,6 +1,6 @@
 # Clio
 
-## Consolidated Specification v1.3 — Go implementation contract
+## Consolidated Specification v1.4 — Go implementation contract
 
 **Status: FROZEN**
 
@@ -17,7 +17,7 @@ These version identifiers are independent and must not be conflated:
 
 | Identifier | Value | Where it appears |
 | --- | --- | --- |
-| Specification revision | `1.3` | This document |
+| Specification revision | `1.4` | This document |
 | Product version | `1.0.0` | `version` in `/api/v1/health` |
 | API version | `v1` | `/api/v1/` route prefix |
 
@@ -59,6 +59,10 @@ Example payloads are illustrative unless a rule references them explicitly.
 - **v1.3** — merged the former clarification and appendix sections into the topical
   body and renumbered the document contiguously (1–63); updated all internal
   cross-references.
+- **v1.4** — added the optional `decimal_format` query parameter (section 14.6)
+  so record reads can return decimal fields as JSON numbers for consumers that
+  cannot handle string decimals, while the default string representation and all
+  existing responses are unchanged.
 
 ### Table of contents
 
@@ -94,6 +98,7 @@ Example payloads are illustrative unless a rule references them explicitly.
   - [14.3 Request value coercion](#143-request-value-coercion)
   - [14.4 Missing and null values](#144-missing-and-null-values)
   - [14.5 Unknown and readonly fields](#145-unknown-and-readonly-fields)
+  - [14.6 Numeric decimal output](#146-numeric-decimal-output)
 - [15. Metadata](#15-metadata)
 - [16. Metadata API](#16-metadata-api)
 - [17. Group API](#17-group-api)
@@ -896,7 +901,7 @@ Example:
 }
 ```
 
-Using a JSON string for `decimal` prevents loss of precision in clients and is especially appropriate for financial values.
+Using a JSON string for `decimal` prevents loss of precision in clients and is especially appropriate for financial values. Record reads may opt into JSON numbers with `decimal_format=number` (section 14.6).
 
 ## 14.2 Canonical decimal notation
 
@@ -1013,6 +1018,42 @@ Attempting to do so returns:
 ```
 
 System-managed fields are returned normally in records.
+
+## 14.6 Numeric decimal output
+
+The default record representation encodes `decimal` fields as JSON strings
+(section 14.1). Record reads accept an optional `decimal_format` query parameter
+for consumers that require numeric JSON:
+
+```text
+decimal_format=string   (default) decimal fields are JSON strings
+decimal_format=number   decimal fields are JSON numbers
+```
+
+`decimal_format` is valid on:
+
+```text
+GET /api/v1/groups/{group}/tables/{table}/records
+GET /api/v1/groups/{group}/tables/{table}/records/{id}
+```
+
+It also applies to the decimal-valued results of `distinct`, `aggregate`,
+`group_by` and `bucket` queries issued on the record list endpoint. Any other
+value returns:
+
+```text
+422 Unprocessable Entity
+```
+
+The numeric form is the field's canonical decimal notation written as a JSON
+number literal; the digits are not altered, so precision is preserved. Null
+values remain `null`, and non-decimal fields are unaffected. The default remains
+`string`; omitting the parameter or supplying `string` produces the existing
+response unchanged.
+
+Consumers that need exact decimal arithmetic should still prefer the default
+string form or a decimal-aware parser, because a JSON number may be read as a
+binary floating-point value by some clients.
 
 ---
 
@@ -1388,6 +1429,7 @@ aggregate
 from
 to
 bucket
+decimal_format
 ```
 
 Because filters are namespaced under `filter.`, a field named `limit` or `sort`

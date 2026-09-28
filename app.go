@@ -334,7 +334,12 @@ func (a *app) groupsAPI(w http.ResponseWriter, r *http.Request, s []string) {
 		id := s[5]
 		switch method {
 		case "GET":
-			item, x := a.getRecord(group, table, id)
+			numeric, x := decimalFormat(queryValues(r))
+			if x != nil {
+				writeErr(w, x)
+				return
+			}
+			item, x := a.getRecordFormatted(group, table, id, numeric)
 			if x != nil {
 				writeErr(w, x)
 				return

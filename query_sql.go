@@ -358,7 +358,7 @@ func filterArgument(value any) any {
 	return value
 }
 
-func (a *app) queryRecordPage(group, table string, defs map[string]map[string]any, q url.Values, timeseries bool, meta map[string]any, from, to *time.Time, limit, offset int, sortField, order string) (map[string]any, *apiError) {
+func (a *app) queryRecordPage(group, table string, defs map[string]map[string]any, q url.Values, timeseries bool, meta map[string]any, from, to *time.Time, limit, offset int, sortField, order string, numeric bool) (map[string]any, *apiError) {
 	where, args, ae := buildRecordWhere(group, table, defs, q, timeseries, meta, from, to)
 	if ae != nil {
 		return nil, ae
@@ -409,6 +409,7 @@ func (a *app) queryRecordPage(group, table string, defs map[string]map[string]an
 			return nil, errAPI(err)
 		}
 		row["id"], row["created_at"], row["updated_at"] = id, created, updated
+		applyDecimalFormat(row, defs, numeric)
 		page = append(page, row)
 	}
 	if err = rows.Err(); err != nil {
@@ -422,7 +423,7 @@ func (a *app) queryRecordPage(group, table string, defs map[string]map[string]an
 	return map[string]any{"data": page, "page": pageInfo(limit, offset, len(page), total)}, nil
 }
 
-func (a *app) distinctRecordValues(group, table string, defs map[string]map[string]any, q url.Values, timeseries bool, meta map[string]any, from, to *time.Time) (map[string]any, *apiError) {
+func (a *app) distinctRecordValues(group, table string, defs map[string]map[string]any, q url.Values, timeseries bool, meta map[string]any, from, to *time.Time, numeric bool) (map[string]any, *apiError) {
 	field := first(q, "distinct")
 	if defs[field] == nil {
 		return nil, invalid("Unknown field: " + field)
@@ -466,7 +467,13 @@ func (a *app) distinctRecordValues(group, table string, defs map[string]map[stri
 		if err = rows.Scan(&value); err != nil {
 			return nil, errAPI(err)
 		}
-		values = append(values, sqlValue(value, defs[field]))
+		item := sqlValue(value, defs[field])
+		if numeric && defs[field]["type"] == "decimal" {
+			if text, ok := item.(string); ok {
+				item = json.Number(text)
+			}
+		}
+		values = append(values, item)
 	}
 	if err = rows.Err(); err != nil {
 		return nil, errAPI(err)
@@ -499,7 +506,7 @@ func aggregateSQLExpression(operation aggregate, defs map[string]map[string]any)
 	}
 }
 
-func scanAggregateValue(value any, operation aggregate, defs map[string]map[string]any) any {
+func scanAggregateValue(value any, operation aggregate, defs map[string]map[string]any, numeric bool) any {
 	if operation.fn == "count" {
 		return value
 	}
@@ -512,12 +519,15 @@ func scanAggregateValue(value any, operation aggregate, defs map[string]map[stri
 		return sqlValue(value, defs[operation.field])
 	}
 	if text, ok := sqliteText(value); ok {
+		if numeric && defs[operation.field]["type"] == "decimal" {
+			return json.Number(text)
+		}
 		return text
 	}
 	return value
 }
 
-func (a *app) groupRecordAggregates(group, table string, defs map[string]map[string]any, q url.Values, timeseries bool, meta map[string]any, from, to *time.Time) (map[string]any, *apiError) {
+func (a *app) groupRecordAggregates(group, table string, defs map[string]map[string]any, q url.Values, timeseries bool, meta map[string]any, from, to *time.Time, numeric bool) (map[string]any, *apiError) {
 	groupField := first(q, "group_by")
 	tsGroup := contains([]string{"year", "month", "day", "week"}, groupField) && timeseries
 	if groupField != "" && defs[groupField] == nil && !tsGroup {
@@ -547,7 +557,7 @@ func (a *app) groupRecordAggregates(group, table string, defs map[string]map[str
 		}
 		result := make(map[string]any, len(operations))
 		for i, operation := range operations {
-			result[operation.key] = scanAggregateValue(values[i], operation, defs)
+			result[operation.key] = scanAggregateValue(values[i], operation, defs, numeric)
 		}
 		return map[string]any{"aggregate": result}, nil
 	}
@@ -593,7 +603,7 @@ func (a *app) groupRecordAggregates(group, table string, defs map[string]map[str
 		}
 		result := map[string]any{groupField: sqlGroupValue(values[0], groupField, tsGroup)}
 		for i, operation := range operations {
-			result[operation.key] = scanAggregateValue(values[i+1], operation, defs)
+			result[operation.key] = scanAggregateValue(values[i+1], operation, defs, numeric)
 		}
 		groups = append(groups, result)
 	}
@@ -643,7 +653,7 @@ func sqlGroupValue(value any, field string, tsGroup bool) any {
 	return sqlValue(value, map[string]any{"type": "string"})
 }
 
-func (a *app) bucketRecordAggregates(group, table string, defs map[string]map[string]any, q url.Values, meta map[string]any, from, to *time.Time) (map[string]any, *apiError) {
+func (a *app) bucketRecordAggregates(group, table string, defs map[string]map[string]any, q url.Values, meta map[string]any, from, to *time.Time, numeric bool) (map[string]any, *apiError) {
 	unit := first(q, "bucket")
 	if !contains([]string{"hour", "day", "week", "month"}, unit) {
 		return nil, invalid("bucket must be hour, day, week or month")
@@ -702,7 +712,7 @@ func (a *app) bucketRecordAggregates(group, table string, defs map[string]map[st
 		}
 		result := map[string]any{"bucket_start": sqlValue(values[0], map[string]any{"type": "string"})}
 		for i, operation := range operations {
-			result[operation.key] = scanAggregateValue(values[i+1], operation, defs)
+			result[operation.key] = scanAggregateValue(values[i+1], operation, defs, numeric)
 		}
 		buckets = append(buckets, result)
 	}

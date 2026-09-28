@@ -18,6 +18,40 @@ import (
 
 var decimalPattern = regexp.MustCompile(`^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$`)
 
+// decimalFormat reports whether record reads should emit decimal field values
+// as JSON numbers instead of the default JSON strings. Values remain canonical
+// decimal text; only the JSON representation changes, so precision is retained.
+func decimalFormat(q url.Values) (bool, *apiError) {
+	if !q.Has("decimal_format") {
+		return false, nil
+	}
+	switch strings.ToLower(strings.TrimSpace(first(q, "decimal_format"))) {
+	case "string":
+		return false, nil
+	case "number":
+		return true, nil
+	default:
+		return false, invalid("decimal_format must be string or number")
+	}
+}
+
+// applyDecimalFormat converts the decimal fields of a record representation to
+// JSON numbers when numeric output was requested. Non-decimal fields, nulls and
+// missing values are left untouched.
+func applyDecimalFormat(values map[string]any, defs map[string]map[string]any, numeric bool) {
+	if !numeric {
+		return
+	}
+	for name, def := range defs {
+		if def["type"] != "decimal" {
+			continue
+		}
+		if text, ok := values[name].(string); ok {
+			values[name] = json.Number(text)
+		}
+	}
+}
+
 func (a *app) createRecord(group, table string, input map[string]any) (map[string]any, *apiError) {
 	meta, e := a.table(group, table)
 	if e != nil {
@@ -164,6 +198,10 @@ func (a *app) validateReference(f map[string]any, value any) *apiError {
 }
 
 func (a *app) getRecord(group, table, id string) (map[string]any, *apiError) {
+	return a.getRecordFormatted(group, table, id, false)
+}
+
+func (a *app) getRecordFormatted(group, table, id string, numeric bool) (map[string]any, *apiError) {
 	if _, e := a.table(group, table); e != nil {
 		return nil, e
 	}
@@ -182,6 +220,13 @@ func (a *app) getRecord(group, table, id string) (map[string]any, *apiError) {
 	out["id"] = id
 	out["created_at"] = created
 	out["updated_at"] = updated
+	if numeric {
+		defs, e := a.fields(group, table)
+		if e != nil {
+			return nil, e
+		}
+		applyDecimalFormat(out, indexFields(defs), true)
+	}
 	return out, nil
 }
 
@@ -278,14 +323,18 @@ func (a *app) queryRecords(group, table string, q url.Values) (map[string]any, *
 	if from != nil && to != nil && to.Before(*from) {
 		return nil, invalid("to must not be earlier than from")
 	}
+	numeric, ae := decimalFormat(q)
+	if ae != nil {
+		return nil, ae
+	}
 	if q.Has("distinct") {
-		return a.distinctRecordValues(group, table, by, q, timeseries, meta, from, to)
+		return a.distinctRecordValues(group, table, by, q, timeseries, meta, from, to, numeric)
 	}
 	if q.Has("bucket") {
-		return a.bucketRecordAggregates(group, table, by, q, meta, from, to)
+		return a.bucketRecordAggregates(group, table, by, q, meta, from, to, numeric)
 	}
 	if q.Has("group_by") || q.Has("aggregate") {
-		return a.groupRecordAggregates(group, table, by, q, timeseries, meta, from, to)
+		return a.groupRecordAggregates(group, table, by, q, timeseries, meta, from, to, numeric)
 	}
 	sortField, order := first(q, "sort"), strings.ToLower(first(q, "order"))
 	if q.Has("sort") && sortField == "" {
@@ -311,7 +360,7 @@ func (a *app) queryRecords(group, table string, q url.Values) (map[string]any, *
 	if ae != nil {
 		return nil, ae
 	}
-	return a.queryRecordPage(group, table, by, q, timeseries, meta, from, to, limit, offset, sortField, order)
+	return a.queryRecordPage(group, table, by, q, timeseries, meta, from, to, limit, offset, sortField, order, numeric)
 }
 
 type recordCandidate struct {

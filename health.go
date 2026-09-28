@@ -105,7 +105,7 @@ Create a table with POST /api/v1/groups/pool/tables and name, label, kind, field
 Field types: string, text, integer, decimal, boolean, date, datetime, enum, url, reference.
 Fields support required, default, description, order, readonly, hidden, validation min/max, min_length/max_length and pattern.
 Records support GET list/item, POST create, PATCH update, DELETE at /api/v1/groups/{group}/tables/{table}/records[/{id}]. PATCH omitted fields remain unchanged; explicit null clears nullable fields. Defaults apply on create; omitted nullable values are returned as null. Required, unknown and readonly fields are validated.
-Decimal values are JSON strings; integer values are JSON integers; datetimes are RFC 3339 and normalized to UTC.
+Decimal values are JSON strings by default; integer values are JSON integers; datetimes are RFC 3339 and normalized to UTC. Record reads accept decimal_format=number to return decimal fields as JSON numbers (canonical decimal text preserved) for consumers that require numeric JSON; decimal_format=string is the default.
 References contain target record IDs and prevent deletion of referenced records/tables.
 HTML views use /t/{group}/{table}, /new, /{id}, and /{id}/edit. Forms are metadata-driven. The read-only Data Browser is at /collections/{group}/{table}; /collections opens the browser and selects the first available table.
 
