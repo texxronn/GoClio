@@ -721,7 +721,7 @@ reserved: a field may not use those names.
   `timestamp_field` and the two must agree.
 - `default` is applied when a create request omits the field. A required field
   may not have a null default. Defaults are expressed in the field's request
-  representation: integers as JSON integers, decimals as JSON strings
+  representation: integers as integral JSON numbers, decimals as JSON strings
   (section 61.10).
 
 ## 13.3 Type-specific rules
@@ -1130,11 +1130,11 @@ Paged results are deterministic and stable across requests:
   `timestamp_field`, or a field with `role: "timestamp"`) is ordered by that
   field descending, then by record ID descending, unless the request supplies an
   explicit `sort`.
-- Other tables are ordered by `created_at` descending, then by record ID
-  ascending, unless the request supplies an explicit `sort`.
+- Other tables are ordered by `created_at` descending, then by a stable
+  insertion-order tie-breaker, unless the request supplies an explicit `sort`.
 
 An explicit `sort` places non-null values first in the requested direction and
-then applies a stable internal tie-breaker so that equal values page
+then applies a stable insertion-order tie-breaker so that equal values page
 deterministically (section 61.17).
 
 The internal pagination strategy remains an implementation detail; only the
@@ -2043,7 +2043,10 @@ duplicate indexes must be removed. Enabling a unique field constraint that
 conflicts with existing data fails with `409 Conflict` without partially applying
 the schema change.
 
-Time-series timestamp access uses an index scoped by table and timestamp. A table with a principal temporal field is paged in descending temporal order with record ID as a deterministic tie-breaker; other tables use a deterministic order. Offset/limit pagination remains sufficient for v1. Query operations continue to execute in SQLite and must not load whole tables into application memory.
+Time-series timestamp access uses an index scoped by table and timestamp. Default
+record ordering is defined in section 23. Offset/limit pagination remains
+sufficient for v1. Query operations continue to execute in SQLite and must not
+load whole tables into application memory.
 
 Index configuration is optional for ordinary use, invisible in the primary UI, and requires no index-administration endpoint. Clio does not provide full-text/spatial indexes, index hints, workload-driven index creation, or query-plan analysis in v1.
 
@@ -3046,7 +3049,7 @@ Requests are strict about JSON types; Clio does not guess:
 | Type | Accepted request JSON |
 | --- | --- |
 | `string`, `text`, `url`, `enum`, `reference` | JSON string |
-| `integer` | JSON integer (not `1.0`, not `"5"`) |
+| `integer` | JSON number with an integral value (`1.0` is accepted and normalized to `1`; `1.5` and `"5"` are rejected) |
 | `decimal` | JSON string (not a JSON number) |
 | `boolean` | JSON boolean |
 | `date` | `"YYYY-MM-DD"` |
