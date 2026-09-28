@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Client-rendered Clio Markdown</title>
+<script src="/assets/clio-markdown.js"></script>
+<main>
+  <h1>Markdown report</h1>
+  <div id="report">Loading report…</div>
+</main>
+<script>
+  fetch('/api/v1/pages?path=%2Fexamples%2Freport.md')
+    .then(response => {
+      if (!response.ok) throw new Error('Could not load the Markdown page');
+      return response.json();
+    })
+    .then(page => {
+      document.querySelector('#report').innerHTML = ClioMarkdown.render(page.content);
+    })
+    .catch(error => {
+      document.querySelector('#report').textContent = error.message;
+    });
+</script>
+</html>

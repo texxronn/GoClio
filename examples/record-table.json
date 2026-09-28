@@ -1,0 +1,39 @@
+{
+  "name": "service",
+  "label": "Vehicle Service",
+  "description": "Service, repair, and inspection history",
+  "kind": "record",
+  "fields": [
+    {
+      "name": "service_date",
+      "label": "Service date",
+      "type": "date",
+      "required": true
+    },
+    {
+      "name": "odometer_km",
+      "label": "Odometer (km)",
+      "type": "integer",
+      "required": true,
+      "min": 0
+    },
+    {
+      "name": "category",
+      "label": "Category",
+      "type": "enum",
+      "required": true,
+      "values": ["service", "repair", "tyre", "inspection"]
+    },
+    {
+      "name": "cost",
+      "label": "Cost",
+      "type": "decimal",
+      "min": "0"
+    },
+    {
+      "name": "notes",
+      "label": "Notes",
+      "type": "text"
+    }
+  ]
+}

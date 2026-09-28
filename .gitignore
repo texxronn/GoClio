@@ -1,0 +1,13 @@
+# Local runtime data
+/data/
+*.db
+*.db-shm
+*.db-wal
+
+# Local builds and test outputs
+/clio
+*.test
+coverage.out
+
+# IDE metadata
+.idea/

@@ -1,0 +1,33 @@
+{
+  "name": "measurements",
+  "label": "Pool Measurements",
+  "description": "Daily pool water measurements",
+  "kind": "timeseries",
+  "timestamp_field": "measured_at",
+  "fields": [
+    {
+      "name": "measured_at",
+      "label": "Measured at",
+      "type": "datetime",
+      "required": true
+    },
+    {
+      "name": "ph",
+      "label": "pH",
+      "type": "decimal",
+      "min": "0",
+      "max": "14"
+    },
+    {
+      "name": "free_chlorine",
+      "label": "Free chlorine (ppm)",
+      "type": "decimal",
+      "min": "0"
+    },
+    {
+      "name": "temperature_c",
+      "label": "Temperature (°C)",
+      "type": "decimal"
+    }
+  ]
+}

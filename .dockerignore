@@ -1,0 +1,6 @@
+.git
+.idea
+data
+clio
+coverage.out
+*.test
