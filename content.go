@@ -969,7 +969,14 @@ func (a *app) contentUI(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, errAPI(err))
 			return
 		}
-		writeHTML(w, 200, a.pageShell(markdownHTML(string(data)), clean))
+		parent := path.Dir(clean)
+		if parent == "." {
+			parent = "/"
+		}
+		body := `<style>
+body{max-width:none;margin:0 auto;padding:0 1.4rem;background:#f4f7fb;color:#192a41}body>nav{display:flex;align-items:center;gap:.9rem;margin:0 calc(1.4rem * -1) 1.25rem;padding:.8rem 1.4rem;background:#fff;border-bottom:1px solid #e3e9f1;font-size:.9rem}body>nav a{color:#52647a}body>nav a:first-child{font-weight:750;color:#182f4b}main{max-width:none!important}.published-page{max-width:850px;margin:1.2rem auto 4rem;padding:clamp(1.25rem,4vw,2.6rem);border:1px solid #e3e9f1;border-radius:14px;background:#fff;box-shadow:0 5px 22px rgba(24,47,75,.045)}.published-back{display:inline-block;margin-bottom:1.5rem;color:#286a83;font-size:.85rem;font-weight:650;text-decoration:none}.published-back:hover{text-decoration:underline}.published-markdown{color:#344b62;line-height:1.75}.published-markdown h1,.published-markdown h2,.published-markdown h3{color:#192a41;line-height:1.25;letter-spacing:-.03em}.published-markdown h1{font-size:clamp(1.8rem,4vw,2.4rem);margin:.15rem 0 1.2rem}.published-markdown h2{font-size:1.45rem;margin:2rem 0 .7rem}.published-markdown p{margin:.75rem 0}.published-markdown a{color:#216b82}.published-markdown li{margin:.3rem 0}.published-markdown pre{padding:1rem;border:1px solid #e4eaf0;border-radius:8px;background:#f5f8fa}.published-markdown code{padding:.12em .3em;border-radius:4px;background:#f0f4f7;color:#244c65}.published-markdown pre code{padding:0;background:transparent}.published-markdown blockquote{margin:1rem 0;padding:.15rem 1rem;border-left:3px solid #72b7b5;color:#60778a;background:#f6fafb}@media(max-width:700px){body{padding:0 .65rem}body>nav{margin:0 -.65rem .8rem;padding:.7rem .65rem;gap:.55rem;font-size:.82rem}.published-page{margin:.65rem auto 2rem;padding:1.1rem;border-radius:10px}}
+</style><article class="published-page"><a class="published-back" href="` + htmlAttr(urlPath(parent)) + `">← Back to folder</a><div class="published-markdown">` + markdownHTML(string(data)) + `</div></article>`
+		writeHTML(w, 200, a.pageShell(body, clean))
 		return
 	}
 	if strings.HasSuffix(target, ".html") {
@@ -996,38 +1003,90 @@ func (a *app) contentUI(w http.ResponseWriter, r *http.Request) {
 func (a *app) directoryHTML(d map[string]any) string {
 	pathName := d["path"].(string)
 	children, _ := d["children"].([]map[string]any)
+	if pathName == "/" {
+		return a.homeHTML(children)
+	}
+	return a.contentDirectoryHTML(pathName, children)
+}
+
+func (a *app) contentDirectoryHTML(pathName string, children []map[string]any) string {
 	var b strings.Builder
-	b.WriteString("<h1>" + esc(pathName) + "</h1><nav aria-label=breadcrumbs><a href=\"/\">root</a>")
+	b.WriteString(`<style>
+body{max-width:none;margin:0 auto;padding:0 1.4rem;background:#f4f7fb;color:#192a41}body>nav{display:flex;align-items:center;gap:.9rem;margin:0 calc(1.4rem * -1) 1.25rem;padding:.8rem 1.4rem;background:#fff;border-bottom:1px solid #e3e9f1;font-size:.9rem}body>nav a{color:#52647a}body>nav a:first-child{font-weight:750;color:#182f4b}main{max-width:none!important}.content-directory{max-width:1120px;margin:1.3rem auto 4rem}.content-breadcrumbs{display:flex;align-items:center;gap:.5rem;margin:.2rem 0 1rem;color:#91a0ae;font-size:.82rem}.content-breadcrumbs a{color:#60778a;text-decoration:none}.content-breadcrumbs a:hover{color:#216b82}.content-heading{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:1rem;padding:1.3rem 1.4rem;border:1px solid #e3e9f1;border-radius:12px;background:#fff}.content-heading-main{display:flex;align-items:center;gap:.9rem;min-width:0}.content-folder-mark{display:grid;place-items:center;flex:none;width:3rem;height:3rem;border-radius:10px;background:#e9f4f6;color:#24758a;font-size:1.35rem}.content-eyebrow{margin:0 0 .2rem;color:#8192a2;font-size:.68rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase}.content-heading h1{margin:0;color:#192a41;font-size:clamp(1.3rem,3vw,1.8rem);letter-spacing:-.035em;overflow-wrap:anywhere}.content-count{margin:.3rem 0 0;color:#7a8b9a;font-size:.8rem}.content-create summary{padding:.58rem .78rem;border:1px solid #dce5eb;border-radius:7px;color:#315f75;font-size:.82rem;font-weight:650;cursor:pointer;white-space:nowrap}.content-create form{display:flex;gap:.45rem;margin-top:.55rem}.content-create label{margin:0}.content-create input{box-sizing:border-box;width:10rem;padding:.52rem .6rem;border:1px solid #dce5eb;border-radius:6px}.content-create button{padding:.54rem .7rem;border-radius:6px;background:#215f78;font-size:.8rem;cursor:pointer}.content-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,16rem),1fr));gap:.7rem}.content-entry{display:flex;align-items:center;gap:.75rem;min-width:0;padding:.85rem;border:1px solid #e3e9f1;border-radius:9px;background:#fff;color:#344b62;text-decoration:none;box-shadow:0 2px 8px rgba(24,47,75,.025);transition:background-color .16s ease,border-color .16s ease,transform .16s ease}.content-entry:hover{transform:translateY(-1px);border-color:#bdd8df;background:#fbfefe}.content-entry-mark{display:grid;place-items:center;flex:none;width:2.25rem;height:2.25rem;border-radius:7px;background:#eff3f7;color:#52728b;font-size:1.05rem}.content-entry-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.9rem;font-weight:650}.content-entry-type{color:#8493a1;font-size:.72rem}.content-entry-arrow{color:#3b8291}.content-empty{padding:1.4rem;border:1px dashed #d5e0e8;border-radius:9px;background:rgba(255,255,255,.55);color:#718394;font-size:.88rem}@media(max-width:700px){body{padding:0 .65rem}body>nav{margin:0 -.65rem .8rem;padding:.7rem .65rem;gap:.55rem;font-size:.82rem}.content-directory{margin:.65rem auto 2rem}.content-heading{align-items:flex-start;padding:1rem}.content-create summary{font-size:0}.content-create summary:after{content:"＋ Folder";font-size:.82rem}.content-create[open] summary{font-size:.82rem}.content-create[open] summary:after{content:""}.content-create input{width:8rem}}
+</style><div class="content-directory"><nav class="content-breadcrumbs" aria-label="Breadcrumb"><a href="/">Clio Home</a>`)
 	current := ""
 	for _, part := range splitPath(strings.TrimPrefix(pathName, "/")) {
 		current += "/" + part
-		b.WriteString(" / <a href=\"" + urlPath(current) + "\">" + esc(part) + "</a>")
+		b.WriteString(`<span aria-hidden="true">/</span><a href="` + htmlAttr(urlPath(current)) + `">` + esc(part) + `</a>`)
 	}
-	b.WriteString("</nav><ul>")
+	name := path.Base(pathName)
+	b.WriteString(`</nav><header class="content-heading"><div class="content-heading-main"><span class="content-folder-mark" aria-hidden="true">▰</span><div><p class="content-eyebrow">Published content</p><h1>` + esc(name) + `</h1><p class="content-count">` + fmt.Sprint(len(children)) + ` items</p></div></div><details class="content-create"><summary>＋ New folder</summary><form method="post" action="` + htmlAttr(urlPath(pathName)) + `"><label>Folder name<input name="name" placeholder="Folder name" required></label><button type="submit">Create</button></form></details></header><section class="content-list" aria-label="Folder contents">`)
+	if len(children) == 0 {
+		b.WriteString(`<p class="content-empty">This folder is empty. Add published pages or create a subfolder to get started.</p>`)
+	}
 	for _, child := range children {
-		u := child["url"].(string)
-		u = strings.TrimPrefix(u, a.baseURL)
-		name := child["name"].(string)
-		suffix := ""
-		if child["type"] == "directory" {
-			suffix = "/"
+		u := strings.TrimPrefix(fmt.Sprint(child["url"]), a.baseURL)
+		childName := fmt.Sprint(child["name"])
+		typeName := fmt.Sprint(child["type"])
+		icon := "▤"
+		if typeName == "directory" {
+			icon = "▰"
 		}
-		b.WriteString("<li><a href=\"" + htmlAttr(u) + "\">" + esc(name) + suffix + "</a> <small>" + esc(child["type"]) + "</small></li>")
+		b.WriteString(`<a class="content-entry" href="` + htmlAttr(u) + `"><span class="content-entry-mark" aria-hidden="true">` + icon + `</span><span class="content-entry-name">` + esc(childName) + `</span><span class="content-entry-type">` + esc(typeName) + `</span><span class="content-entry-arrow" aria-hidden="true">→</span></a>`)
 	}
-	b.WriteString("</ul><form method=post action=\"" + htmlAttr(urlPath(pathName)) + "\"><label>New directory<input name=name required></label><button type=submit>Create directory</button></form>")
-	if pathName == "/" {
-		b.WriteString("<h2>Tables</h2><ul>")
-		groups, _ := a.listGroups()
-		for _, g := range groups {
-			tables, _ := a.listTables(g["name"].(string))
-			for _, t := range tables {
-				href := "/t/" + esc(g["name"]) + "/" + esc(t["name"])
-				b.WriteString("<li><a href=\"" + href + "\">" + esc(g["label"]) + " / " + esc(t["label"]) + "</a></li>")
+	b.WriteString(`</section></div>`)
+	return a.pageShell(b.String(), name)
+}
+
+func (a *app) homeHTML(children []map[string]any) string {
+	groups, _ := a.listGroups()
+	tableCount := 0
+	var collections strings.Builder
+	for _, group := range groups {
+		groupName := fmt.Sprint(group["name"])
+		tables, err := a.listTables(groupName)
+		if err != nil {
+			continue
+		}
+		tableCount += len(tables)
+		label := group["label"]
+		if label == nil || fmt.Sprint(label) == "" {
+			label = groupName
+		}
+		collections.WriteString(`<section class="home-collection"><div class="home-collection-heading"><span class="home-collection-mark" aria-hidden="true">▦</span><div><h3>` + esc(label) + `</h3><span>` + fmt.Sprint(len(tables)) + ` tables</span></div></div>`)
+		for _, table := range tables {
+			tableName := fmt.Sprint(table["name"])
+			tableLabel := table["label"]
+			if tableLabel == nil || fmt.Sprint(tableLabel) == "" {
+				tableLabel = tableName
 			}
+			collections.WriteString(`<a class="home-table-link" href="/collections/` + url.PathEscape(groupName) + `/` + url.PathEscape(tableName) + `"><span>` + esc(tableLabel) + `</span><span aria-hidden="true">→</span></a>`)
 		}
-		b.WriteString("</ul>")
+		collections.WriteString(`</section>`)
 	}
-	return a.pageShell(b.String(), pathName)
+	if collections.Len() == 0 {
+		collections.WriteString(`<p class="home-empty">No collections yet. Create one through the API, then browse it here.</p>`)
+	}
+
+	var content strings.Builder
+	for _, child := range children {
+		name := fmt.Sprint(child["name"])
+		typeName := fmt.Sprint(child["type"])
+		icon := "▤"
+		if typeName == "directory" {
+			icon = "▰"
+		}
+		href := strings.TrimPrefix(fmt.Sprint(child["url"]), a.baseURL)
+		content.WriteString(`<a class="home-content-link" href="` + htmlAttr(href) + `"><span class="home-file-mark" aria-hidden="true">` + icon + `</span><span class="home-file-name">` + esc(name) + `</span><span class="home-file-type">` + esc(typeName) + `</span><span aria-hidden="true">→</span></a>`)
+	}
+	if content.Len() == 0 {
+		content.WriteString(`<p class="home-empty">Published pages and folders will appear here.</p>`)
+	}
+
+	body := `<style>
+.home-page{--home-ink:#192a41;--home-muted:#718096;--home-line:#e3e9f1;max-width:1120px;margin:1.5rem auto 4rem;color:var(--home-ink)}body{max-width:none;background:#f4f7fb;color:var(--home-ink);margin:0 auto;padding:0 1.4rem}body>nav{display:flex;align-items:center;gap:.9rem;margin:0 calc(1.4rem * -1) 1.25rem;padding:.8rem 1.4rem;background:#fff;border-bottom:1px solid var(--home-line);font-size:.9rem}body>nav a:first-child{font-weight:750;letter-spacing:-.02em;color:#182f4b}body>nav a{color:#52647a}main{max-width:none!important}.home-hero{position:relative;display:grid;grid-template-columns:minmax(0,1.35fr) minmax(15rem,.65fr);gap:2rem;align-items:center;overflow:hidden;padding:clamp(1.5rem,4vw,3.25rem);border-radius:18px;background:radial-gradient(ellipse at 85% 0%,rgba(88,190,198,.3),transparent 35%),linear-gradient(125deg,#163959,#155a70 72%,#187181);color:#fff;box-shadow:0 16px 40px rgba(22,57,89,.14)}.home-hero:after{position:absolute;content:"";width:22rem;height:22rem;border:1px solid rgba(255,255,255,.11);border-radius:50%;right:-8rem;bottom:-18rem;pointer-events:none}.home-eyebrow{margin:0 0 .9rem;color:#a9e1e1;font-size:.72rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase}.home-hero h1{max-width:12ch;margin:0;font-size:clamp(2rem,4vw,3.25rem);line-height:1.04;letter-spacing:-.055em}.home-hero-copy{max-width:34rem;margin:.9rem 0 1.35rem;color:#d2e3ed;line-height:1.6}.home-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.85rem}.home-primary{display:inline-flex;align-items:center;gap:.85rem;padding:.7rem 1rem;border-radius:7px;background:#fff;color:#153b59;text-decoration:none;font-weight:700}.home-primary:hover{background:#eaf8f8}.home-secondary{color:#e4f1f4;text-decoration:none;font-weight:600}.home-secondary:hover{text-decoration:underline}.home-hero-aside{position:relative;z-index:1;padding:1.15rem;border:1px solid rgba(255,255,255,.2);border-radius:12px;background:rgba(7,34,55,.2);backdrop-filter:blur(8px)}.home-ready{display:flex;align-items:center;gap:.65rem;font-weight:700}.home-ready-dot{width:.55rem;height:.55rem;border-radius:50%;background:#74e0b5;box-shadow:0 0 0 4px rgba(116,224,181,.13)}.home-hero-aside p{margin:.65rem 0 0;color:#c9dce6;font-size:.88rem;line-height:1.55}.home-stats{display:flex;gap:1.5rem;margin-top:1.1rem;padding-top:.9rem;border-top:1px solid rgba(255,255,255,.18)}.home-stat strong,.home-stat span{display:block}.home-stat strong{font-size:1.4rem;letter-spacing:-.03em}.home-stat span{color:#c9dce6;font-size:.75rem}.home-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(17rem,.7fr);gap:1rem;margin-top:1rem}.home-card{min-width:0;padding:1.2rem;border:1px solid var(--home-line);border-radius:12px;background:#fff;box-shadow:0 3px 14px rgba(24,47,75,.035)}.home-card-heading{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:.9rem}.home-card-heading h2{margin:0;font-size:1.05rem;letter-spacing:-.025em}.home-card-heading p{margin:.25rem 0 0;color:var(--home-muted);font-size:.83rem}.home-card-heading>a{font-size:.82rem;font-weight:650;text-decoration:none}.home-collection{padding:.9rem 0;border-top:1px solid #edf0f4}.home-collection:first-child{padding-top:0;border-top:0}.home-collection-heading{display:flex;align-items:center;gap:.65rem;margin-bottom:.4rem}.home-collection-mark{display:grid;place-items:center;width:2rem;height:2rem;border-radius:7px;background:#eaf4f8;color:#236b81;font-size:1.1rem}.home-collection-heading h3{margin:0;font-size:.9rem}.home-collection-heading div>span{color:var(--home-muted);font-size:.73rem}.home-table-link{display:flex;justify-content:space-between;gap:1rem;padding:.48rem .55rem;border-radius:6px;color:#3d566e;text-decoration:none;font-size:.85rem}.home-table-link:hover,.home-content-link:hover{background:#f3f7fa;color:#1b6f83}.home-content-link{display:flex;align-items:center;gap:.6rem;padding:.66rem .35rem;border-top:1px solid #edf0f4;color:#344b62;text-decoration:none;font-size:.85rem}.home-content-link:first-child{border-top:0}.home-file-mark{display:grid;place-items:center;width:1.8rem;height:1.8rem;border-radius:6px;background:#eff3f8;color:#55728b}.home-file-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.home-file-type{color:var(--home-muted);font-size:.72rem}.home-empty{margin:.2rem 0;color:var(--home-muted);font-size:.85rem;line-height:1.5}.home-create{margin-top:1rem;padding-top:.85rem;border-top:1px solid #edf0f4}.home-create summary{color:#526b80;font-size:.82rem;font-weight:600;cursor:pointer}.home-create form{display:flex;align-items:center;gap:.5rem;margin-top:.6rem}.home-create label{margin:0;flex:1}.home-create input{width:100%;box-sizing:border-box;padding:.5rem .6rem;border:1px solid #dce4ec;border-radius:6px}.home-create button{padding:.53rem .7rem;border-radius:6px;background:#215f78;font-size:.8rem;cursor:pointer}.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}@media(max-width:760px){body{padding:0 .7rem}body>nav{margin:0 -.7rem .8rem;padding:.7rem;gap:.55rem;font-size:.82rem}.home-page{margin:.7rem auto 2rem}.home-hero{grid-template-columns:1fr;gap:1.2rem;padding:1.4rem;border-radius:13px}.home-hero-aside{max-width:none}.home-grid{grid-template-columns:1fr}.home-card{padding:1rem}}@media(prefers-reduced-motion:no-preference){.home-primary,.home-table-link,.home-content-link{transition:background-color .16s ease,color .16s ease}}
+</style><div class="home-page"><section class="home-hero"><div><p class="home-eyebrow">CLIO · CONTENT WORKSPACE</p><h1>Everything you need, in one place.</h1><p class="home-hero-copy">Browse structured collections and explore your published content from one simple workspace.</p><div class="home-actions"><a class="home-primary" href="/collections">Open data browser <span aria-hidden="true">→</span></a><a class="home-secondary" href="/help">Read the guide</a></div></div><aside class="home-hero-aside"><div class="home-ready"><span class="home-ready-dot" aria-hidden="true"></span>Your workspace is ready</div><p>Collections, tables, and published pages are all close at hand.</p><div class="home-stats"><div class="home-stat"><strong>` + fmt.Sprint(len(groups)) + `</strong><span>collections</span></div><div class="home-stat"><strong>` + fmt.Sprint(tableCount) + `</strong><span>tables</span></div><div class="home-stat"><strong>` + fmt.Sprint(len(children)) + `</strong><span>content items</span></div></div></aside></section><div class="home-grid"><section class="home-card"><div class="home-card-heading"><div><h2>Collections</h2><p>Your structured data, organized by group.</p></div><a href="/collections">Browse all →</a></div>` + collections.String() + `</section><section class="home-card"><div class="home-card-heading"><div><h2>Published content</h2><p>Pages and folders in your content library.</p></div></div>` + content.String() + `<details class="home-create"><summary>＋ Create a folder</summary><form method="post" action="/"><label><span class="visually-hidden">Folder name</span><input name="name" placeholder="Folder name" required></label><button type="submit">Create</button></form></details></section></div></div>`
+	return a.pageShell(body, "Home")
 }
 func htmlAttr(s string) string { return strings.ReplaceAll(esc(s), "&#39;", "&#39;") }
 

@@ -32,7 +32,7 @@ func missing(what string) *apiError     { return &apiError{404, "not_found", wha
 func conflict(message string) *apiError { return &apiError{409, "conflict", message} }
 func methodNotAllowed() *apiError       { return &apiError{405, "method_not_allowed", "Method not allowed"} }
 
-var reservedRoot = map[string]bool{"api": true, "health": true, "help": true, "assets": true, "t": true, "collections": true}
+var reservedRoot = map[string]bool{"api": true, "health": true, "help": true, "assets": true, "t": true, "collections": true, "favicon.svg": true}
 var identifierPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 var fieldTypes = map[string]bool{"string": true, "text": true, "integer": true, "decimal": true, "boolean": true, "date": true, "datetime": true, "enum": true, "url": true, "reference": true}
 
@@ -73,7 +73,7 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if r.URL.Path == "/help" {
-			writeHTML(w, 200, a.pageShell(markdownHTML(a.helpText()), "Help"))
+			writeHTML(w, 200, a.helpHTML())
 		} else {
 			writeText(w, 200, a.helpText(), "text/markdown; charset=utf-8")
 		}
@@ -98,6 +98,19 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeText(w, 200, string(asset), "text/javascript; charset=utf-8")
+		return
+	}
+	if r.URL.Path == "/favicon.svg" {
+		if r.Method != http.MethodGet {
+			writeAPIError(w, methodNotAllowed())
+			return
+		}
+		asset, err := clioJSAsset.ReadFile("assets/favicon.svg")
+		if err != nil {
+			writeAPIError(w, errAPI(err))
+			return
+		}
+		writeText(w, http.StatusOK, string(asset), "image/svg+xml; charset=utf-8")
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/api/v1/") {

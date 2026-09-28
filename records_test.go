@@ -620,7 +620,7 @@ func TestPageAPIRoundTripAndPathSafety(t *testing.T) {
 	}
 
 	rendered := testRequest(t, a, http.MethodGet, "/reports/latest.md", nil, "")
-	if rendered.Code != http.StatusOK || !strings.Contains(rendered.Body.String(), "&lt;script&gt;") || strings.Contains(rendered.Body.String(), "<script>alert(1)</script>") {
+	if rendered.Code != http.StatusOK || !strings.Contains(rendered.Body.String(), `class="published-markdown"`) || !strings.Contains(rendered.Body.String(), "&lt;script&gt;") || strings.Contains(rendered.Body.String(), "<script>alert(1)</script>") {
 		t.Fatalf("Markdown page was not safely rendered: status=%d body=%s", rendered.Code, rendered.Body.String())
 	}
 	traversal := testRequest(t, a, http.MethodPost, "/api/v1/pages", map[string]any{"path": "/../escape.md", "content_type": "text/markdown", "content": "bad"}, "application/json")
@@ -753,7 +753,7 @@ func TestGenericTableFormsAndOperationalPages(t *testing.T) {
 		t.Fatalf("table view missing form link: status=%d", listing.Code)
 	}
 	newForm := testRequest(t, a, http.MethodGet, "/t/vehicle/service/new", nil, "")
-	if newForm.Code != http.StatusOK || !strings.Contains(newForm.Body.String(), `name="category"`) {
+	if newForm.Code != http.StatusOK || !strings.Contains(newForm.Body.String(), `name="category"`) || !strings.Contains(newForm.Body.String(), `class="record-form-card"`) || !strings.Contains(newForm.Body.String(), "Save record") {
 		t.Fatalf("new-record form missing fields: status=%d", newForm.Code)
 	}
 	form := url.Values{"name": {"Engine service"}, "category": {"service"}, "amount": {"45.50"}}
@@ -767,7 +767,7 @@ func TestGenericTableFormsAndOperationalPages(t *testing.T) {
 		t.Fatalf("edit form submission status = %d, want 303", edit.Code)
 	}
 	recordPage := testRequest(t, a, http.MethodGet, "/t/vehicle/service/"+id, nil, "")
-	if recordPage.Code != http.StatusOK || !strings.Contains(recordPage.Body.String(), "Engine service 2") {
+	if recordPage.Code != http.StatusOK || !strings.Contains(recordPage.Body.String(), "Engine service 2") || !strings.Contains(recordPage.Body.String(), `class="record-detail-page"`) || !strings.Contains(recordPage.Body.String(), "Edit record") {
 		t.Fatalf("record page did not show patched value: status=%d", recordPage.Code)
 	}
 

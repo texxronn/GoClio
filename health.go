@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -45,9 +46,40 @@ func (a *app) count(table string) int64 {
 }
 func (a *app) healthJSON(w http.ResponseWriter) { writeJSON(w, 200, a.health()) }
 func (a *app) healthHTML(w http.ResponseWriter) {
-	b, _ := json.MarshalIndent(a.health(), "", "  ")
-	writeHTML(w, 200, a.pageShell("<h1>Clio health</h1><pre>"+esc(string(b))+"</pre>", "Health"))
+	info := a.health()
+	database, _ := info["database"].(map[string]any)
+	status := fmt.Sprint(info["status"])
+	statusClass, statusLabel := "health-badge health-ok", "All systems operational"
+	if status != "ok" {
+		statusClass, statusLabel = "health-badge health-error", "Health needs attention"
+	}
+	raw, _ := json.MarshalIndent(info, "", "  ")
+	stats := []struct{ label, value string }{
+		{"API version", fmt.Sprint(info["version"])},
+		{"Uptime", (time.Duration(info["uptime_seconds"].(int64)) * time.Second).Round(time.Second).String()},
+		{"Collections", fmt.Sprint(info["groups"])},
+		{"Tables", fmt.Sprint(info["tables"])},
+		{"Records", fmt.Sprint(info["records"])},
+		{"Published pages", fmt.Sprint(info["pages"])},
+		{"Folders", fmt.Sprint(info["directories"])},
+		{"Database", fmt.Sprint(database["status"])},
+	}
+	var cards strings.Builder
+	for _, stat := range stats {
+		cards.WriteString(`<div class="health-stat"><span>` + esc(stat.label) + `</span><strong>` + esc(stat.value) + `</strong></div>`)
+	}
+	body := workspacePageStyle + `<section class="health-page"><header class="health-heading"><div><p class="workspace-eyebrow">CLIO · SYSTEM STATUS</p><h1>Service health</h1><p>A live snapshot of this Clio instance.</p></div><span class="` + statusClass + `"><i></i>` + statusLabel + `</span></header><div class="health-grid">` + cards.String() + `</div><details class="health-raw"><summary>View raw health report</summary><pre>` + esc(string(raw)) + `</pre></details></section>`
+	writeHTML(w, 200, a.pageShell(body, "Health"))
 }
+
+func (a *app) helpHTML() string {
+	body := workspacePageStyle + `<article class="help-page"><p class="workspace-eyebrow">CLIO · DOCUMENTATION</p><div class="help-document">` + markdownHTML(a.helpText()) + `</div></article>`
+	return a.pageShell(body, "Help")
+}
+
+const workspacePageStyle = `<style>
+body{max-width:none;margin:0 auto;padding:0 1.4rem;background:#f4f7fb;color:#192a41}body>nav{display:flex;align-items:center;gap:.9rem;margin:0 calc(1.4rem * -1) 1.25rem;padding:.8rem 1.4rem;background:#fff;border-bottom:1px solid #e3e9f1;font-size:.9rem}body>nav a{color:#52647a}body>nav a:first-child{font-weight:750;color:#182f4b}main{max-width:none!important}.workspace-eyebrow{margin:0 0 .4rem;color:#8192a2;font-size:.68rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase}.health-page,.help-page{max-width:1080px;margin:1.4rem auto 4rem}.health-heading{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1.4rem 1.5rem;border:1px solid #e3e9f1;border-radius:12px;background:#fff}.health-heading h1{margin:0;color:#192a41;font-size:1.7rem;letter-spacing:-.04em}.health-heading p:last-child{margin:.4rem 0 0;color:#718394;font-size:.88rem}.health-badge{display:inline-flex;align-items:center;gap:.5rem;padding:.55rem .75rem;border:1px solid #cbe8d8;border-radius:999px;background:#f0faf4;color:#26704d;font-size:.8rem;font-weight:650;white-space:nowrap}.health-badge i{width:.5rem;height:.5rem;border-radius:50%;background:#37a56c}.health-error{border-color:#f0caca;background:#fff4f3;color:#9a3732}.health-error i{background:#c7443e}.health-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.7rem;margin-top:.8rem}.health-stat{display:flex;flex-direction:column;gap:.65rem;padding:1rem 1.1rem;border:1px solid #e3e9f1;border-radius:9px;background:#fff}.health-stat span{color:#778899;font-size:.8rem}.health-stat strong{color:#233d55;font-size:1.25rem;letter-spacing:-.025em;overflow-wrap:anywhere}.health-raw{margin-top:.8rem;padding:1rem 1.1rem;border:1px solid #e3e9f1;border-radius:9px;background:#fff}.health-raw summary{color:#315f75;font-size:.85rem;font-weight:650;cursor:pointer}.health-raw pre{margin:.9rem 0 0;padding:1rem;border:1px solid #e4eaf0;border-radius:7px;background:#f5f8fa;overflow:auto}.help-page{max-width:900px;padding:clamp(1.2rem,4vw,2.5rem);border:1px solid #e3e9f1;border-radius:14px;background:#fff;box-shadow:0 5px 22px rgba(24,47,75,.04)}.help-document{color:#344b62;line-height:1.72}.help-document h1,.help-document h2,.help-document h3{color:#192a41;line-height:1.25;letter-spacing:-.03em}.help-document h1{margin:.15rem 0 1.25rem;font-size:clamp(1.8rem,4vw,2.35rem)}.help-document h2{margin:2rem 0 .6rem;padding-bottom:.4rem;border-bottom:1px solid #e8edf1;font-size:1.35rem}.help-document h3{margin:1.5rem 0 .5rem;font-size:1.05rem}.help-document p{margin:.7rem 0}.help-document li{margin:.35rem 0}.help-document a{color:#216b82}.help-document code{padding:.12em .3em;border-radius:4px;background:#f0f4f7;color:#244c65}.help-document pre{padding:1rem;border:1px solid #e4eaf0;border-radius:8px;background:#f5f8fa;overflow:auto}.help-document pre code{padding:0;background:transparent}@media(max-width:700px){body{padding:0 .65rem}body>nav{margin:0 -.65rem .8rem;padding:.7rem .65rem;gap:.55rem;font-size:.82rem}.health-page,.help-page{margin:.65rem auto 2rem}.health-heading{align-items:flex-start;flex-direction:column;padding:1rem}.health-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.health-stat{padding:.8rem}.health-stat strong{font-size:1.05rem}.help-page{padding:1.1rem}}
+</style>`
 
 func (a *app) helpText() string {
 	authStatus := "disabled (default)"

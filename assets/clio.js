@@ -63,7 +63,7 @@
         headers["Content-Type"] = "application/json";
         init.body = JSON.stringify(options.json);
       }
-      const response = await this._fetch(url, init);
+      const response = await this._fetch.call(root, url, init);
       if (response.status === 204) return null;
       const text = await response.text();
       let body = null;
@@ -234,6 +234,38 @@
       collectionSelect.setAttribute("aria-label", "Collection");
       collectionLabel.appendChild(collectionSelect);
       toolbar.appendChild(collectionLabel);
+      const tableViewLink = element("a", "Table view ↗", "browser-table-view");
+      tableViewLink.hidden = true;
+      tableViewLink.setAttribute("aria-label", "Open table management view");
+      toolbar.appendChild(tableViewLink);
+      const themeToggle = element("button", null, "browser-theme-toggle");
+      themeToggle.type = "button";
+      themeToggle.setAttribute("aria-pressed", "false");
+      toolbar.appendChild(themeToggle);
+      let theme;
+      try {
+        theme = root.localStorage.getItem("clio-data-browser-theme");
+      } catch (_) {}
+      if (theme !== "light" && theme !== "dark") {
+        theme = root.matchMedia && root.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+      const updateTheme = (persist) => {
+        doc.documentElement.setAttribute("data-theme", theme);
+        const nextTheme = theme === "dark" ? "light" : "dark";
+        themeToggle.textContent = theme === "dark" ? "☀ Light" : "☾ Dark";
+        themeToggle.setAttribute("aria-label", `Switch to ${nextTheme} theme`);
+        themeToggle.setAttribute("aria-pressed", String(theme === "dark"));
+        if (persist) {
+          try {
+            root.localStorage.setItem("clio-data-browser-theme", theme);
+          } catch (_) {}
+        }
+      };
+      updateTheme(false);
+      themeToggle.addEventListener("click", () => {
+        theme = theme === "dark" ? "light" : "dark";
+        updateTheme(true);
+      });
       const layout = element("div", null, "browser-layout");
       const sidebar = element("aside", null, "browser-tables");
       sidebar.appendChild(element("h2", "Tables"));
@@ -375,6 +407,8 @@
           let tableItem = tables.find((item) => item.name === currentTable);
           if (!tableItem) tableItem = tables[0];
           currentTable = tableItem ? tableItem.name : "";
+          tableViewLink.hidden = !currentTable;
+          if (currentTable) tableViewLink.href = `/t/${encodeURIComponent(currentGroup)}/${encodeURIComponent(currentTable)}`;
           drawCollections();
           drawTableLinks(tables);
           if (!tableItem) {

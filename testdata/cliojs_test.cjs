@@ -4,6 +4,7 @@ const vm = require("node:vm");
 
 const source = fs.readFileSync(process.argv[2], "utf8");
 const requests = [];
+const storage = new Map();
 class Element {
   constructor(tagName) { this.tagName = tagName; this.children = []; this.attributes = {}; this.handlers = {}; this._text = ""; }
   set textContent(value) { this._text = String(value); this.children = []; }
@@ -24,9 +25,11 @@ const context = {
     pushState(_state, _title, value) { Object.assign(location, { pathname: new URL(value, location.origin).pathname, search: new URL(value, location.origin).search }); },
     replaceState(_state, _title, value) { Object.assign(location, { pathname: new URL(value, location.origin).pathname, search: new URL(value, location.origin).search }); }
   },
-  document: { createElement: (name) => new Element(name), querySelector: () => null },
+  document: { createElement: (name) => new Element(name), querySelector: () => null, documentElement: new Element("html") },
+  localStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) },
   ClioMarkdown: { render: (source) => `<p>${source}</p>` },
-  fetch: async (url, options = {}) => {
+  fetch: async function (url, options = {}) {
+    assert.ok(this.window && this.location && this.history, "fetch is called with the browser window as receiver");
     requests.push({ url: String(url), options });
     const parsed = new URL(String(url));
     const method = options.method || "GET";
@@ -127,6 +130,14 @@ async function main() {
   assert.match(browserText, /Measurements/);
   assert.match(browserText, /30\.40/);
   assert.doesNotMatch(browserText, /Hidden/);
+  const tableViewLink = browserHost.children[0].children[1];
+  assert.equal(tableViewLink.href, "/t/pool/measurements");
+  assert.equal(tableViewLink.hidden, false);
+  const themeToggle = browserHost.children[0].children[2];
+  assert.equal(themeToggle.attributes["aria-label"], "Switch to dark theme");
+  themeToggle.handlers.click();
+  assert.equal(context.document.documentElement.attributes["data-theme"], "dark");
+  assert.equal(storage.get("clio-data-browser-theme"), "dark");
   const browserRequest = requests.find((request) => request.url.includes("/records?") && new URL(request.url).searchParams.get("offset") === "2");
   assert.ok(browserRequest, "browser loads the selected page through ClioJS");
   assert.equal(location.pathname, "/collections/pool/measurements");

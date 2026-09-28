@@ -39,8 +39,59 @@ func TestDirectoryUIShowsCreateForm(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET /notes status = %d, want %d", w.Code, http.StatusOK)
 	}
-	if !strings.Contains(w.Body.String(), `<form method=post action="/notes">`) || !strings.Contains(w.Body.String(), `name=name`) {
+	if !strings.Contains(w.Body.String(), `<form method="post" action="/notes">`) || !strings.Contains(w.Body.String(), `name="name"`) || !strings.Contains(w.Body.String(), `class="content-directory"`) || !strings.Contains(w.Body.String(), `aria-label="Breadcrumb"`) {
 		t.Fatal("directory page does not contain the create-directory form")
+	}
+}
+
+func TestHomePageAndFavicon(t *testing.T) {
+	a := newTestApp(t)
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	a.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET / status = %d, want %d", w.Code, http.StatusOK)
+	}
+	for _, want := range []string{"Everything you need", "home-hero", "Open data browser", "Published content", `href='/favicon.svg'`} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("home page missing %q", want)
+		}
+	}
+
+	r = httptest.NewRequest(http.MethodGet, "/favicon.svg", nil)
+	w = httptest.NewRecorder()
+	a.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /favicon.svg status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if got := w.Header().Get("Content-Type"); !strings.HasPrefix(got, "image/svg+xml") {
+		t.Errorf("favicon content type = %q, want image/svg+xml", got)
+	}
+	if !strings.Contains(w.Body.String(), "<svg") {
+		t.Error("favicon response does not contain SVG markup")
+	}
+}
+
+func TestHelpAndHealthPagesUseWorkspaceLayout(t *testing.T) {
+	a := newTestApp(t)
+	for _, test := range []struct {
+		path string
+		want []string
+	}{
+		{path: "/help", want: []string{`class="help-page"`, `class="help-document"`, "Clio API v1", "DOCUMENTATION"}},
+		{path: "/health", want: []string{`class="health-page"`, `class="health-grid"`, "All systems operational", "View raw health report"}},
+	} {
+		r := httptest.NewRequest(http.MethodGet, test.path, nil)
+		w := httptest.NewRecorder()
+		a.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET %s status = %d, want %d", test.path, w.Code, http.StatusOK)
+		}
+		for _, want := range test.want {
+			if !strings.Contains(w.Body.String(), want) {
+				t.Errorf("GET %s missing %q", test.path, want)
+			}
+		}
 	}
 }
 

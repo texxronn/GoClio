@@ -14,7 +14,7 @@ func TestCollectionBrowserRoutes(t *testing.T) {
 		if response.Code != http.StatusOK {
 			t.Fatalf("GET %s status=%d: %s", route, response.Code, response.Body.String())
 		}
-		for _, want := range []string{"Data Browser", "assets/clio.js", "Clio.DataBrowser.mount", "clio-data-browser"} {
+		for _, want := range []string{"Data Browser", "assets/clio.js", "Clio.DataBrowser.mount", "clio-data-browser", "browser-theme-toggle", "browser-table-view", "prefers-color-scheme"} {
 			if !strings.Contains(response.Body.String(), want) {
 				t.Errorf("GET %s missing %q", route, want)
 			}
