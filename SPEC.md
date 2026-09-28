@@ -2841,7 +2841,17 @@ The browser asset is exposed under:
 /assets/clio-markdown.js
 ```
 
-The exact JavaScript API is implementation-defined but must be simple enough that a complete example fits in a small HTML page.
+The asset exposes a single global function:
+
+```js
+ClioMarkdown.render(source) // returns an HTML string
+```
+
+The name is part of the contract so that pages and tests are stable. The
+ClioJS client also exposes the same capability as `Clio.Markdown.render(source)`
+when the renderer asset is loaded (section 63.3). The function must be simple
+enough that a complete example fits in a small HTML page, and it must apply the
+safety rules in section 51.
 
 ---
 
