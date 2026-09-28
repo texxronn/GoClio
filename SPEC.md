@@ -1,14 +1,15 @@
 # Clio
 
-## Consolidated Specification v1.2 — Go implementation contract
+## Consolidated Specification v1.3 — Go implementation contract
 
 **Status: FROZEN**
 
 This specification is the implementation contract for Clio v1. It is a single
-consolidated document: every numbered section (including the former clarifications
-and addenda now numbered 61–64) is normative, and no section "supersedes" another.
-Where two statements appear to conflict, the conflict is a defect in this document
-and must be reported and resolved here rather than decided ad hoc in code.
+consolidated document: sections 1–63 are the complete, equally normative contract.
+The former v1.1 clarifications and addenda have been merged into the topical
+sections rather than appended, so there are no separate clarification or appendix
+parts. Where two statements appear to conflict, the conflict is a defect in this
+document and must be reported and resolved here rather than decided ad hoc in code.
 
 ### Document, product and API versioning
 
@@ -16,7 +17,7 @@ These version identifiers are independent and must not be conflated:
 
 | Identifier | Value | Where it appears |
 | --- | --- | --- |
-| Specification revision | `1.2` | This document |
+| Specification revision | `1.3` | This document |
 | Product version | `1.0.0` | `version` in `/api/v1/health` |
 | API version | `v1` | `/api/v1/` route prefix |
 
@@ -54,8 +55,10 @@ Example payloads are illustrative unless a rule references them explicitly.
     upload response, Markdown subset and safety);
   - expanded the error-code table, health and backup notes, and the explicit
     out-of-scope list;
-  - recorded the automatic index and schema-change behaviour in one place;
-  - retained the v1.1 section numbering so that existing references remain valid.
+  - recorded the automatic index and schema-change behaviour in one place.
+- **v1.3** — merged the former clarification and appendix sections into the topical
+  body and renumbered the document contiguously (1–63); updated all internal
+  cross-references.
 
 ### Table of contents
 
@@ -73,8 +76,10 @@ Example payloads are illustrative unless a rule references them explicitly.
 - [5. Runtime resource guidance](#5-runtime-resource-guidance)
 - [6. Deployment](#6-deployment)
 - [7. Configuration](#7-configuration)
+  - [7.1 CLIO_ADDR](#71-clio_addr)
 - [8. Core data model](#8-core-data-model)
 - [9. Collection groups](#9-collection-groups)
+  - [9.1 Identifier rules](#91-identifier-rules)
 - [10. Tables](#10-tables)
 - [11. Record tables](#11-record-tables)
 - [12. Time-series tables](#12-time-series-tables)
@@ -82,99 +87,100 @@ Example payloads are illustrative unless a rule references them explicitly.
   - [13.1 Field names](#131-field-names)
   - [13.2 Field properties](#132-field-properties)
   - [13.3 Type-specific rules](#133-type-specific-rules)
+  - [13.4 References](#134-references)
 - [14. Records](#14-records)
+  - [14.1 Record JSON representation](#141-record-json-representation)
+  - [14.2 Canonical decimal notation](#142-canonical-decimal-notation)
+  - [14.3 Request value coercion](#143-request-value-coercion)
+  - [14.4 Missing and null values](#144-missing-and-null-values)
+  - [14.5 Unknown and readonly fields](#145-unknown-and-readonly-fields)
 - [15. Metadata](#15-metadata)
 - [16. Metadata API](#16-metadata-api)
 - [17. Group API](#17-group-api)
 - [18. Table creation API](#18-table-creation-api)
 - [19. Table metadata updates](#19-table-metadata-updates)
+  - [19.1 Table schema changes](#191-table-schema-changes)
 - [20. Table API](#20-table-api)
+  - [20.1 API path parameter rules](#201-api-path-parameter-rules)
 - [21. Record API](#21-record-api)
 - [22. Querying](#22-querying)
+  - [22.1 Query parameter encoding](#221-query-parameter-encoding)
+  - [22.2 Query execution and resource behavior](#222-query-execution-and-resource-behavior)
 - [23. Paging](#23-paging)
 - [24. Sorting](#24-sorting)
+  - [24.1 Null ordering](#241-null-ordering)
 - [25. Filtering](#25-filtering)
+  - [25.1 Filtering syntax](#251-filtering-syntax)
+  - [25.2 Operator semantics](#252-operator-semantics)
 - [26. Distinct](#26-distinct)
+  - [26.1 Distinct response](#261-distinct-response)
 - [27. Grouping](#27-grouping)
 - [28. Aggregation](#28-aggregation)
+  - [28.1 Ungrouped aggregate response](#281-ungrouped-aggregate-response)
+  - [28.2 Grouped aggregate response](#282-grouped-aggregate-response)
 - [29. Time-series querying](#29-time-series-querying)
+  - [29.1 Time-series time semantics](#291-time-series-time-semantics)
+  - [29.2 Time-series range semantics](#292-time-series-range-semantics)
+  - [29.3 Time-series bucket semantics](#293-time-series-bucket-semantics)
 - [30. Query safety](#30-query-safety)
 - [31. Query philosophy](#31-query-philosophy)
-- [32. Human-facing table URLs](#32-human-facing-table-urls)
+- [32. Human-facing URL namespaces](#32-human-facing-url-namespaces)
+  - [32.1 Content tree](#321-content-tree)
+  - [32.2 Tables](#322-tables)
+  - [32.3 Reserved root paths](#323-reserved-root-paths)
 - [33. Generic table UI](#33-generic-table-ui)
 - [34. Generic forms](#34-generic-forms)
-- [35. Content tree](#35-content-tree)
-- [36. Directory URLs](#36-directory-urls)
-- [37. Directory API](#37-directory-api)
-- [38. Creating directories](#38-creating-directories)
-- [39. Pages](#39-pages)
-- [40. Page API](#40-page-api)
-- [41. Client-side Markdown rendering](#41-client-side-markdown-rendering)
-- [42. Directory-tree upload](#42-directory-tree-upload)
-- [43. Stable URLs](#43-stable-urls)
-- [44. Help](#44-help)
-- [45. Health](#45-health)
-- [46. API versioning](#46-api-versioning)
-- [47. Complete API v1 summary](#47-complete-api-v1-summary)
-- [48. Persistence](#48-persistence)
-- [49. SQLite indexing](#49-sqlite-indexing)
-- [50. Security](#50-security)
-- [51. HTML and Markdown safety](#51-html-and-markdown-safety)
-- [52. Error handling](#52-error-handling)
-- [53. Observability](#53-observability)
-- [54. Backup and restore](#54-backup-and-restore)
-- [55. Testing](#55-testing)
-- [56. End-to-end acceptance test](#56-end-to-end-acceptance-test)
-- [57. Repository deliverables](#57-repository-deliverables)
-- [58. Repository constraints](#58-repository-constraints)
-- [59. Definition of done](#59-definition-of-done)
-- [60. Final product boundary](#60-final-product-boundary)
-- [61. Clarifications and extensions](#61-clarifications-and-extensions)
-  - [61.1 Human-facing URL namespaces](#611-human-facing-url-namespaces)
-  - [61.2 Content-path rules](#612-content-path-rules)
-  - [61.3 Content resource identity](#613-content-resource-identity)
-  - [61.4 Directory API path handling](#614-directory-api-path-handling)
-  - [61.5 Page read API](#615-page-read-api)
-  - [61.6 Client-side Markdown rendering contract](#616-client-side-markdown-rendering-contract)
-  - [61.7 Directory-tree upload](#617-directory-tree-upload)
-  - [61.8 Directory-tree upload limits](#618-directory-tree-upload-limits)
-  - [61.9 Directory-tree upload overwrite behaviour](#619-directory-tree-upload-overwrite-behaviour)
-  - [61.10 Record JSON representation](#6110-record-json-representation)
-  - [61.11 Missing and null values](#6111-missing-and-null-values)
-  - [61.12 Unknown and readonly fields](#6112-unknown-and-readonly-fields)
-  - [61.13 Table schema changes](#6113-table-schema-changes)
-  - [61.14 References](#6114-references)
-  - [61.15 Query parameter encoding](#6115-query-parameter-encoding)
-  - [61.16 Filtering syntax](#6116-filtering-syntax)
-  - [61.17 Null ordering](#6117-null-ordering)
-  - [61.18 Distinct response](#6118-distinct-response)
-  - [61.19 Ungrouped aggregate response](#6119-ungrouped-aggregate-response)
-  - [61.20 Grouped aggregate response](#6120-grouped-aggregate-response)
-  - [61.21 Time-series time semantics](#6121-time-series-time-semantics)
-  - [61.22 Time-series range semantics](#6122-time-series-range-semantics)
-  - [61.23 Time-series bucket semantics](#6123-time-series-bucket-semantics)
-  - [61.24 HTML trust boundary](#6124-html-trust-boundary)
-  - [61.25 CLIO_ADDR](#6125-clio_addr)
-  - [61.26 API path parameter rules](#6126-api-path-parameter-rules)
-  - [61.27 Identifier rules](#6127-identifier-rules)
-  - [61.28 v1 scope](#6128-v1-scope)
-  - [61.29 API v1 summary](#6129-api-v1-summary)
-  - [61.30 Additional acceptance requirements](#6130-additional-acceptance-requirements)
-- [62. Optional authentication and transport security](#62-optional-authentication-and-transport-security)
-  - [62.1 Authentication model](#621-authentication-model)
-  - [62.2 Configuration](#622-configuration)
-  - [62.3 HTTPS policy](#623-https-policy)
-  - [62.4 Authentication responses and logging](#624-authentication-responses-and-logging)
-  - [62.5 Authentication and transport tests](#625-authentication-and-transport-tests)
-- [63. ClioJS browser client](#63-cliojs-browser-client)
-  - [63.1 Distribution and scope](#631-distribution-and-scope)
-  - [63.2 Client operations](#632-client-operations)
-  - [63.3 Data and Markdown behavior](#633-data-and-markdown-behavior)
-  - [63.4 Help and verification](#634-help-and-verification)
-- [64. Collection Data Browser](#64-collection-data-browser)
-  - [64.1 Routes and layout](#641-routes-and-layout)
-  - [64.2 Client-side rendering](#642-client-side-rendering)
-  - [64.3 Boundaries and verification](#643-boundaries-and-verification)
+- [35. Collection Data Browser](#35-collection-data-browser)
+  - [35.1 Routes and layout](#351-routes-and-layout)
+  - [35.2 Client-side rendering](#352-client-side-rendering)
+  - [35.3 Boundaries and verification](#353-boundaries-and-verification)
+- [36. Content tree](#36-content-tree)
+  - [36.1 Content-path rules](#361-content-path-rules)
+  - [36.2 Content resource identity](#362-content-resource-identity)
+- [37. Directory URLs](#37-directory-urls)
+- [38. Directory API](#38-directory-api)
+  - [38.1 Directory API path handling](#381-directory-api-path-handling)
+- [39. Creating directories](#39-creating-directories)
+- [40. Pages](#40-pages)
+- [41. Page API](#41-page-api)
+  - [41.1 Page read API](#411-page-read-api)
+- [42. Client-side Markdown rendering](#42-client-side-markdown-rendering)
+  - [42.1 Client-side renderer contract](#421-client-side-renderer-contract)
+- [43. ClioJS browser client](#43-cliojs-browser-client)
+  - [43.1 Distribution and scope](#431-distribution-and-scope)
+  - [43.2 Client operations](#432-client-operations)
+  - [43.3 Data and Markdown behavior](#433-data-and-markdown-behavior)
+  - [43.4 Help and verification](#434-help-and-verification)
+- [44. Directory-tree upload](#44-directory-tree-upload)
+  - [44.1 Upload semantics](#441-upload-semantics)
+  - [44.2 Directory-tree upload limits](#442-directory-tree-upload-limits)
+  - [44.3 Directory-tree upload overwrite behaviour](#443-directory-tree-upload-overwrite-behaviour)
+- [45. Stable URLs](#45-stable-urls)
+- [46. Help](#46-help)
+- [47. Health](#47-health)
+- [48. API versioning](#48-api-versioning)
+- [49. Complete API v1 summary](#49-complete-api-v1-summary)
+- [50. Error handling](#50-error-handling)
+- [51. Persistence](#51-persistence)
+- [52. SQLite indexing](#52-sqlite-indexing)
+- [53. Security](#53-security)
+- [54. Optional authentication and transport security](#54-optional-authentication-and-transport-security)
+  - [54.1 Authentication model](#541-authentication-model)
+  - [54.2 Configuration](#542-configuration)
+  - [54.3 HTTPS policy](#543-https-policy)
+  - [54.4 Authentication responses and logging](#544-authentication-responses-and-logging)
+  - [54.5 Authentication and transport tests](#545-authentication-and-transport-tests)
+- [55. HTML and Markdown safety](#55-html-and-markdown-safety)
+  - [55.1 HTML trust boundary](#551-html-trust-boundary)
+- [56. Observability](#56-observability)
+- [57. Backup and restore](#57-backup-and-restore)
+- [58. Testing](#58-testing)
+- [59. End-to-end acceptance test](#59-end-to-end-acceptance-test)
+- [60. Repository deliverables](#60-repository-deliverables)
+- [61. Repository constraints](#61-repository-constraints)
+- [62. Definition of done](#62-definition-of-done)
+  - [62.1 v1 scope](#621-v1-scope)
+- [63. Final product boundary](#63-final-product-boundary)
 <!-- /TOC -->
 
 ---
@@ -466,6 +472,35 @@ Clio must use the configured base URL when generating absolute URLs for:
 * help
 * shared links
 
+## 7.1 CLIO_ADDR
+
+`CLIO_ADDR` specifies the local HTTP bind address using:
+
+```text
+host:port
+```
+
+Examples:
+
+```text
+0.0.0.0:8080
+127.0.0.1:8080
+:8080
+```
+
+Clio serves HTTP by default. It may terminate TLS directly when a certificate
+and private-key pair are configured; TLS termination may instead be performed
+by a trusted reverse proxy as described in section 54.
+
+`CLIO_BASE_URL` is independent of `CLIO_ADDR`.
+
+Example:
+
+```text
+CLIO_ADDR=0.0.0.0:8080
+CLIO_BASE_URL=https://clio.atrangi.com
+```
+
 ---
 
 # 8. Core data model
@@ -536,6 +571,30 @@ A group does not represent a separate database.
 
 All groups and tables exist within the single Clio SQLite database.
 
+## 9.1 Identifier rules
+
+Group and table names must:
+
+* be non-empty
+* begin with a lowercase ASCII letter or digit
+* contain only lowercase ASCII letters, digits, `_` and `-`
+* be case-sensitive by definition but normalized to lowercase on creation
+* not contain `.`
+* not contain `/`
+
+Example:
+
+```text
+pool
+vehicle
+vehicle_service
+pool-measurements
+```
+
+Display labels may contain arbitrary Unicode text.
+
+Content paths have the separate content-path rules defined above.
+
 ---
 
 # 10. Tables
@@ -544,7 +603,7 @@ A **table** is the primary structured-data container.
 
 "Collection" is not an API resource in v1. Tables are addressed as `tables` in
 the API. The term survives only in the human-facing data-browser routes under
-`/collections` (section 64) and in UI copy, where a "collection" means a group
+`/collections` (section 35) and in UI copy, where a "collection" means a group
 and its tables. It is not a synonym for a table.
 
 Every table belongs to exactly one group.
@@ -691,10 +750,10 @@ pattern
 ## 13.1 Field names
 
 Field names follow the same identifier rules as group and table names
-(section 61.27): non-empty, begin with a lowercase ASCII letter or digit, and
+(section 9.1): non-empty, begin with a lowercase ASCII letter or digit, and
 contain only lowercase ASCII letters, digits, `_` and `-`. Field names are
 normalized to lowercase on creation, are unique within a table, and must not
-contain `.` (section 61.15).
+contain `.` (section 22.1).
 
 The system-managed record fields `id`, `created_at` and `updated_at` are
 reserved: a field may not use those names.
@@ -705,7 +764,7 @@ reserved: a field may not use those names.
 - `order` controls display order; fields are returned in `order` (then creation
   order) and the generic UI displays them in that order.
 - `readonly` fields may not be set by clients in create or update requests
-  (section 61.12).
+  (section 14.5).
 - `hidden` fields are omitted from the generic UI and the data browser grid, but
   are still returned by the API.
 - `unique` declares a database-enforced uniqueness constraint **for that field
@@ -722,7 +781,7 @@ reserved: a field may not use those names.
 - `default` is applied when a create request omits the field. A required field
   may not have a null default. Defaults are expressed in the field's request
   representation: integers as integral JSON numbers, decimals as JSON strings
-  (section 61.10).
+  (section 14.1).
 
 ## 13.3 Type-specific rules
 
@@ -731,9 +790,9 @@ reserved: a field may not use those names.
 - A `url` field must be an absolute URL containing a scheme.
 - A `reference` field identifies a record in another (or the same) table. Its
   field definition must include `group` and `table` properties naming the target
-  table. The stored value is the target record ID (section 61.10), and Clio
+  table. The stored value is the target record ID (section 14.1), and Clio
   validates that the target exists on create, update and default application.
-  References are enforced as described in section 61.14.
+  References are enforced as described in section 13.4.
 - `min`/`max` apply to ordered types: `string`, `text`, `url`, `enum`,
   `integer`, `decimal`, `date` and `datetime`. `min_length`/`max_length` apply to
   `string`, `text`, `url` and `enum`, and are measured in Unicode code points.
@@ -741,6 +800,38 @@ reserved: a field may not use those names.
   `min` must not exceed `max`, and `min_length` must not exceed `max_length`.
 
 Complex relationship semantics are out of scope for v1.
+
+## 13.4 References
+
+A `reference` field definition names its target with `group` and `table`
+properties, and its stored value is the target record ID (section 14.1). Targets
+may be in the same group or another group. A reference is validated when it is
+created, updated, or supplied as a field default, and a reference to a
+non-existent record is rejected.
+
+References are enforced by Clio.
+
+Deleting a record that is referenced by another record returns:
+
+```text
+409 Conflict
+```
+
+unless all referencing values are cleared first.
+
+Deleting a table that is referenced by another table returns:
+
+```text
+409 Conflict
+```
+
+unless those references are removed first.
+
+There is no automatic cascade deletion in v1.
+
+A nullable reference may be explicitly set to `null`.
+
+A required reference may not be null.
 
 ---
 
@@ -757,21 +848,171 @@ updated_at
 plus table-defined fields.
 
 Every defined field is returned in a record representation; fields without a
-value are returned as JSON `null` (section 61.11).
+value are returned as JSON `null` (section 14.4).
 
 Records are identified by an opaque `id`. IDs are generated by Clio, immutable,
 and **globally unique across the instance**, not merely within a table. This is
 required because a `reference` value stores only the target record ID
-(section 61.14). The concrete format of an ID is an implementation detail and is
+(section 13.4). The concrete format of an ID is an implementation detail and is
 not part of the API contract; clients must treat IDs as opaque strings and must
 not parse, sort or assume a length. (The reference implementation generates
 32-character lowercase hexadecimal IDs.)
 
 `created_at` and `updated_at` are system-managed RFC 3339 UTC timestamps.
-Clients may not set them (section 61.12). `updated_at` changes on every update;
+Clients may not set them (section 14.5). `updated_at` changes on every update;
 the identifier and creation time never change.
 
 Time-series records additionally contain their configured timestamp field.
+
+## 14.1 Record JSON representation
+
+The structured-data API uses the following JSON representations.
+
+| Clio type | JSON representation                               |
+| --------- | ------------------------------------------------- |
+| string    | JSON string                                       |
+| text      | JSON string                                       |
+| integer   | JSON integer                                      |
+| decimal   | JSON string containing canonical decimal notation |
+| boolean   | JSON boolean                                      |
+| date      | `"YYYY-MM-DD"`                                    |
+| datetime  | RFC 3339 UTC string                               |
+| enum      | JSON string                                       |
+| url       | JSON string                                       |
+| reference | JSON string containing target record ID           |
+
+Example:
+
+```json
+{
+  "id": "9f2c4e8a1b3d4f5061728394a5b6c7d8",
+  "created_at": "2026-09-27T12:00:00Z",
+  "updated_at": "2026-09-27T12:00:00Z",
+  "date": "2026-09-27",
+  "odometer": 82431,
+  "type": "service",
+  "cost": "183.42",
+  "notes": "Annual service"
+}
+```
+
+Using a JSON string for `decimal` prevents loss of precision in clients and is especially appropriate for financial values.
+
+## 14.2 Canonical decimal notation
+
+A canonical decimal:
+
+* has an optional leading `-`;
+* has at least one integer digit and no redundant leading zeros (`0`, not `00`);
+* has an optional fractional part with no trailing zeros and no trailing `.`;
+* never uses exponent notation;
+* represents negative zero as `0`.
+
+So `183.42`, `0`, `-1.5` and `100` are canonical; `0183.420`, `1e3` and `-0`
+are not. Stored decimal values are always canonicalized to this form. Decimal
+aggregate results are also canonical, except that `avg` is computed to at most
+ten decimal places and then canonicalized (for example `"167.0747368421"`).
+`sum` over decimals is exact; integer `sum` is a JSON integer rather than a
+string.
+
+## 14.3 Request value coercion
+
+Requests are strict about JSON types; Clio does not guess:
+
+| Type | Accepted request JSON |
+| --- | --- |
+| `string`, `text`, `url`, `enum`, `reference` | JSON string |
+| `integer` | JSON number with an integral value (`1.0` is accepted and normalized to `1`; `1.5` and `"5"` are rejected) |
+| `decimal` | JSON string (not a JSON number) |
+| `boolean` | JSON boolean |
+| `date` | `"YYYY-MM-DD"` |
+| `datetime` | RFC 3339 timestamp; normalized to UTC |
+
+A `datetime` value supplied with an offset is normalized to UTC (section 29.1).
+An `enum` value must be one of the declared values, and a `url` must be an
+absolute URL with a scheme.
+
+## 14.4 Missing and null values
+
+Every defined field is returned in a record representation.
+
+If a field has no value:
+
+```json
+"cost": null
+```
+
+is returned.
+
+Missing and null therefore have different meanings in requests but not in normal record responses.
+
+### On create
+
+If a field is omitted:
+
+1. If a default exists, the default is applied.
+2. Otherwise the field becomes `null`.
+3. If the field is required, the request fails validation.
+
+If the field is explicitly:
+
+```json
+"cost": null
+```
+
+the field is null.
+
+A required field may not be null.
+
+### On PATCH
+
+An omitted field means:
+
+> leave the existing value unchanged.
+
+An explicit:
+
+```json
+"cost": null
+```
+
+means:
+
+> clear the value.
+
+A required field may not be cleared.
+
+## 14.5 Unknown and readonly fields
+
+Unknown fields in create/update requests are rejected.
+
+Example:
+
+```text
+422 Unprocessable Entity
+```
+
+A client may not set system fields:
+
+```text
+id
+created_at
+updated_at
+```
+
+A client may not set a field marked:
+
+```text
+readonly=true
+```
+
+Attempting to do so returns:
+
+```text
+422 Unprocessable Entity
+```
+
+System-managed fields are returned normally in records.
 
 ---
 
@@ -990,6 +1231,56 @@ Removing or changing fields must not silently destroy existing data.
 
 Complex schema migrations are out of scope.
 
+## 19.1 Table schema changes
+
+v1 schema modification rules:
+
+### Allowed
+
+* add a field
+* change label, description and `order`
+* change display properties (`readonly`, `hidden`)
+* change non-destructive validation metadata
+* enable or disable `unique` on a field, subject to the duplicate check below
+* change explicit `indexes` declarations
+
+### Type changes
+
+A field's type may only be changed when the table contains no records.
+
+This avoids implicit data conversion.
+
+### Required fields added to a non-empty table
+
+A required field added to a table that already contains records must declare a
+`default`. Otherwise the operation returns `409 Conflict`, because existing
+records could not satisfy the new constraint. The default (or the existing
+value) is validated against the field's constraints before the change is
+committed.
+
+### Field deletion
+
+A field may only be deleted when there are no stored values for that field.
+
+Otherwise the operation returns:
+
+```text
+409 Conflict
+```
+
+### Uniqueness
+
+Enabling `unique` on a field whose existing records already contain duplicates
+returns `409 Conflict` and rolls back the schema change.
+
+### Application to existing records
+
+When a schema change is accepted, Clio reconciles stored record data in the same
+transaction: removed fields are dropped, newly added fields receive their
+default (or null), and non-null values are re-validated against the new
+constraints. A change that would make an existing record invalid fails and is
+not applied. Clio must not silently discard existing data.
+
 ---
 
 # 20. Table API
@@ -1013,6 +1304,22 @@ POST   /api/v1/groups/{group}/tables
 PATCH  /api/v1/groups/{group}/tables/{table}
 DELETE /api/v1/groups/{group}/tables/{table}
 ```
+
+## 20.1 API path parameter rules
+
+The API uses query parameters for arbitrary content paths.
+
+This avoids ambiguity caused by nested path parameters.
+
+Examples:
+
+```text
+GET /api/v1/directories?path=/pool/reports
+GET /api/v1/pages?path=/pool/reports/weekly.md
+DELETE /api/v1/directories?path=/pool/reports
+```
+
+Group and table identifiers are simple path parameters because they are restricted identifiers.
 
 ---
 
@@ -1056,7 +1363,43 @@ time-range filtering
 time bucketing
 ```
 
-## Query execution and resource behavior
+## 22.1 Query parameter encoding
+
+Query parameters use normal URL query encoding.
+
+Field names used by the query API may not contain:
+
+```text
+.
+```
+
+This allows unambiguous filter parameter names.
+
+Reserved parameters include:
+
+```text
+limit
+offset
+sort
+order
+distinct
+group_by
+aggregate
+from
+to
+bucket
+```
+
+Because filters are namespaced under `filter.`, a field named `limit` or `sort`
+remains reachable as `filter.limit` / `filter.sort`; reserved and field names do
+not collide. The `filter.` prefix is therefore mandatory and the bare
+`?field=value` form shown in early examples is not part of this contract.
+
+Query parameters are validated: unknown filter fields, unsupported operators,
+out-of-range `limit`/`offset`, malformed `from`/`to`, and value/type mismatches
+all return `422 Unprocessable Entity`.
+
+## 22.2 Query execution and resource behavior
 
 The query implementation must not load a complete table into application
 memory to filter, sort, page, group or aggregate it. Push those operations into
@@ -1135,7 +1478,7 @@ Paged results are deterministic and stable across requests:
 
 An explicit `sort` places non-null values first in the requested direction and
 then applies a stable insertion-order tie-breaker so that equal values page
-deterministically (section 61.17).
+deterministically (section 24.1).
 
 The internal pagination strategy remains an implementation detail; only the
 ordering and the response shape are contractual.
@@ -1163,9 +1506,19 @@ Example:
   error, as is `sort` with an empty value.
 - The sort field must be validated against table metadata; an unknown field is an
   error.
-- Null values sort last regardless of direction (section 61.17).
+- Null values sort last regardless of direction (section 24.1).
 
 Fields must be validated against table metadata.
+
+## 24.1 Null ordering
+
+When sorting:
+
+* non-null values sort before null values
+* null values always sort last
+* this remains true for both ascending and descending order
+
+This behaviour is fixed in v1.
 
 ---
 
@@ -1186,7 +1539,7 @@ isnull
 ```
 
 Filters use the `filter.{field}[.{operator}]` parameter form defined in
-section 61.16. Omitting the operator means `eq`.
+section 25.1. Omitting the operator means `eq`.
 
 Examples:
 
@@ -1197,7 +1550,72 @@ Examples:
 ?filter.name.contains=Toyota
 ```
 
-## Operator semantics
+## 25.1 Filtering syntax
+
+Filters use:
+
+```text
+filter.{field}
+filter.{field}.eq
+filter.{field}.ne
+filter.{field}.gt
+filter.{field}.gte
+filter.{field}.lt
+filter.{field}.lte
+filter.{field}.contains
+filter.{field}.in
+filter.{field}.isnull
+```
+
+Examples:
+
+```text
+?filter.type=service
+```
+
+```text
+?filter.cost.gte=100
+```
+
+```text
+?filter.name.contains=Toyota
+```
+
+```text
+?filter.cost.isnull=true
+```
+
+For `in`, the parameter may be repeated:
+
+```text
+?filter.type.in=service&filter.type.in=repair
+```
+
+Repeated `in` values are treated as an OR within that field.
+
+Different filter fields/operators are combined using AND.
+
+Example:
+
+```text
+?filter.type.in=service&filter.cost.gte=100
+```
+
+means:
+
+```text
+(type == service) AND (cost >= 100)
+```
+
+Values are URL-decoded according to normal HTTP query semantics.
+
+Clients must percent-encode special characters as required by URL encoding.
+
+Operator semantics — which operators match null values, the case-insensitive
+substring behaviour of `contains`, the `true`/`false` requirement of `isnull`,
+and per-type operator validation — are defined in section 25.
+
+## 25.2 Operator semantics
 
 - `eq` (`=`) and `gt`/`gte` (`>`, `>=`) do not match null values.
 - `ne` (`<>`), `lt` (`<`) and `lte` (`<=`) **match null values**: a record whose
@@ -1231,10 +1649,42 @@ Example:
 ```
 
 Returns the unique values for the requested field. Values are returned in
-ascending order with null last (section 61.17); `null` may appear as a distinct
+ascending order with null last (section 24.1); `null` may appear as a distinct
 value. Distinct results are pageable with `limit` and `offset` using the
 distinct defaults from section 23, and the response shape is defined in
-section 61.18. Filters and time ranges apply before distinct selection.
+section 26.1. Filters and time ranges apply before distinct selection.
+
+## 26.1 Distinct response
+
+Example:
+
+```http
+GET /api/v1/groups/vehicle/tables/service/records?distinct=type
+```
+
+Response:
+
+```json
+{
+  "values": [
+    "inspection",
+    "repair",
+    "service"
+  ],
+  "page": {
+    "limit": 100,
+    "offset": 0,
+    "count": 3,
+    "total": 3
+  }
+}
+```
+
+Paging applies to distinct values (default `limit` 100, maximum 1000; section 23).
+
+`null` may appear as a distinct value.
+
+Values are ordered ascending, with `null` last (section 24.1).
 
 ---
 
@@ -1269,7 +1719,7 @@ by the configured timestamp field. Virtual group keys are:
 
 If `aggregate` is omitted, grouping defaults to `count`. Grouped results are
 ordered ascending by group key and are pageable using the grouping defaults from
-section 23. The response shape is defined in section 61.20.
+section 23. The response shape is defined in section 28.2.
 
 ---
 
@@ -1309,15 +1759,15 @@ Examples:
 * `min` and `max` are valid for ordered values
 
 Aggregate result keys use `{field}_{function}` for field aggregates, or `count`
-for the fieldless `count` (section 61.19). `aggregate` may be combined with
+for the fieldless `count` (section 28.1). `aggregate` may be combined with
 filters and time ranges; when combined with `bucket`, `aggregate` is required.
 
 Numeric results are exact where possible: integer `sum` is a JSON integer, and
 decimal values and decimal aggregate results are JSON strings in canonical
 decimal notation. Decimal `avg` is reported to at most ten decimal places
-(section 61.10).
+(section 14.1).
 
-Grouped response example (decimal results are strings; see section 61.20):
+Grouped response example (decimal results are strings; see section 28.2):
 
 ```json
 {
@@ -1335,6 +1785,82 @@ Grouped response example (decimal results are strings; see section 61.20):
   ]
 }
 ```
+
+## 28.1 Ungrouped aggregate response
+
+Example:
+
+```http
+GET /api/v1/groups/vehicle/tables/service/records?aggregate=count,cost:sum,cost:avg
+```
+
+Response:
+
+```json
+{
+  "aggregate": {
+    "count": 19,
+    "cost_sum": "3174.42",
+    "cost_avg": "167.0747368421"
+  }
+}
+```
+
+Aggregate field names use:
+
+```text
+{field}_{aggregate}
+```
+
+except `count`, which is simply:
+
+```text
+count
+```
+
+Decimal aggregate results are JSON strings using canonical decimal notation.
+
+## 28.2 Grouped aggregate response
+
+Example:
+
+```text
+?group_by=type&aggregate=count,cost:sum
+```
+
+Response:
+
+```json
+{
+  "groups": [
+    {
+      "type": "inspection",
+      "count": 4,
+      "cost_sum": "420.00"
+    },
+    {
+      "type": "repair",
+      "count": 7,
+      "cost_sum": "932.10"
+    },
+    {
+      "type": "service",
+      "count": 8,
+      "cost_sum": "1822.32"
+    }
+  ],
+  "page": {
+    "limit": 100,
+    "offset": 0,
+    "count": 3,
+    "total": 3
+  }
+}
+```
+
+Grouped results are pageable (default `limit` 100, maximum 1000; section 23) and
+are ordered ascending by group key. When `aggregate` is omitted, only `count` is
+returned (section 27).
 
 ---
 
@@ -1376,7 +1902,7 @@ This should produce data directly useful for reports and charts.
 Rules:
 
 - `from` and `to` are RFC 3339 timestamps, are compared in UTC, and define the
-  half-open interval `[from, to)` (sections 61.21 and 61.22). Date-only values
+  half-open interval `[from, to)` (sections 29.1 and 29.2). Date-only values
   are not accepted.
 - `to` must not be earlier than `from`.
 - `from`, `to` and `bucket` are valid only for `timeseries` tables. A `record`
@@ -1384,7 +1910,7 @@ Rules:
   does not support time-range or bucket queries.
 - `bucket` requires `aggregate`; an aggregate is not optional when bucketing.
 - Buckets use UTC and start on hour boundaries, `00:00` UTC, Monday `00:00` UTC,
-  and the first day of the month at `00:00` UTC respectively (section 61.23).
+  and the first day of the month at `00:00` UTC respectively (section 29.3).
 - Only buckets containing at least one record are returned; empty buckets are
   not synthesized.
 
@@ -1398,6 +1924,124 @@ No support for:
 * automatic downsampling
 * retention policies
 * continuous aggregates
+
+## 29.1 Time-series time semantics
+
+Time-series timestamps are:
+
+* stored logically in UTC
+* returned as RFC 3339 UTC timestamps
+* compared in UTC
+
+Example:
+
+```text
+2026-09-27T12:30:00Z
+```
+
+Clients may provide RFC 3339 timestamps containing offsets.
+
+Clio normalizes them to UTC.
+
+For example:
+
+```text
+2026-09-27T22:30:00+10:00
+```
+
+and:
+
+```text
+2026-09-27T12:30:00Z
+```
+
+represent the same instant.
+
+## 29.2 Time-series range semantics
+
+For:
+
+```text
+from
+to
+```
+
+the time interval is:
+
+```text
+[from, to)
+```
+
+That means:
+
+* `from` is inclusive
+* `to` is exclusive
+
+Both parameters must be RFC 3339 timestamps.
+
+Example:
+
+```text
+?from=2026-09-01T00:00:00Z
+&to=2026-10-01T00:00:00Z
+```
+
+selects all measurements during September 2026.
+
+## 29.3 Time-series bucket semantics
+
+Buckets use UTC.
+
+Supported:
+
+```text
+hour
+day
+week
+month
+```
+
+Bucket starts are:
+
+* hour: beginning of UTC hour
+* day: 00:00 UTC
+* week: Monday 00:00 UTC
+* month: first day of month at 00:00 UTC
+
+Example:
+
+```text
+bucket=day
+```
+
+returns:
+
+```json
+{
+  "buckets": [
+    {
+      "bucket_start": "2026-09-27T00:00:00Z",
+      "count": 24,
+      "temperature_avg": "20.43"
+    }
+  ],
+  "page": {
+    "limit": 1000,
+    "offset": 0,
+    "count": 1,
+    "total": 1
+  }
+}
+```
+
+Only buckets containing at least one record are returned.
+
+Empty buckets are not synthesized.
+
+`bucket_start` is an RFC 3339 UTC timestamp at the bucket boundary. Bucketed
+results are ordered ascending by `bucket_start` and are pageable (default
+`limit` 1000, maximum 1000; section 23). `aggregate` is required when `bucket` is
+supplied.
 
 ---
 
@@ -1439,9 +2083,31 @@ It must not evolve into a general-purpose analytical engine.
 
 ---
 
-# 32. Human-facing table URLs
+# 32. Human-facing URL namespaces
 
-Table views use the reserved `/t/` namespace so they cannot collide with content paths.
+## 32.1 Content tree
+
+Human-facing content occupies the root namespace:
+
+```text
+/
+```
+
+Examples:
+
+```text
+/pool
+/pool/reports
+/pool/reports/weekly.md
+/vehicle
+/vehicle/service-history
+```
+
+Directories, Markdown pages, HTML pages and files exist in this namespace.
+
+## 32.2 Tables
+
+Human-facing table URLs use the reserved `/t/` namespace:
 
 ```text
 /t/{group}/{table}
@@ -1453,13 +2119,32 @@ Table views use the reserved `/t/` namespace so they cannot collide with content
 Examples:
 
 ```text
-/t/vehicle/service
-/t/vehicle/fuel
 /t/pool/measurements
+/t/pool/measurements/new
+/t/vehicle/service
 /t/finance/electricity
 ```
 
-These URLs must be stable.
+This namespace is exclusively for structured Clio tables.
+
+## 32.3 Reserved root paths
+
+The following root paths are reserved by Clio:
+
+```text
+/api
+/health
+/help
+/assets
+/t
+/collections
+/favicon.svg
+```
+
+User-created content directories/pages may not use those exact root names.
+
+The root content tree therefore cannot collide with Clio's API, operational
+endpoints, assets, table namespace, the data browser or the favicon.
 
 ---
 
@@ -1516,7 +2201,64 @@ Client-side validation is optional.
 
 ---
 
-# 35. Content tree
+# 35. Collection Data Browser
+
+This section consolidates the former `SPEC-Addendum-DataBrowsing.md`, which is
+retained only as a historical reference, and is normative for the built-in
+browser interface. It is an inspection and navigation view, not a spreadsheet
+editor; it does not create, edit, or delete records.
+
+## 35.1 Routes and layout
+
+The canonical table-browser URI is:
+
+```text
+/collections/{group}/{table}
+```
+
+The path uses the existing group identifier for the collection segment. The
+query parameter `page` is one-based; the browser maps it to the API's existing
+`limit` and `offset` parameters. `/collections` opens the browser and selects
+the first available group and table. `/collections/{group}` selects the first
+table in that group. These are browser entry points, not new API endpoints.
+
+The browser is a compact, information-dense, three-part layout: a collection
+selector, a table-navigation pane, and a read-only data grid. The selector
+lists groups available through the API. Selecting another collection refreshes
+the table navigation, keeps the current table name if it exists in that group
+or selects its first table, and updates the URL. Selecting a table and changing
+pages likewise update the URL and support normal browser history navigation.
+
+## 35.2 Client-side rendering
+
+The browser shell is served at `/collections` and its nested routes. It loads
+`/assets/clio.js` and uses `Clio.DataBrowser.mount(element)` to retrieve group,
+table, metadata, and record data through ClioJS and the existing v1 API. No new
+API endpoint, frontend dependency, package installation, or build step is
+introduced. The browser renders data in the user's browser; server-side table
+and form views at `/t/{group}/{table}` remain available.
+
+The grid displays visible fields in metadata order with metadata-defined labels.
+Hidden fields are omitted. Record values are rendered as text, not executable
+HTML. Decimal values remain the strings returned by the API. The browser shows
+the selected table and current record range and provides previous/next and
+numbered page navigation. Its initial page size is 50 records; page navigation
+maps to `limit=50` and `offset=(page-1)*50` and uses the API response's total.
+
+## 35.3 Boundaries and verification
+
+The browser is for inspection and navigation only. Record creation and editing
+remain in the existing `/t/` forms or API. Collection paths are reserved from
+published content so they cannot shadow the browser routes.
+
+Tests cover browser route handling and methods, loading ClioJS, group/table
+navigation, metadata-ordered visible columns, safe text rendering, URL/page
+state, empty collections/tables, and API error display. No external service or
+frontend framework is required.
+
+---
+
+# 36. Content tree
 
 The content tree is separate from structured-data groups and tables.
 
@@ -1537,9 +2279,71 @@ Directories may contain:
 * links to tables
 * links to records
 
+## 36.1 Content-path rules
+
+Content paths are UTF-8 paths consisting of path segments.
+
+Rules:
+
+* Paths are valid UTF-8.
+* `/` is the root and the only path without a leading segment.
+* Every non-root path begins with `/`.
+* Empty path segments are rejected.
+* A trailing `/` is not canonical and is rejected.
+* `.` and `..` segments are rejected.
+* Backslash is rejected.
+* Control characters are rejected.
+* Path traversal is always rejected.
+* The first segment may not be a reserved root name (section 32.3).
+* Paths are case-sensitive.
+* Paths are URL-encoded when transported in URLs.
+* Canonical URLs use normal percent-encoding.
+* A directory and page/file may not occupy the same exact canonical path.
+* A regular file may not occupy an intermediate segment of a deeper path; such a
+  request returns `409 Conflict`.
+* Symbolic links are not permitted in content paths.
+* Paths are not silently renamed because of case changes or title changes.
+
+A page path includes its extension when supplied.
+
+Examples:
+
+```text
+/reports/weekly.md
+/reports/summary.html
+```
+
+The extension is therefore part of the canonical content URL.
+
+Clio must not silently remove or add `.md` or `.html`.
+
+## 36.2 Content resource identity
+
+A canonical content path identifies exactly one resource.
+
+A resource may be:
+
+```text
+directory
+page
+file
+```
+
+Two resources may not share the same canonical path.
+
+Creating a resource where another resource already exists returns:
+
+```text
+409 Conflict
+```
+
+unless an explicit overwrite operation is supported by that endpoint.
+
+Display titles do not determine resource identity.
+
 ---
 
-# 36. Directory URLs
+# 37. Directory URLs
 
 Every directory has a stable URL.
 
@@ -1565,7 +2369,7 @@ The root is browsable.
 
 ---
 
-# 37. Directory API
+# 38. Directory API
 
 The machine-readable directory API uses the `path` query parameter for nested paths:
 
@@ -1602,9 +2406,46 @@ Example:
 
 This endpoint must be suitable for machine and LLM discovery.
 
+## 38.1 Directory API path handling
+
+Because directory paths may contain multiple path segments, the machine API uses a query parameter rather than embedding an arbitrary path inside the API route.
+
+### List root
+
+```http
+GET /api/v1/directories
+```
+
+### Get directory
+
+```http
+GET /api/v1/directories?path=/pool/reports
+```
+
+### Create directory
+
+```http
+POST /api/v1/directories
+Content-Type: application/json
+```
+
+```json
+{
+  "path": "/pool/reports"
+}
+```
+
+### Delete directory
+
+```http
+DELETE /api/v1/directories?path=/pool/reports
+```
+
+The API must return the canonical path and absolute URL.
+
 ---
 
-# 38. Creating directories
+# 39. Creating directories
 
 A directory may be created through:
 
@@ -1630,7 +2471,7 @@ Directory semantics must be deterministic and documented.
 
 ---
 
-# 39. Pages
+# 40. Pages
 
 Clio supports:
 
@@ -1654,7 +2495,7 @@ Pages have stable URLs.
 
 ---
 
-# 40. Page API
+# 41. Page API
 
 Create/update page:
 
@@ -1698,11 +2539,11 @@ HTML must render as HTML.
 
 `POST /api/v1/pages` is a create-or-replace (upsert) operation: it returns `201
 Created` when the page did not exist and `200 OK` when an existing page was
-replaced. This is the explicit overwrite operation referred to by section 61.3.
+replaced. This is the explicit overwrite operation referred to by section 36.2.
 Replacing a directory, file or other incompatible resource at the path returns
 `409 Conflict`.
 
-- `path` is required and obeys the canonical content-path rules (section 61.2).
+- `path` is required and obeys the canonical content-path rules (section 36.1).
 - The path must end in `.md` or `.html`; any other extension is rejected.
 - `content_type` is required and must match the extension: `text/markdown` for
   `.md`, `text/html` for `.html`.
@@ -1710,12 +2551,45 @@ Replacing a directory, file or other incompatible resource at the path returns
   Markdown; HTML is stored as HTML.
 - Writes are atomic: content is written to a temporary file and atomically
   renamed, so a failed write does not corrupt an existing page.
-- `GET /api/v1/pages?path=...` returns the stored source (section 61.5);
+- `GET /api/v1/pages?path=...` returns the stored source (section 41.1);
   `DELETE /api/v1/pages?path=...` removes the page.
+
+## 41.1 Page read API
+
+The v1.0 Page API is extended with a read operation.
+
+### Get page source
+
+```http
+GET /api/v1/pages?path=/reports/electricity.md
+```
+
+The response is JSON:
+
+```json
+{
+  "path": "/reports/electricity.md",
+  "url": "https://clio.example.com/reports/electricity.md",
+  "content_type": "text/markdown",
+  "content": "# Electricity\n\nLatest usage...",
+  "created_at": "2026-09-27T12:00:00Z",
+  "updated_at": "2026-09-27T12:00:00Z"
+}
+```
+
+For Markdown pages, `content` is always the original Markdown source.
+
+For HTML pages, `content` is the stored HTML source.
+
+The API does not return rendered HTML in this endpoint.
+
+The normal human-facing page URL is responsible for server-side rendering.
+
+This endpoint exists specifically so clients and LLM-generated/browser-side applications can retrieve the source content.
 
 ---
 
-# 41. Client-side Markdown rendering
+# 42. Client-side Markdown rendering
 
 Clio must provide a small client-side Markdown rendering capability.
 
@@ -1764,35 +2638,268 @@ Normal Clio page requests continue to support server-side rendering.
 
 The same Markdown source must render consistently enough between server-side and client-side rendering for normal Clio content.
 
+## 42.1 Client-side renderer contract
+
+The client-side Markdown renderer consumes the `content` returned by:
+
+```text
+GET /api/v1/pages?path=...
+```
+
+For a Markdown page:
+
+```text
+API
+ ↓
+JSON.content
+ ↓
+Clio Markdown renderer
+ ↓
+HTML
+```
+
+The renderer must not require:
+
+* Node.js
+* npm
+* React
+* Vue
+* a frontend build
+* a separate server
+
+The browser asset is exposed under:
+
+```text
+/assets/clio-markdown.js
+```
+
+The asset exposes a single global function:
+
+```js
+ClioMarkdown.render(source) // returns an HTML string
+```
+
+The name is part of the contract so that pages and tests are stable. The
+ClioJS client also exposes the same capability as `Clio.Markdown.render(source)`
+when the renderer asset is loaded (section 43.3). The function must be simple
+enough that a complete example fits in a small HTML page, and it must apply the
+safety rules in section 55.
+
 ---
 
-# 42. Directory-tree upload
+# 43. ClioJS browser client
+
+Clio serves an optional, lightweight browser JavaScript client over the existing
+Clio v1 REST API. This section consolidates the former
+`SPEC-Addendum-ClioJS.md`, which is retained only as a historical reference.
+ClioJS adds no API endpoints or semantics.
+
+Use the ClioJS script itself to implement Data Browsing.
+
+## 43.1 Distribution and scope
+
+The stable script URL is `/assets/clio.js`; the versioned URL
+`/assets/clio/v1/clio.js` serves the compatible v1 client. A plain HTML page can
+load it directly with `<script src="/assets/clio.js"></script>`. ClioJS requires
+no package installation, Node.js, bundler, transpiler, frontend framework, or
+build step. Its sole global is `Clio` and it identifies its library and API
+versions through `Clio.version` and `Clio.apiVersion`.
+
+ClioJS is a thin wrapper around `fetch()` and the existing HTTP API. It must not
+become an ORM, application framework, state store, persistence layer, or cache.
+The server remains authoritative; the client introduces no alternate query,
+validation, time-series, or concurrency semantics.
+
+`Clio.DataBrowser.mount(element)` is the sole built-in UI component in the
+ClioJS asset. It is narrowly scoped to the read-only collection browser in
+section 35 and does not establish a general application framework or state
+store.
+
+## 43.2 Client operations
+
+`new Clio()` targets the origin from which the script is served and uses
+same-origin browser credentials. An explicit `baseUrl` may be provided. The
+client exposes convenient access to metadata and groups, and a table handle
+obtained with `clio.table(group, table)`. Table handles support metadata,
+record listing/querying, get/create/update/delete, and the lightweight
+`list`, `first`, `count`, `distinct`, and `aggregate` conveniences. The client
+also supports creating groups/tables and accessing page source and directories.
+
+Record query options map predictably to the documented API query parameters:
+`limit`, `offset`, `sort`, `order`, filters, time bounds, buckets, grouping,
+aggregates, and distinct. A filter object maps keys to `filter.{field}` or
+`filter.{field}.{operator}` parameters; repeated filter values are preserved.
+`query()` returns the server's response shape. `records()` is an asynchronous
+iterator that requests later pages as needed, advances by the returned page
+count, and honors the server's effective page size rather than assuming a
+requested size was granted.
+
+Calls accept `AbortSignal` where applicable. Failed HTTP requests reject with
+an error exposing HTTP `status`, Clio error `code`, and the server's `message`.
+The client relies on browser-standard HTTP Basic Authentication and must not
+store credentials.
+
+## 43.3 Data and Markdown behavior
+
+The client preserves JSON types returned by Clio. In particular, decimal field
+values remain strings and are never converted to JavaScript floating-point
+numbers; dates and datetimes remain strings as well. Record PATCH requests pass
+omitted and explicit-null properties through unchanged so the API retains its
+defined partial-update semantics.
+
+`clio.page(path)` returns the original page source and metadata from the page
+API. ClioJS integrates with the separately served `/assets/clio-markdown.js`
+renderer through `Clio.Markdown.render(source)` when that renderer is loaded.
+Markdown safety requirements remain those in sections 44 and 42.1.
+
+## 43.4 Help and verification
+
+`/help` documents both asset URLs, same-origin usage, a short example, and the
+available client capabilities so browser users and generated pages can discover
+ClioJS without a separate package. Tests cover its static routes, metadata,
+table and record operations, query encoding, paging/async iteration, errors,
+decimal preservation, page/directory access, cancellation where implemented,
+and Markdown integration. The asset must work in an ordinary browser page.
+
+---
+
+# 44. Directory-tree upload
 
 Clio must support publishing an entire directory tree and its contents in a single
 request. The endpoint is `POST /api/v1/directories` with
 `Content-Type: application/zip` and a destination supplied by the `path` query
-parameter (omitted means the root). The complete normative semantics, including
-archive interpretation, response body, limits and overwrite behaviour, are in
-sections 61.7, 61.8 and 61.9.
+parameter (omitted means the root).
 
-Summary:
+## 44.1 Upload semantics
 
-- Archive entries are extracted **exactly relative to the destination**; there is
-  no automatic stripping of a top-level directory.
-- The operation preserves relative paths and rejects absolute paths, drive-letter
-  paths, `..`, empty segments, backslashes, control characters, duplicate
-  entries, and entries that escape the content directory.
-- The whole archive is validated and staged before anything is published, so a
-  validation failure does not leave a partially published tree.
-- The response is JSON containing the destination `path` and the resulting
-  absolute `urls`.
-- Compressed size, expanded size, entry count, per-file size and depth limits are
-  enforced (section 61.8).
-- No external unzip command is required.
+A directory-tree upload specifies its destination through the `path` query parameter.
+
+Example:
+
+```http
+POST /api/v1/directories?path=/pool/reports
+Content-Type: application/zip
+```
+
+If omitted, the destination is the root:
+
+```text
+/
+```
+
+Archive entries are interpreted exactly relative to the destination.
+
+For example:
+
+```text
+archive:
+    weekly.md
+    measurements/latest.md
+```
+
+uploaded to:
+
+```text
+/pool/reports
+```
+
+produces:
+
+```text
+/pool/reports/weekly.md
+/pool/reports/measurements/latest.md
+```
+
+There is no automatic stripping of the archive's top-level directory.
+
+If the archive contains:
+
+```text
+pool/
+    weekly.md
+```
+
+and the destination is `/reports`, the result is:
+
+```text
+/reports/pool/weekly.md
+```
+
+The successful response is JSON containing the destination path and the
+resulting absolute URLs, for example:
+
+```json
+{
+  "path": "/reports",
+  "urls": [
+    "https://clio.example.com/reports/pool/weekly.md"
+  ]
+}
+```
+
+Entries that are absolute, use a drive-letter path, contain `..`, duplicate an
+earlier entry, or place a file where another entry requires a directory are
+rejected before publication. Applying an archive that would replace an existing
+resource is also rejected with `409 Conflict` unless `overwrite=true`
+(section 44.3).
+
+## 44.2 Directory-tree upload limits
+
+The following limits apply in v1:
+
+```text
+Maximum compressed upload size: 32 MiB
+Maximum expanded size:          256 MiB
+Maximum file count:             10,000
+Maximum individual file size:   16 MiB
+Maximum directory depth:        32
+```
+
+These are safety limits, not expected workload limits.
+
+An archive exceeding any limit must be rejected before publication.
+
+Archive entries must:
+
+* be relative
+* not contain `..`
+* not be absolute
+* not escape the destination directory
+* not use invalid filesystem paths
+
+## 44.3 Directory-tree upload overwrite behaviour
+
+By default:
+
+```text
+overwrite=false
+```
+
+If an archive would replace an existing page, file or incompatible resource, the operation returns:
+
+```text
+409 Conflict
+```
+
+The API may accept:
+
+```text
+?path=/pool/reports&overwrite=true
+```
+
+to explicitly permit replacement.
+
+Existing directories may be reused.
+
+The upload operation **must** validate the entire archive before modifying the
+published tree and **must** stage the archive before committing the resulting
+tree, so that validation errors do not leave a partially published archive. On
+failure the published tree must be left as it was. A successful upload returns
+`201 Created` with the response body described in section 44.1.
 
 ---
 
-# 43. Stable URLs
+# 45. Stable URLs
 
 Every published:
 
@@ -1821,7 +2928,7 @@ URLs must be suitable for:
 
 ---
 
-# 44. Help
+# 46. Help
 
 Clio must expose:
 
@@ -1885,7 +2992,7 @@ The help endpoint is a first-class product feature.
 
 ---
 
-# 45. Health
+# 47. Health
 
 Clio must expose:
 
@@ -1944,7 +3051,7 @@ reports the product version defined in the document header (currently `1.0.0`).
 
 ---
 
-# 46. API versioning
+# 48. API versioning
 
 The stable external API begins at:
 
@@ -1958,7 +3065,7 @@ Existing `/api/v1/` semantics must not silently change.
 
 ---
 
-# 47. Complete API v1 summary
+# 49. Complete API v1 summary
 
 ```text
 GET    /api/v1/health
@@ -1998,125 +3105,11 @@ DELETE /api/v1/pages?path=/...
 
 Client-side Markdown rendering is exposed as a static browser asset rather than a separate API service.
 
-The optional ClioJS browser client is served at `/assets/clio.js` and `/assets/clio/v1/clio.js`; its contract is specified in section 63.
+The optional ClioJS browser client is served at `/assets/clio.js` and `/assets/clio/v1/clio.js`; its contract is specified in section 43.
 
 ---
 
-# 48. Persistence
-
-SQLite is authoritative for:
-
-* groups
-* tables
-* fields
-* metadata
-* records
-* time-series data
-
-SQLite must use WAL mode.
-
-Pages/directories/files are stored in the Clio data directory.
-
-Transactions must be used for operations that require atomic changes.
-
-Data must survive process restart.
-
-Clio must be able to open an existing database without special operational procedures.
-
----
-
-# 49. SQLite indexing
-
-Indexing is an implementation concern. Clio shall not index every field. It
-automatically maintains indexes for record identity, group/table access,
-deterministic default ordering (`created_at`), fields declared `unique`,
-reference fields, and the principal temporal field (and the `timeseries` timestamp
-access path). SQLite enforces uniqueness rather than relying on application
-checks.
-
-Applications may declare additional single-field or compound indexes using the
-table `indexes` property. Declared indexes are **non-unique**; uniqueness is
-declared on the field itself with `unique: true` (section 13.2). Compound field
-order is significant. Index declarations must be validated against table
-metadata and reconciled transactionally when the table schema changes; stale or
-duplicate indexes must be removed. Enabling a unique field constraint that
-conflicts with existing data fails with `409 Conflict` without partially applying
-the schema change.
-
-Time-series timestamp access uses an index scoped by table and timestamp. Default
-record ordering is defined in section 23. Offset/limit pagination remains
-sufficient for v1. Query operations continue to execute in SQLite and must not
-load whole tables into application memory.
-
-Index configuration is optional for ordinary use, invisible in the primary UI, and requires no index-administration endpoint. Clio does not provide full-text/spatial indexes, index hints, workload-driven index creation, or query-plan analysis in v1.
-
----
-
-# 50. Security
-
-v1 may run in a trusted environment or use the optional single-user Basic Authentication described in section 62. Deployments may also provide authentication/access control at a reverse proxy.
-
-Clio must nevertheless:
-
-* validate all input
-* enforce request size limits
-* prevent path traversal
-* prevent arbitrary filesystem access
-* use parameterized SQL
-* safely render HTML
-* validate names/identifiers
-* reject malformed JSON
-* safely handle archive extraction
-* prevent unreasonable archive expansion
-* avoid exposing internal stack traces
-
-A full identity and authorization system is out of scope. Optional single-user Basic Authentication is defined in section 62.
-
----
-
-# 51. HTML and Markdown safety
-
-Markdown and HTML are first-class page types.
-
-The implementation must distinguish intentionally published HTML from user-entered text.
-
-User-controlled text rendered into Clio-generated pages must be escaped appropriately.
-
-Markdown output must be sanitised appropriately before being inserted into a page where necessary.
-
-The client-side Markdown renderer must apply equivalent safety expectations.
-
-## Markdown subset
-
-The server-side and client-side renderers support the same deliberately small
-subset:
-
-- ATX headings `#` through `######`.
-- Unordered lists using `- ` or `* `.
-- Fenced code blocks delimited by ```` ``` ````.
-- Inline code delimited by backticks.
-- `**bold**` and `*italic*`.
-- Links of the form `[text](https://...)`, limited to `http` and `https` URLs.
-
-All other text is treated literally and escaped. Raw HTML in Markdown is never
-interpreted.
-
-## Sanitisation rules
-
-Both renderers escape all text before emitting markup, and emit only the fixed
-set of safe tags above (`h1`–`h6`, `ul`, `li`, `p`, `pre`, `code`, `strong`,
-`em`, `a`). No attributes are accepted from source text, and only `http`/`https`
-link targets are emitted. As a result, a Markdown page cannot introduce
-executable markup or event handlers through its content. The client-side
-renderer must satisfy the same rules (sections 41 and 61.6).
-
-Clio must not accidentally turn arbitrary record values into executable HTML/JavaScript.
-
-Security behaviour must be documented.
-
----
-
-# 52. Error handling
+# 50. Error handling
 
 HTTP status codes used by the API:
 
@@ -2126,8 +3119,8 @@ HTTP status codes used by the API:
 | `201 Created` | Resource created. |
 | `204 No Content` | Resource deleted; no body. |
 | `400 Bad Request` | Malformed request, e.g. malformed query parameters. |
-| `401 Unauthorized` | Authentication required or invalid (section 62). |
-| `403 Forbidden` | Transport requirement not met (section 62.3). |
+| `401 Unauthorized` | Authentication required or invalid (section 54). |
+| `403 Forbidden` | Transport requirement not met (section 54.3). |
 | `404 Not Found` | Resource or endpoint does not exist. |
 | `405 Method Not Allowed` | Method not supported for the route. |
 | `409 Conflict` | Request conflicts with existing state (duplicate name, referenced record, overwrite refused, unsafe schema change). |
@@ -2164,7 +3157,255 @@ of the compatibility contract.
 
 ---
 
-# 53. Observability
+# 51. Persistence
+
+SQLite is authoritative for:
+
+* groups
+* tables
+* fields
+* metadata
+* records
+* time-series data
+
+SQLite must use WAL mode.
+
+Pages/directories/files are stored in the Clio data directory.
+
+Transactions must be used for operations that require atomic changes.
+
+Data must survive process restart.
+
+Clio must be able to open an existing database without special operational procedures.
+
+---
+
+# 52. SQLite indexing
+
+Indexing is an implementation concern. Clio shall not index every field. It
+automatically maintains indexes for record identity, group/table access,
+deterministic default ordering (`created_at`), fields declared `unique`,
+reference fields, and the principal temporal field (and the `timeseries` timestamp
+access path). SQLite enforces uniqueness rather than relying on application
+checks.
+
+Applications may declare additional single-field or compound indexes using the
+table `indexes` property. Declared indexes are **non-unique**; uniqueness is
+declared on the field itself with `unique: true` (section 13.2). Compound field
+order is significant. Index declarations must be validated against table
+metadata and reconciled transactionally when the table schema changes; stale or
+duplicate indexes must be removed. Enabling a unique field constraint that
+conflicts with existing data fails with `409 Conflict` without partially applying
+the schema change.
+
+Time-series timestamp access uses an index scoped by table and timestamp. Default
+record ordering is defined in section 23. Offset/limit pagination remains
+sufficient for v1. Query operations continue to execute in SQLite and must not
+load whole tables into application memory.
+
+Index configuration is optional for ordinary use, invisible in the primary UI, and requires no index-administration endpoint. Clio does not provide full-text/spatial indexes, index hints, workload-driven index creation, or query-plan analysis in v1.
+
+---
+
+# 53. Security
+
+v1 may run in a trusted environment or use the optional single-user Basic Authentication described in section 54. Deployments may also provide authentication/access control at a reverse proxy.
+
+Clio must nevertheless:
+
+* validate all input
+* enforce request size limits
+* prevent path traversal
+* prevent arbitrary filesystem access
+* use parameterized SQL
+* safely render HTML
+* validate names/identifiers
+* reject malformed JSON
+* safely handle archive extraction
+* prevent unreasonable archive expansion
+* avoid exposing internal stack traces
+
+A full identity and authorization system is out of scope. Optional single-user Basic Authentication is defined in section 54.
+
+---
+
+# 54. Optional authentication and transport security
+
+Clio supports an optional, intentionally small single-user access gate. This
+section consolidates the former `SPEC-Addendum-Auth.md`, which is retained only
+as a historical reference. Authentication remains disabled by default, and
+enabling it does not change the API or data model.
+
+## 54.1 Authentication model
+
+The only built-in authentication scheme is HTTP Basic Authentication with one
+configured username and password hash. There are no user tables, roles,
+sessions, authorization rules, registration, password reset, OAuth, OIDC, JWT,
+or MFA. The configured identity has access to the whole Clio instance.
+
+When enabled, authentication applies to every HTTP route, including health,
+help, published content, directories, table views, API endpoints, and static
+assets. Health is not an unauthenticated exception.
+
+## 54.2 Configuration
+
+Optional settings and defaults are:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `CLIO_AUTH_ENABLED` | `false` | Require Basic Authentication. |
+| `CLIO_AUTH_USER` | `admin` | The one configured username. |
+| `CLIO_AUTH_PASSWORD_HASH` | unset | Required when authentication is enabled; a bcrypt hash. |
+| `CLIO_REQUIRE_HTTPS` | `true` | Require encrypted transport or an allowed trusted HTTP source when authentication is enabled. |
+| `CLIO_TRUSTED_HTTP_NETWORKS` | `127.0.0.0/8,::1/128` | Comma-separated CIDRs allowed to use HTTP; loopback is always allowed. |
+| `CLIO_TRUST_PROXY` | `false` | Allow trusted reverse-proxy protocol information to identify HTTPS. |
+| `CLIO_TRUSTED_PROXY_NETWORKS` | empty | Comma-separated CIDRs of immediate trusted proxy peers. Required when `CLIO_TRUST_PROXY=true`. |
+| `CLIO_TLS_CERT` | unset | Optional certificate file for direct TLS; must be configured with `CLIO_TLS_KEY`. |
+| `CLIO_TLS_KEY` | unset | Optional private-key file for direct TLS; must be configured with `CLIO_TLS_CERT`. |
+
+Invalid booleans, malformed CIDRs, an incomplete TLS key pair, or trusted-proxy
+mode without trusted proxy CIDRs are startup configuration errors. A missing
+or invalid password hash is an error when authentication is enabled. Never
+put a plaintext password in persistent configuration.
+
+Clio uses bcrypt for password hashing. Generate a compatible hash with:
+
+```sh
+clio hash-password
+```
+
+The command prompts for the password without echoing it and prints only the
+hash, which can be supplied as `CLIO_AUTH_PASSWORD_HASH` through a secret
+manager or protected environment file. The application never logs credentials
+or the configured hash.
+
+## 54.3 HTTPS policy
+
+When authentication is enabled and `CLIO_REQUIRE_HTTPS=true`, Clio accepts
+requests only when at least one of these conditions holds:
+
+* Clio received the request over direct TLS.
+* The immediate peer address is loopback.
+* The immediate peer address is within `CLIO_TRUSTED_HTTP_NETWORKS`.
+* Trusted-proxy mode is enabled, the immediate peer belongs to
+  `CLIO_TRUSTED_PROXY_NETWORKS`, and that proxy indicates the original protocol
+  was HTTPS.
+
+Private network ranges are not implicitly trusted. Operators must explicitly
+add any trusted LAN or container network to the HTTP allowlist. When
+`CLIO_REQUIRE_HTTPS=false`, HTTP is accepted by explicit operator choice.
+
+The optional `CLIO_TLS_CERT` and `CLIO_TLS_KEY` pair enables direct TLS on the
+configured `CLIO_ADDR`. Otherwise Clio serves plain HTTP and may sit behind a
+TLS-terminating reverse proxy.
+
+Forwarded protocol headers are ignored unless `CLIO_TRUST_PROXY=true` and the
+immediate peer address is in `CLIO_TRUSTED_PROXY_NETWORKS`. Only a single
+`X-Forwarded-Proto: https` value is accepted as evidence of HTTPS; untrusted,
+duplicated, or chained values cannot bypass transport enforcement. A reverse
+proxy must replace, rather than append to, untrusted forwarded-protocol input.
+
+When transport requirements are not met, Clio returns `403 Forbidden` and
+does not redirect the request. This avoids redirecting a request after
+credentials may have been sent over an insecure connection.
+
+## 54.4 Authentication responses and logging
+
+Missing or invalid credentials return `401 Unauthorized` and:
+
+```text
+WWW-Authenticate: Basic realm="Clio"
+```
+
+The response must not reveal whether a username exists or whether a password
+was wrong. Authentication failures are logged with a generic reason category;
+logs must never contain plaintext passwords, Authorization headers, password
+hashes, or request bodies. Brute-force rate limiting remains the responsibility
+of a reverse proxy or deployment network policy.
+
+Basic Authentication does not add a CORS requirement. Browsers and ordinary
+HTTP clients use their standard Basic Authentication support. When enabled,
+README and `/help` document the authentication state, hash generation, HTTPS
+policy, trusted HTTP networks, trusted-proxy requirements, and the fact that
+Basic Authentication must be protected by TLS on untrusted networks.
+
+## 54.5 Authentication and transport tests
+
+Automated tests must cover:
+
+* disabled authentication and enabled authentication;
+* valid, missing, and invalid credentials, including the challenge header;
+* protected API, HTML, health, and static-asset routes;
+* direct TLS, localhost HTTP, trusted HTTP CIDRs, rejected untrusted HTTP, and
+  explicit HTTP allowance when HTTPS enforcement is disabled;
+* trusted-proxy HTTPS acceptance and rejection of spoofed forwarded headers
+  from untrusted peers;
+* invalid CIDRs/proxy settings and missing or invalid password hashes.
+
+---
+
+# 55. HTML and Markdown safety
+
+Markdown and HTML are first-class page types.
+
+The implementation must distinguish intentionally published HTML from user-entered text.
+
+User-controlled text rendered into Clio-generated pages must be escaped appropriately.
+
+Markdown output must be sanitised appropriately before being inserted into a page where necessary.
+
+The client-side Markdown renderer must apply equivalent safety expectations.
+
+## Markdown subset
+
+The server-side and client-side renderers support the same deliberately small
+subset:
+
+- ATX headings `#` through `######`.
+- Unordered lists using `- ` or `* `.
+- Fenced code blocks delimited by ```` ``` ````.
+- Inline code delimited by backticks.
+- `**bold**` and `*italic*`.
+- Links of the form `[text](https://...)`, limited to `http` and `https` URLs.
+
+All other text is treated literally and escaped. Raw HTML in Markdown is never
+interpreted.
+
+## Sanitisation rules
+
+Both renderers escape all text before emitting markup, and emit only the fixed
+set of safe tags above (`h1`–`h6`, `ul`, `li`, `p`, `pre`, `code`, `strong`,
+`em`, `a`). No attributes are accepted from source text, and only `http`/`https`
+link targets are emitted. As a result, a Markdown page cannot introduce
+executable markup or event handlers through its content. The client-side
+renderer must satisfy the same rules (sections 44 and 42.1).
+
+Clio must not accidentally turn arbitrary record values into executable HTML/JavaScript.
+
+Security behaviour must be documented.
+
+## 55.1 HTML trust boundary
+
+HTML pages are considered **trusted published content**.
+
+Clio stores and serves HTML page content without sanitizing or rewriting it.
+
+This means an HTML page may contain executable JavaScript.
+
+Therefore:
+
+* Clio must be deployed where publishers are trusted.
+* The write API must be protected by the surrounding deployment if untrusted users can access Clio.
+* Clio does not attempt to turn arbitrary user-submitted HTML into a safe multi-user content platform.
+* Authorization beyond the single configured identity in section 54 remains an external deployment concern in v1.
+
+Markdown and Clio-generated HTML views must still escape/sanitize untrusted data appropriately.
+
+This boundary must be clearly documented in the README and `/help`.
+
+---
+
+# 56. Observability
 
 v1 requires only basic logging.
 
@@ -2186,7 +3427,7 @@ No distributed tracing is required.
 
 ---
 
-# 54. Backup and restore
+# 57. Backup and restore
 
 The entire Clio data directory must be straightforward to back up.
 
@@ -2206,13 +3447,13 @@ tree.
 Restoring replaces the complete database (with its WAL sidecars as captured) and
 the content directory, then starts Clio with the same configuration. Recovery is
 confirmed through `/health`, whose `database.status` runs a SQLite integrity
-check (section 45).
+check (section 47).
 
 No external backup system is part of Clio.
 
 ---
 
-# 55. Testing
+# 58. Testing
 
 The implementation must include automated tests. The mapping from specification
 areas to concrete tests, plus the verification commands, is maintained in
@@ -2309,9 +3550,109 @@ Test at minimum:
 
 Tests should verify behaviour rather than implementation details.
 
+## Additional acceptance requirements
+
+Section 56 defines the end-to-end acceptance walkthrough and section 58 defines
+the automated test coverage. The following requirements are part of the same
+acceptance suite and do not replace either of those sections.
+
+### Routing
+
+Verify that all of the following can coexist:
+
+```text
+/pool/measurements
+/t/pool/measurements
+```
+
+where the first is a content resource and the second is a table.
+
+No routing ambiguity exists.
+
+### Markdown API
+
+Create:
+
+```text
+/pool/reports/latest.md
+```
+
+through the API.
+
+Retrieve it through:
+
+```text
+GET /api/v1/pages?path=/pool/reports/latest.md
+```
+
+Verify that the original Markdown source is returned.
+
+Use that source with:
+
+```text
+/assets/clio-markdown.js
+```
+
+and verify browser rendering.
+
+### Directory upload
+
+Upload:
+
+```text
+weekly.md
+measurements/latest.md
+```
+
+to:
+
+```text
+/pool/reports
+```
+
+Verify the resulting paths are:
+
+```text
+/pool/reports/weekly.md
+/pool/reports/measurements/latest.md
+```
+
+Verify the configured upload limits are enforced.
+
+### Record semantics
+
+Verify:
+
+* omitted field uses default or becomes null
+* required omitted field fails
+* explicit null clears nullable field
+* required field cannot be null
+* omitted PATCH fields remain unchanged
+* unknown fields are rejected
+* readonly fields are rejected
+* decimals round-trip without floating-point conversion
+
+### Query semantics
+
+Verify:
+
+* paging
+* exact filtering
+* operator filtering
+* `in`
+* `isnull`
+* sorting
+* null ordering
+* distinct response
+* aggregate response
+* grouped response
+* time-range boundaries
+* UTC normalization
+* daily/weekly/monthly buckets
+
 ---
 
-# 56. End-to-end acceptance test
+# 59. End-to-end acceptance test
 
 A fresh Clio installation must work without custom application code.
 
@@ -2471,7 +3812,7 @@ The documentation and metadata APIs must contain enough information for the agen
 
 ---
 
-# 57. Repository deliverables
+# 60. Repository deliverables
 
 The implementation agent must produce:
 
@@ -2503,7 +3844,7 @@ Container startup must be documented.
 
 ---
 
-# 58. Repository constraints
+# 61. Repository constraints
 
 The implementation must remain small.
 
@@ -2524,7 +3865,7 @@ The client-side Markdown renderer must remain a small supporting capability, not
 
 ---
 
-# 59. Definition of done
+# 62. Definition of done
 
 Clio v1 is complete when:
 
@@ -2565,9 +3906,34 @@ Clio v1 is complete when:
 * automated tests pass
 * the implementation remains small and understandable
 
+## 62.1 v1 scope
+
+All capabilities described in this specification are required v1 capabilities.
+
+The following are particularly important and are not optional:
+
+* API v1
+* metadata API
+* table creation API
+* record CRUD
+* time-series support
+* query/filter/sort/paging
+* grouping
+* aggregation
+* time bucketing
+* directory API
+* Markdown/HTML publishing
+* directory-tree upload
+* stable URLs
+* `/health`
+* `/help`
+* client-side Markdown renderer
+
+The client-side renderer remains intentionally tiny and must not evolve into a frontend framework.
+
 ---
 
-# 60. Final product boundary
+# 63. Final product boundary
 
 The goal is **not** to build a smaller Baserow.
 
@@ -2594,1478 +3960,3 @@ Metadata
 
 Everything else should be built from those primitives.
 
-# 61. Clarifications and extensions
-
-This part consolidates the former `SPEC-Addendum.md` and related addenda into the
-single contract. Sections 61–64 are as normative as sections 1–60; no section
-takes precedence over another. The original addendum files are retained only as
-historical references and are not part of the contract.
-
-## 61.1 Human-facing URL namespaces
-
-Table URLs and content-directory URLs use separate namespaces so they cannot
-collide.
-
-### 61.1.1 Content tree
-
-Human-facing content occupies the root namespace:
-
-```text
-/
-```
-
-Examples:
-
-```text
-/pool
-/pool/reports
-/pool/reports/weekly.md
-/vehicle
-/vehicle/service-history
-```
-
-Directories, Markdown pages, HTML pages and files exist in this namespace.
-
-### 61.1.2 Tables
-
-Human-facing table URLs use the reserved `/t/` namespace:
-
-```text
-/t/{group}/{table}
-/t/{group}/{table}/new
-/t/{group}/{table}/{id}
-/t/{group}/{table}/{id}/edit
-```
-
-Examples:
-
-```text
-/t/pool/measurements
-/t/pool/measurements/new
-/t/vehicle/service
-/t/finance/electricity
-```
-
-This namespace is exclusively for structured Clio tables.
-
-### 61.1.3 Reserved root paths
-
-The following root paths are reserved by Clio:
-
-```text
-/api
-/health
-/help
-/assets
-/t
-/collections
-/favicon.svg
-```
-
-User-created content directories/pages may not use those exact root names.
-
-The root content tree therefore cannot collide with Clio's API, operational
-endpoints, assets, table namespace, the data browser or the favicon.
-
----
-
-## 61.2 Content-path rules
-
-Content paths are UTF-8 paths consisting of path segments.
-
-Rules:
-
-* Paths are valid UTF-8.
-* `/` is the root and the only path without a leading segment.
-* Every non-root path begins with `/`.
-* Empty path segments are rejected.
-* A trailing `/` is not canonical and is rejected.
-* `.` and `..` segments are rejected.
-* Backslash is rejected.
-* Control characters are rejected.
-* Path traversal is always rejected.
-* The first segment may not be a reserved root name (section 61.1.3).
-* Paths are case-sensitive.
-* Paths are URL-encoded when transported in URLs.
-* Canonical URLs use normal percent-encoding.
-* A directory and page/file may not occupy the same exact canonical path.
-* A regular file may not occupy an intermediate segment of a deeper path; such a
-  request returns `409 Conflict`.
-* Symbolic links are not permitted in content paths.
-* Paths are not silently renamed because of case changes or title changes.
-
-A page path includes its extension when supplied.
-
-Examples:
-
-```text
-/reports/weekly.md
-/reports/summary.html
-```
-
-The extension is therefore part of the canonical content URL.
-
-Clio must not silently remove or add `.md` or `.html`.
-
----
-
-## 61.3 Content resource identity
-
-A canonical content path identifies exactly one resource.
-
-A resource may be:
-
-```text
-directory
-page
-file
-```
-
-Two resources may not share the same canonical path.
-
-Creating a resource where another resource already exists returns:
-
-```text
-409 Conflict
-```
-
-unless an explicit overwrite operation is supported by that endpoint.
-
-Display titles do not determine resource identity.
-
----
-
-## 61.4 Directory API path handling
-
-Because directory paths may contain multiple path segments, the machine API uses a query parameter rather than embedding an arbitrary path inside the API route.
-
-### List root
-
-```http
-GET /api/v1/directories
-```
-
-### Get directory
-
-```http
-GET /api/v1/directories?path=/pool/reports
-```
-
-### Create directory
-
-```http
-POST /api/v1/directories
-Content-Type: application/json
-```
-
-```json
-{
-  "path": "/pool/reports"
-}
-```
-
-### Delete directory
-
-```http
-DELETE /api/v1/directories?path=/pool/reports
-```
-
-The API must return the canonical path and absolute URL.
-
----
-
-## 61.5 Page read API
-
-The v1.0 Page API is extended with a read operation.
-
-### Get page source
-
-```http
-GET /api/v1/pages?path=/reports/electricity.md
-```
-
-The response is JSON:
-
-```json
-{
-  "path": "/reports/electricity.md",
-  "url": "https://clio.example.com/reports/electricity.md",
-  "content_type": "text/markdown",
-  "content": "# Electricity\n\nLatest usage...",
-  "created_at": "2026-09-27T12:00:00Z",
-  "updated_at": "2026-09-27T12:00:00Z"
-}
-```
-
-For Markdown pages, `content` is always the original Markdown source.
-
-For HTML pages, `content` is the stored HTML source.
-
-The API does not return rendered HTML in this endpoint.
-
-The normal human-facing page URL is responsible for server-side rendering.
-
-This endpoint exists specifically so clients and LLM-generated/browser-side applications can retrieve the source content.
-
----
-
-## 61.6 Client-side Markdown rendering contract
-
-The client-side Markdown renderer consumes the `content` returned by:
-
-```text
-GET /api/v1/pages?path=...
-```
-
-For a Markdown page:
-
-```text
-API
- ↓
-JSON.content
- ↓
-Clio Markdown renderer
- ↓
-HTML
-```
-
-The renderer must not require:
-
-* Node.js
-* npm
-* React
-* Vue
-* a frontend build
-* a separate server
-
-The browser asset is exposed under:
-
-```text
-/assets/clio-markdown.js
-```
-
-The asset exposes a single global function:
-
-```js
-ClioMarkdown.render(source) // returns an HTML string
-```
-
-The name is part of the contract so that pages and tests are stable. The
-ClioJS client also exposes the same capability as `Clio.Markdown.render(source)`
-when the renderer asset is loaded (section 63.3). The function must be simple
-enough that a complete example fits in a small HTML page, and it must apply the
-safety rules in section 51.
-
----
-
-## 61.7 Directory-tree upload
-
-A directory-tree upload specifies its destination through the `path` query parameter.
-
-Example:
-
-```http
-POST /api/v1/directories?path=/pool/reports
-Content-Type: application/zip
-```
-
-If omitted, the destination is the root:
-
-```text
-/
-```
-
-Archive entries are interpreted exactly relative to the destination.
-
-For example:
-
-```text
-archive:
-    weekly.md
-    measurements/latest.md
-```
-
-uploaded to:
-
-```text
-/pool/reports
-```
-
-produces:
-
-```text
-/pool/reports/weekly.md
-/pool/reports/measurements/latest.md
-```
-
-There is no automatic stripping of the archive's top-level directory.
-
-If the archive contains:
-
-```text
-pool/
-    weekly.md
-```
-
-and the destination is `/reports`, the result is:
-
-```text
-/reports/pool/weekly.md
-```
-
-The successful response is JSON containing the destination path and the
-resulting absolute URLs, for example:
-
-```json
-{
-  "path": "/reports",
-  "urls": [
-    "https://clio.example.com/reports/pool/weekly.md"
-  ]
-}
-```
-
-Entries that are absolute, use a drive-letter path, contain `..`, duplicate an
-earlier entry, or place a file where another entry requires a directory are
-rejected before publication. Applying an archive that would replace an existing
-resource is also rejected with `409 Conflict` unless `overwrite=true`
-(section 61.9).
-
----
-
-## 61.8 Directory-tree upload limits
-
-The following limits apply in v1:
-
-```text
-Maximum compressed upload size: 32 MiB
-Maximum expanded size:          256 MiB
-Maximum file count:             10,000
-Maximum individual file size:   16 MiB
-Maximum directory depth:        32
-```
-
-These are safety limits, not expected workload limits.
-
-An archive exceeding any limit must be rejected before publication.
-
-Archive entries must:
-
-* be relative
-* not contain `..`
-* not be absolute
-* not escape the destination directory
-* not use invalid filesystem paths
-
----
-
-## 61.9 Directory-tree upload overwrite behaviour
-
-By default:
-
-```text
-overwrite=false
-```
-
-If an archive would replace an existing page, file or incompatible resource, the operation returns:
-
-```text
-409 Conflict
-```
-
-The API may accept:
-
-```text
-?path=/pool/reports&overwrite=true
-```
-
-to explicitly permit replacement.
-
-Existing directories may be reused.
-
-The upload operation **must** validate the entire archive before modifying the
-published tree and **must** stage the archive before committing the resulting
-tree, so that validation errors do not leave a partially published archive. On
-failure the published tree must be left as it was. A successful upload returns
-`201 Created` with the response body described in section 61.7.
-
----
-
-## 61.10 Record JSON representation
-
-The structured-data API uses the following JSON representations.
-
-| Clio type | JSON representation                               |
-| --------- | ------------------------------------------------- |
-| string    | JSON string                                       |
-| text      | JSON string                                       |
-| integer   | JSON integer                                      |
-| decimal   | JSON string containing canonical decimal notation |
-| boolean   | JSON boolean                                      |
-| date      | `"YYYY-MM-DD"`                                    |
-| datetime  | RFC 3339 UTC string                               |
-| enum      | JSON string                                       |
-| url       | JSON string                                       |
-| reference | JSON string containing target record ID           |
-
-Example:
-
-```json
-{
-  "id": "9f2c4e8a1b3d4f5061728394a5b6c7d8",
-  "created_at": "2026-09-27T12:00:00Z",
-  "updated_at": "2026-09-27T12:00:00Z",
-  "date": "2026-09-27",
-  "odometer": 82431,
-  "type": "service",
-  "cost": "183.42",
-  "notes": "Annual service"
-}
-```
-
-Using a JSON string for `decimal` prevents loss of precision in clients and is especially appropriate for financial values.
-
-### 61.10.1 Canonical decimal notation
-
-A canonical decimal:
-
-* has an optional leading `-`;
-* has at least one integer digit and no redundant leading zeros (`0`, not `00`);
-* has an optional fractional part with no trailing zeros and no trailing `.`;
-* never uses exponent notation;
-* represents negative zero as `0`.
-
-So `183.42`, `0`, `-1.5` and `100` are canonical; `0183.420`, `1e3` and `-0`
-are not. Stored decimal values are always canonicalized to this form. Decimal
-aggregate results are also canonical, except that `avg` is computed to at most
-ten decimal places and then canonicalized (for example `"167.0747368421"`).
-`sum` over decimals is exact; integer `sum` is a JSON integer rather than a
-string.
-
-### 61.10.2 Request value coercion
-
-Requests are strict about JSON types; Clio does not guess:
-
-| Type | Accepted request JSON |
-| --- | --- |
-| `string`, `text`, `url`, `enum`, `reference` | JSON string |
-| `integer` | JSON number with an integral value (`1.0` is accepted and normalized to `1`; `1.5` and `"5"` are rejected) |
-| `decimal` | JSON string (not a JSON number) |
-| `boolean` | JSON boolean |
-| `date` | `"YYYY-MM-DD"` |
-| `datetime` | RFC 3339 timestamp; normalized to UTC |
-
-A `datetime` value supplied with an offset is normalized to UTC (section 61.21).
-An `enum` value must be one of the declared values, and a `url` must be an
-absolute URL with a scheme.
-
----
-
-## 61.11 Missing and null values
-
-Every defined field is returned in a record representation.
-
-If a field has no value:
-
-```json
-"cost": null
-```
-
-is returned.
-
-Missing and null therefore have different meanings in requests but not in normal record responses.
-
-## On create
-
-If a field is omitted:
-
-1. If a default exists, the default is applied.
-2. Otherwise the field becomes `null`.
-3. If the field is required, the request fails validation.
-
-If the field is explicitly:
-
-```json
-"cost": null
-```
-
-the field is null.
-
-A required field may not be null.
-
-## On PATCH
-
-An omitted field means:
-
-> leave the existing value unchanged.
-
-An explicit:
-
-```json
-"cost": null
-```
-
-means:
-
-> clear the value.
-
-A required field may not be cleared.
-
----
-
-## 61.12 Unknown and readonly fields
-
-Unknown fields in create/update requests are rejected.
-
-Example:
-
-```text
-422 Unprocessable Entity
-```
-
-A client may not set system fields:
-
-```text
-id
-created_at
-updated_at
-```
-
-A client may not set a field marked:
-
-```text
-readonly=true
-```
-
-Attempting to do so returns:
-
-```text
-422 Unprocessable Entity
-```
-
-System-managed fields are returned normally in records.
-
----
-
-## 61.13 Table schema changes
-
-v1 schema modification rules:
-
-### Allowed
-
-* add a field
-* change label, description and `order`
-* change display properties (`readonly`, `hidden`)
-* change non-destructive validation metadata
-* enable or disable `unique` on a field, subject to the duplicate check below
-* change explicit `indexes` declarations
-
-### Type changes
-
-A field's type may only be changed when the table contains no records.
-
-This avoids implicit data conversion.
-
-### Required fields added to a non-empty table
-
-A required field added to a table that already contains records must declare a
-`default`. Otherwise the operation returns `409 Conflict`, because existing
-records could not satisfy the new constraint. The default (or the existing
-value) is validated against the field's constraints before the change is
-committed.
-
-### Field deletion
-
-A field may only be deleted when there are no stored values for that field.
-
-Otherwise the operation returns:
-
-```text
-409 Conflict
-```
-
-### Uniqueness
-
-Enabling `unique` on a field whose existing records already contain duplicates
-returns `409 Conflict` and rolls back the schema change.
-
-### Application to existing records
-
-When a schema change is accepted, Clio reconciles stored record data in the same
-transaction: removed fields are dropped, newly added fields receive their
-default (or null), and non-null values are re-validated against the new
-constraints. A change that would make an existing record invalid fails and is
-not applied. Clio must not silently discard existing data.
-
----
-
-## 61.14 References
-
-A `reference` field definition names its target with `group` and `table`
-properties, and its stored value is the target record ID (section 61.10). Targets
-may be in the same group or another group. A reference is validated when it is
-created, updated, or supplied as a field default, and a reference to a
-non-existent record is rejected.
-
-References are enforced by Clio.
-
-Deleting a record that is referenced by another record returns:
-
-```text
-409 Conflict
-```
-
-unless all referencing values are cleared first.
-
-Deleting a table that is referenced by another table returns:
-
-```text
-409 Conflict
-```
-
-unless those references are removed first.
-
-There is no automatic cascade deletion in v1.
-
-A nullable reference may be explicitly set to `null`.
-
-A required reference may not be null.
-
----
-
-## 61.15 Query parameter encoding
-
-Query parameters use normal URL query encoding.
-
-Field names used by the query API may not contain:
-
-```text
-.
-```
-
-This allows unambiguous filter parameter names.
-
-Reserved parameters include:
-
-```text
-limit
-offset
-sort
-order
-distinct
-group_by
-aggregate
-from
-to
-bucket
-```
-
-Because filters are namespaced under `filter.`, a field named `limit` or `sort`
-remains reachable as `filter.limit` / `filter.sort`; reserved and field names do
-not collide. The `filter.` prefix is therefore mandatory and the bare
-`?field=value` form shown in early examples is not part of this contract.
-
-Query parameters are validated: unknown filter fields, unsupported operators,
-out-of-range `limit`/`offset`, malformed `from`/`to`, and value/type mismatches
-all return `422 Unprocessable Entity`.
-
----
-
-## 61.16 Filtering syntax
-
-Filters use:
-
-```text
-filter.{field}
-filter.{field}.eq
-filter.{field}.ne
-filter.{field}.gt
-filter.{field}.gte
-filter.{field}.lt
-filter.{field}.lte
-filter.{field}.contains
-filter.{field}.in
-filter.{field}.isnull
-```
-
-Examples:
-
-```text
-?filter.type=service
-```
-
-```text
-?filter.cost.gte=100
-```
-
-```text
-?filter.name.contains=Toyota
-```
-
-```text
-?filter.cost.isnull=true
-```
-
-For `in`, the parameter may be repeated:
-
-```text
-?filter.type.in=service&filter.type.in=repair
-```
-
-Repeated `in` values are treated as an OR within that field.
-
-Different filter fields/operators are combined using AND.
-
-Example:
-
-```text
-?filter.type.in=service&filter.cost.gte=100
-```
-
-means:
-
-```text
-(type == service) AND (cost >= 100)
-```
-
-Values are URL-decoded according to normal HTTP query semantics.
-
-Clients must percent-encode special characters as required by URL encoding.
-
-Operator semantics — which operators match null values, the case-insensitive
-substring behaviour of `contains`, the `true`/`false` requirement of `isnull`,
-and per-type operator validation — are defined in section 25.
-
----
-
-## 61.17 Null ordering
-
-When sorting:
-
-* non-null values sort before null values
-* null values always sort last
-* this remains true for both ascending and descending order
-
-This behaviour is fixed in v1.
-
----
-
-## 61.18 Distinct response
-
-Example:
-
-```http
-GET /api/v1/groups/vehicle/tables/service/records?distinct=type
-```
-
-Response:
-
-```json
-{
-  "values": [
-    "inspection",
-    "repair",
-    "service"
-  ],
-  "page": {
-    "limit": 100,
-    "offset": 0,
-    "count": 3,
-    "total": 3
-  }
-}
-```
-
-Paging applies to distinct values (default `limit` 100, maximum 1000; section 23).
-
-`null` may appear as a distinct value.
-
-Values are ordered ascending, with `null` last (section 61.17).
-
----
-
-## 61.19 Ungrouped aggregate response
-
-Example:
-
-```http
-GET /api/v1/groups/vehicle/tables/service/records?aggregate=count,cost:sum,cost:avg
-```
-
-Response:
-
-```json
-{
-  "aggregate": {
-    "count": 19,
-    "cost_sum": "3174.42",
-    "cost_avg": "167.0747368421"
-  }
-}
-```
-
-Aggregate field names use:
-
-```text
-{field}_{aggregate}
-```
-
-except `count`, which is simply:
-
-```text
-count
-```
-
-Decimal aggregate results are JSON strings using canonical decimal notation.
-
----
-
-## 61.20 Grouped aggregate response
-
-Example:
-
-```text
-?group_by=type&aggregate=count,cost:sum
-```
-
-Response:
-
-```json
-{
-  "groups": [
-    {
-      "type": "inspection",
-      "count": 4,
-      "cost_sum": "420.00"
-    },
-    {
-      "type": "repair",
-      "count": 7,
-      "cost_sum": "932.10"
-    },
-    {
-      "type": "service",
-      "count": 8,
-      "cost_sum": "1822.32"
-    }
-  ],
-  "page": {
-    "limit": 100,
-    "offset": 0,
-    "count": 3,
-    "total": 3
-  }
-}
-```
-
-Grouped results are pageable (default `limit` 100, maximum 1000; section 23) and
-are ordered ascending by group key. When `aggregate` is omitted, only `count` is
-returned (section 27).
-
----
-
-## 61.21 Time-series time semantics
-
-Time-series timestamps are:
-
-* stored logically in UTC
-* returned as RFC 3339 UTC timestamps
-* compared in UTC
-
-Example:
-
-```text
-2026-09-27T12:30:00Z
-```
-
-Clients may provide RFC 3339 timestamps containing offsets.
-
-Clio normalizes them to UTC.
-
-For example:
-
-```text
-2026-09-27T22:30:00+10:00
-```
-
-and:
-
-```text
-2026-09-27T12:30:00Z
-```
-
-represent the same instant.
-
----
-
-## 61.22 Time-series range semantics
-
-For:
-
-```text
-from
-to
-```
-
-the time interval is:
-
-```text
-[from, to)
-```
-
-That means:
-
-* `from` is inclusive
-* `to` is exclusive
-
-Both parameters must be RFC 3339 timestamps.
-
-Example:
-
-```text
-?from=2026-09-01T00:00:00Z
-&to=2026-10-01T00:00:00Z
-```
-
-selects all measurements during September 2026.
-
----
-
-## 61.23 Time-series bucket semantics
-
-Buckets use UTC.
-
-Supported:
-
-```text
-hour
-day
-week
-month
-```
-
-Bucket starts are:
-
-* hour: beginning of UTC hour
-* day: 00:00 UTC
-* week: Monday 00:00 UTC
-* month: first day of month at 00:00 UTC
-
-Example:
-
-```text
-bucket=day
-```
-
-returns:
-
-```json
-{
-  "buckets": [
-    {
-      "bucket_start": "2026-09-27T00:00:00Z",
-      "count": 24,
-      "temperature_avg": "20.43"
-    }
-  ],
-  "page": {
-    "limit": 1000,
-    "offset": 0,
-    "count": 1,
-    "total": 1
-  }
-}
-```
-
-Only buckets containing at least one record are returned.
-
-Empty buckets are not synthesized.
-
-`bucket_start` is an RFC 3339 UTC timestamp at the bucket boundary. Bucketed
-results are ordered ascending by `bucket_start` and are pageable (default
-`limit` 1000, maximum 1000; section 23). `aggregate` is required when `bucket` is
-supplied.
-
----
-
-## 61.24 HTML trust boundary
-
-HTML pages are considered **trusted published content**.
-
-Clio stores and serves HTML page content without sanitizing or rewriting it.
-
-This means an HTML page may contain executable JavaScript.
-
-Therefore:
-
-* Clio must be deployed where publishers are trusted.
-* The write API must be protected by the surrounding deployment if untrusted users can access Clio.
-* Clio does not attempt to turn arbitrary user-submitted HTML into a safe multi-user content platform.
-* Authorization beyond the single configured identity in section 62 remains an external deployment concern in v1.
-
-Markdown and Clio-generated HTML views must still escape/sanitize untrusted data appropriately.
-
-This boundary must be clearly documented in the README and `/help`.
-
----
-
-## 61.25 CLIO_ADDR
-
-`CLIO_ADDR` specifies the local HTTP bind address using:
-
-```text
-host:port
-```
-
-Examples:
-
-```text
-0.0.0.0:8080
-127.0.0.1:8080
-:8080
-```
-
-Clio serves HTTP by default. It may terminate TLS directly when a certificate
-and private-key pair are configured; TLS termination may instead be performed
-by a trusted reverse proxy as described in section 62.
-
-`CLIO_BASE_URL` is independent of `CLIO_ADDR`.
-
-Example:
-
-```text
-CLIO_ADDR=0.0.0.0:8080
-CLIO_BASE_URL=https://clio.atrangi.com
-```
-
----
-
-## 61.26 API path parameter rules
-
-The API uses query parameters for arbitrary content paths.
-
-This avoids ambiguity caused by nested path parameters.
-
-Examples:
-
-```text
-GET /api/v1/directories?path=/pool/reports
-GET /api/v1/pages?path=/pool/reports/weekly.md
-DELETE /api/v1/directories?path=/pool/reports
-```
-
-Group and table identifiers are simple path parameters because they are restricted identifiers.
-
----
-
-## 61.27 Identifier rules
-
-Group and table names must:
-
-* be non-empty
-* begin with a lowercase ASCII letter or digit
-* contain only lowercase ASCII letters, digits, `_` and `-`
-* be case-sensitive by definition but normalized to lowercase on creation
-* not contain `.`
-* not contain `/`
-
-Example:
-
-```text
-pool
-vehicle
-vehicle_service
-pool-measurements
-```
-
-Display labels may contain arbitrary Unicode text.
-
-Content paths have the separate content-path rules defined above.
-
----
-
-## 61.28 v1 scope
-
-All capabilities explicitly listed in the v1.0 specification and this clarification are required v1 capabilities.
-
-The following are particularly important and are not optional:
-
-* API v1
-* metadata API
-* table creation API
-* record CRUD
-* time-series support
-* query/filter/sort/paging
-* grouping
-* aggregation
-* time bucketing
-* directory API
-* Markdown/HTML publishing
-* directory-tree upload
-* stable URLs
-* `/health`
-* `/help`
-* client-side Markdown renderer
-
-The client-side renderer remains intentionally tiny and must not evolve into a frontend framework.
-
----
-
-## 61.29 API v1 summary
-
-The single canonical API v1 route list is section 47. It is not duplicated here.
-Browser assets are served at `/assets/clio-markdown.js` (Markdown renderer) and
-`/assets/clio.js` (optional ClioJS client, also `/assets/clio/v1/clio.js`); they
-are static assets rather than API endpoints.
-
----
-
-## 61.30 Additional acceptance requirements
-
-Section 56 defines the end-to-end acceptance walkthrough and section 55 defines
-the automated test coverage. The following requirements are part of the same
-acceptance suite and do not replace either of those sections.
-
-### Routing
-
-Verify that all of the following can coexist:
-
-```text
-/pool/measurements
-/t/pool/measurements
-```
-
-where the first is a content resource and the second is a table.
-
-No routing ambiguity exists.
-
-### Markdown API
-
-Create:
-
-```text
-/pool/reports/latest.md
-```
-
-through the API.
-
-Retrieve it through:
-
-```text
-GET /api/v1/pages?path=/pool/reports/latest.md
-```
-
-Verify that the original Markdown source is returned.
-
-Use that source with:
-
-```text
-/assets/clio-markdown.js
-```
-
-and verify browser rendering.
-
-### Directory upload
-
-Upload:
-
-```text
-weekly.md
-measurements/latest.md
-```
-
-to:
-
-```text
-/pool/reports
-```
-
-Verify the resulting paths are:
-
-```text
-/pool/reports/weekly.md
-/pool/reports/measurements/latest.md
-```
-
-Verify the configured upload limits are enforced.
-
-### Record semantics
-
-Verify:
-
-* omitted field uses default or becomes null
-* required omitted field fails
-* explicit null clears nullable field
-* required field cannot be null
-* omitted PATCH fields remain unchanged
-* unknown fields are rejected
-* readonly fields are rejected
-* decimals round-trip without floating-point conversion
-
-### Query semantics
-
-Verify:
-
-* paging
-* exact filtering
-* operator filtering
-* `in`
-* `isnull`
-* sorting
-* null ordering
-* distinct response
-* aggregate response
-* grouped response
-* time-range boundaries
-* UTC normalization
-* daily/weekly/monthly buckets
-
----
-
-# 62. Optional authentication and transport security
-
-Clio supports an optional, intentionally small single-user access gate. This
-section consolidates the former `SPEC-Addendum-Auth.md`, which is retained only
-as a historical reference. Authentication remains disabled by default, and
-enabling it does not change the API or data model.
-
-## 62.1 Authentication model
-
-The only built-in authentication scheme is HTTP Basic Authentication with one
-configured username and password hash. There are no user tables, roles,
-sessions, authorization rules, registration, password reset, OAuth, OIDC, JWT,
-or MFA. The configured identity has access to the whole Clio instance.
-
-When enabled, authentication applies to every HTTP route, including health,
-help, published content, directories, table views, API endpoints, and static
-assets. Health is not an unauthenticated exception.
-
-## 62.2 Configuration
-
-Optional settings and defaults are:
-
-| Setting | Default | Meaning |
-| --- | --- | --- |
-| `CLIO_AUTH_ENABLED` | `false` | Require Basic Authentication. |
-| `CLIO_AUTH_USER` | `admin` | The one configured username. |
-| `CLIO_AUTH_PASSWORD_HASH` | unset | Required when authentication is enabled; a bcrypt hash. |
-| `CLIO_REQUIRE_HTTPS` | `true` | Require encrypted transport or an allowed trusted HTTP source when authentication is enabled. |
-| `CLIO_TRUSTED_HTTP_NETWORKS` | `127.0.0.0/8,::1/128` | Comma-separated CIDRs allowed to use HTTP; loopback is always allowed. |
-| `CLIO_TRUST_PROXY` | `false` | Allow trusted reverse-proxy protocol information to identify HTTPS. |
-| `CLIO_TRUSTED_PROXY_NETWORKS` | empty | Comma-separated CIDRs of immediate trusted proxy peers. Required when `CLIO_TRUST_PROXY=true`. |
-| `CLIO_TLS_CERT` | unset | Optional certificate file for direct TLS; must be configured with `CLIO_TLS_KEY`. |
-| `CLIO_TLS_KEY` | unset | Optional private-key file for direct TLS; must be configured with `CLIO_TLS_CERT`. |
-
-Invalid booleans, malformed CIDRs, an incomplete TLS key pair, or trusted-proxy
-mode without trusted proxy CIDRs are startup configuration errors. A missing
-or invalid password hash is an error when authentication is enabled. Never
-put a plaintext password in persistent configuration.
-
-Clio uses bcrypt for password hashing. Generate a compatible hash with:
-
-```sh
-clio hash-password
-```
-
-The command prompts for the password without echoing it and prints only the
-hash, which can be supplied as `CLIO_AUTH_PASSWORD_HASH` through a secret
-manager or protected environment file. The application never logs credentials
-or the configured hash.
-
-## 62.3 HTTPS policy
-
-When authentication is enabled and `CLIO_REQUIRE_HTTPS=true`, Clio accepts
-requests only when at least one of these conditions holds:
-
-* Clio received the request over direct TLS.
-* The immediate peer address is loopback.
-* The immediate peer address is within `CLIO_TRUSTED_HTTP_NETWORKS`.
-* Trusted-proxy mode is enabled, the immediate peer belongs to
-  `CLIO_TRUSTED_PROXY_NETWORKS`, and that proxy indicates the original protocol
-  was HTTPS.
-
-Private network ranges are not implicitly trusted. Operators must explicitly
-add any trusted LAN or container network to the HTTP allowlist. When
-`CLIO_REQUIRE_HTTPS=false`, HTTP is accepted by explicit operator choice.
-
-The optional `CLIO_TLS_CERT` and `CLIO_TLS_KEY` pair enables direct TLS on the
-configured `CLIO_ADDR`. Otherwise Clio serves plain HTTP and may sit behind a
-TLS-terminating reverse proxy.
-
-Forwarded protocol headers are ignored unless `CLIO_TRUST_PROXY=true` and the
-immediate peer address is in `CLIO_TRUSTED_PROXY_NETWORKS`. Only a single
-`X-Forwarded-Proto: https` value is accepted as evidence of HTTPS; untrusted,
-duplicated, or chained values cannot bypass transport enforcement. A reverse
-proxy must replace, rather than append to, untrusted forwarded-protocol input.
-
-When transport requirements are not met, Clio returns `403 Forbidden` and
-does not redirect the request. This avoids redirecting a request after
-credentials may have been sent over an insecure connection.
-
-## 62.4 Authentication responses and logging
-
-Missing or invalid credentials return `401 Unauthorized` and:
-
-```text
-WWW-Authenticate: Basic realm="Clio"
-```
-
-The response must not reveal whether a username exists or whether a password
-was wrong. Authentication failures are logged with a generic reason category;
-logs must never contain plaintext passwords, Authorization headers, password
-hashes, or request bodies. Brute-force rate limiting remains the responsibility
-of a reverse proxy or deployment network policy.
-
-Basic Authentication does not add a CORS requirement. Browsers and ordinary
-HTTP clients use their standard Basic Authentication support. When enabled,
-README and `/help` document the authentication state, hash generation, HTTPS
-policy, trusted HTTP networks, trusted-proxy requirements, and the fact that
-Basic Authentication must be protected by TLS on untrusted networks.
-
-## 62.5 Authentication and transport tests
-
-Automated tests must cover:
-
-* disabled authentication and enabled authentication;
-* valid, missing, and invalid credentials, including the challenge header;
-* protected API, HTML, health, and static-asset routes;
-* direct TLS, localhost HTTP, trusted HTTP CIDRs, rejected untrusted HTTP, and
-  explicit HTTP allowance when HTTPS enforcement is disabled;
-* trusted-proxy HTTPS acceptance and rejection of spoofed forwarded headers
-  from untrusted peers;
-* invalid CIDRs/proxy settings and missing or invalid password hashes.
-
----
-
-# 63. ClioJS browser client
-
-Clio serves an optional, lightweight browser JavaScript client over the existing
-Clio v1 REST API. This section consolidates the former
-`SPEC-Addendum-ClioJS.md`, which is retained only as a historical reference.
-ClioJS adds no API endpoints or semantics.
-
-Use the ClioJS script itself to implement Data Browsing.
-
-## 63.1 Distribution and scope
-
-The stable script URL is `/assets/clio.js`; the versioned URL
-`/assets/clio/v1/clio.js` serves the compatible v1 client. A plain HTML page can
-load it directly with `<script src="/assets/clio.js"></script>`. ClioJS requires
-no package installation, Node.js, bundler, transpiler, frontend framework, or
-build step. Its sole global is `Clio` and it identifies its library and API
-versions through `Clio.version` and `Clio.apiVersion`.
-
-ClioJS is a thin wrapper around `fetch()` and the existing HTTP API. It must not
-become an ORM, application framework, state store, persistence layer, or cache.
-The server remains authoritative; the client introduces no alternate query,
-validation, time-series, or concurrency semantics.
-
-`Clio.DataBrowser.mount(element)` is the sole built-in UI component in the
-ClioJS asset. It is narrowly scoped to the read-only collection browser in
-section 64 and does not establish a general application framework or state
-store.
-
-## 63.2 Client operations
-
-`new Clio()` targets the origin from which the script is served and uses
-same-origin browser credentials. An explicit `baseUrl` may be provided. The
-client exposes convenient access to metadata and groups, and a table handle
-obtained with `clio.table(group, table)`. Table handles support metadata,
-record listing/querying, get/create/update/delete, and the lightweight
-`list`, `first`, `count`, `distinct`, and `aggregate` conveniences. The client
-also supports creating groups/tables and accessing page source and directories.
-
-Record query options map predictably to the documented API query parameters:
-`limit`, `offset`, `sort`, `order`, filters, time bounds, buckets, grouping,
-aggregates, and distinct. A filter object maps keys to `filter.{field}` or
-`filter.{field}.{operator}` parameters; repeated filter values are preserved.
-`query()` returns the server's response shape. `records()` is an asynchronous
-iterator that requests later pages as needed, advances by the returned page
-count, and honors the server's effective page size rather than assuming a
-requested size was granted.
-
-Calls accept `AbortSignal` where applicable. Failed HTTP requests reject with
-an error exposing HTTP `status`, Clio error `code`, and the server's `message`.
-The client relies on browser-standard HTTP Basic Authentication and must not
-store credentials.
-
-## 63.3 Data and Markdown behavior
-
-The client preserves JSON types returned by Clio. In particular, decimal field
-values remain strings and are never converted to JavaScript floating-point
-numbers; dates and datetimes remain strings as well. Record PATCH requests pass
-omitted and explicit-null properties through unchanged so the API retains its
-defined partial-update semantics.
-
-`clio.page(path)` returns the original page source and metadata from the page
-API. ClioJS integrates with the separately served `/assets/clio-markdown.js`
-renderer through `Clio.Markdown.render(source)` when that renderer is loaded.
-Markdown safety requirements remain those in sections 41 and 61.6.
-
-## 63.4 Help and verification
-
-`/help` documents both asset URLs, same-origin usage, a short example, and the
-available client capabilities so browser users and generated pages can discover
-ClioJS without a separate package. Tests cover its static routes, metadata,
-table and record operations, query encoding, paging/async iteration, errors,
-decimal preservation, page/directory access, cancellation where implemented,
-and Markdown integration. The asset must work in an ordinary browser page.
-
----
-
-# 64. Collection Data Browser
-
-This section consolidates the former `SPEC-Addendum-DataBrowsing.md`, which is
-retained only as a historical reference, and is normative for the built-in
-browser interface. It is an inspection and navigation view, not a spreadsheet
-editor; it does not create, edit, or delete records.
-
-## 64.1 Routes and layout
-
-The canonical table-browser URI is:
-
-```text
-/collections/{group}/{table}
-```
-
-The path uses the existing group identifier for the collection segment. The
-query parameter `page` is one-based; the browser maps it to the API's existing
-`limit` and `offset` parameters. `/collections` opens the browser and selects
-the first available group and table. `/collections/{group}` selects the first
-table in that group. These are browser entry points, not new API endpoints.
-
-The browser is a compact, information-dense, three-part layout: a collection
-selector, a table-navigation pane, and a read-only data grid. The selector
-lists groups available through the API. Selecting another collection refreshes
-the table navigation, keeps the current table name if it exists in that group
-or selects its first table, and updates the URL. Selecting a table and changing
-pages likewise update the URL and support normal browser history navigation.
-
-## 64.2 Client-side rendering
-
-The browser shell is served at `/collections` and its nested routes. It loads
-`/assets/clio.js` and uses `Clio.DataBrowser.mount(element)` to retrieve group,
-table, metadata, and record data through ClioJS and the existing v1 API. No new
-API endpoint, frontend dependency, package installation, or build step is
-introduced. The browser renders data in the user's browser; server-side table
-and form views at `/t/{group}/{table}` remain available.
-
-The grid displays visible fields in metadata order with metadata-defined labels.
-Hidden fields are omitted. Record values are rendered as text, not executable
-HTML. Decimal values remain the strings returned by the API. The browser shows
-the selected table and current record range and provides previous/next and
-numbered page navigation. Its initial page size is 50 records; page navigation
-maps to `limit=50` and `offset=(page-1)*50` and uses the API response's total.
-
-## 64.3 Boundaries and verification
-
-The browser is for inspection and navigation only. Record creation and editing
-remain in the existing `/t/` forms or API. Collection paths are reserved from
-published content so they cannot shadow the browser routes.
-
-Tests cover browser route handling and methods, loading ClioJS, group/table
-navigation, metadata-ordered visible columns, safe text rendering, URL/page
-state, empty collections/tables, and API error display. No external service or
-frontend framework is required.
-
----
