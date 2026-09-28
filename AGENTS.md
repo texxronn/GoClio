@@ -25,7 +25,9 @@ go build -buildvcs=false -o /tmp/gocl-clio-check .
 
 Tests should exercise behavior through HTTP where practical and use temporary
 SQLite databases and content directories. Add regression tests for fixes and
-new behavior without relying on external services.
+new behavior without relying on external services. Specification areas are
+mapped to tests in `SPEC-CONFORMANCE.md`; keep that mapping current when adding
+coverage.
 
 ## Examples and deployment
 

@@ -1,8 +1,10 @@
 # GoClio
 
-GoClio is a Go implementation of the frozen Clio v1 contract in `SPEC.md`. It
-uses Go's standard HTTP server, one SQLite database in WAL mode, and the
-filesystem for published content.
+GoClio is a Go implementation of the frozen Clio v1 contract in `SPEC.md`
+(specification revision 1.2; product version 1.0.0; API version v1). It uses Go's
+standard HTTP server, one SQLite database in WAL mode, and the filesystem for
+published content. `SPEC-CONFORMANCE.md` maps specification areas to automated
+tests.
 
 ## Build and run
 

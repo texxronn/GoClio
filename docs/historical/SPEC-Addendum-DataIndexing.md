@@ -1,3 +1,9 @@
+> **SUPERSEDED — HISTORICAL REFERENCE ONLY.**
+>
+> This document has been consolidated into the authoritative contract at
+> [SPEC.md](../../SPEC.md). It is retained for background only and confers no
+> requirements. Do not implement from this file.
+
 # SPEC ADDENDUM — Indexing and Query Performance
 
 ## Status
