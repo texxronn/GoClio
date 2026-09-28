@@ -4,10 +4,27 @@ const vm = require("node:vm");
 
 const source = fs.readFileSync(process.argv[2], "utf8");
 const requests = [];
+class Element {
+  constructor(tagName) { this.tagName = tagName; this.children = []; this.attributes = {}; this.handlers = {}; this._text = ""; }
+  set textContent(value) { this._text = String(value); this.children = []; }
+  get textContent() { return this._text + this.children.map((child) => child.textContent).join(""); }
+  appendChild(child) { this.children.push(child); return child; }
+  append(...children) { children.forEach((child) => this.appendChild(child)); }
+  replaceChildren(...children) { this.children = []; this._text = ""; children.forEach((child) => this.appendChild(child)); }
+  setAttribute(name, value) { this.attributes[name] = String(value); }
+  addEventListener(name, handler) { this.handlers[name] = handler; }
+}
+const location = { origin: "https://clio.example", pathname: "/collections/pool/measurements", search: "?page=2" };
 const context = {
   URLSearchParams,
+  URL,
   AbortController,
-  location: { origin: "https://clio.example" },
+  location,
+  history: {
+    pushState(_state, _title, value) { Object.assign(location, { pathname: new URL(value, location.origin).pathname, search: new URL(value, location.origin).search }); },
+    replaceState(_state, _title, value) { Object.assign(location, { pathname: new URL(value, location.origin).pathname, search: new URL(value, location.origin).search }); }
+  },
+  document: { createElement: (name) => new Element(name), querySelector: () => null },
   ClioMarkdown: { render: (source) => `<p>${source}</p>` },
   fetch: async (url, options = {}) => {
     requests.push({ url: String(url), options });
@@ -32,7 +49,7 @@ const context = {
     } else if (parsed.pathname.endsWith("/metadata")) {
       body = { api_version: "v1", groups: [] };
     } else if (parsed.pathname.endsWith("/groups/pool/tables/measurements")) {
-      body = { group: "pool", name: "measurements", kind: "timeseries" };
+      body = { group: "pool", name: "measurements", label: "Measurements", kind: "timeseries", fields: [{ name: "amount", label: "Amount", type: "decimal" }, { name: "hidden", label: "Hidden", hidden: true }] };
     } else if (parsed.pathname.endsWith("/groups/pool/tables")) {
       body = [{ name: "measurements" }];
     } else if (parsed.pathname.endsWith("/groups/pool")) {
@@ -56,6 +73,7 @@ async function main() {
   const Clio = context.Clio;
   assert.equal(Clio.version, "1.0.0");
   assert.equal(Clio.apiVersion, "v1");
+  assert.equal(typeof Clio.DataBrowser.mount, "function");
   assert.equal(Clio.Markdown.render("Hello"), "<p>Hello</p>");
 
   const clio = new Clio();
@@ -101,6 +119,20 @@ async function main() {
 
   assert.equal((await clio.page("/reports/latest.md")).content, "# Hi");
   assert.equal((await clio.directory("/reports")).path, "/reports");
+
+  const browserHost = new Element("div");
+  const browser = Clio.DataBrowser.mount(browserHost, { pageSize: 2 });
+  await browser.ready;
+  const browserText = browserHost.textContent;
+  assert.match(browserText, /Measurements/);
+  assert.match(browserText, /30\.40/);
+  assert.doesNotMatch(browserText, /Hidden/);
+  const browserRequest = requests.find((request) => request.url.includes("/records?") && new URL(request.url).searchParams.get("offset") === "2");
+  assert.ok(browserRequest, "browser loads the selected page through ClioJS");
+  assert.equal(location.pathname, "/collections/pool/measurements");
+  assert.equal(new URLSearchParams(location.search).get("page"), "2");
+  browser.destroy();
+
   let error;
   try {
     await table.get("missing");

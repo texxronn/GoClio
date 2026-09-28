@@ -3431,6 +3431,8 @@ Clio serves an optional, lightweight browser JavaScript client over the existing
 Clio v1 REST API. This section integrates `SPEC-Addendum-ClioJS.md` and is
 authoritative if wording differs. ClioJS adds no API endpoints or semantics.
 
+Use the ClioJS script itself to implement Data Browsing.
+
 ## 63.1 Distribution and scope
 
 The stable script URL is `/assets/clio.js`; the versioned URL
@@ -3444,6 +3446,11 @@ ClioJS is a thin wrapper around `fetch()` and the existing HTTP API. It must not
 become an ORM, application framework, state store, persistence layer, or cache.
 The server remains authoritative; the client introduces no alternate query,
 validation, time-series, or concurrency semantics.
+
+`Clio.DataBrowser.mount(element)` is the sole built-in UI component in the
+ClioJS asset. It is narrowly scoped to the read-only collection browser in
+section 64 and does not establish a general application framework or state
+store.
 
 ## 63.2 Client operations
 
@@ -3490,5 +3497,61 @@ ClioJS without a separate package. Tests cover its static routes, metadata,
 table and record operations, query encoding, paging/async iteration, errors,
 decimal preservation, page/directory access, cancellation where implemented,
 and Markdown integration. The asset must work in an ordinary browser page.
+
+---
+
+# 64. Collection Data Browser
+
+This section integrates `SPEC-Addendum-DataBrowsing.md` and is authoritative
+for the built-in browser interface. It is an inspection and navigation view,
+not a spreadsheet editor; it does not create, edit, or delete records.
+
+## 64.1 Routes and layout
+
+The canonical table-browser URI is:
+
+```text
+/collections/{group}/{table}
+```
+
+The path uses the existing group identifier for the collection segment. The
+query parameter `page` is one-based; the browser maps it to the API's existing
+`limit` and `offset` parameters. `/collections` opens the browser and selects
+the first available group and table. `/collections/{group}` selects the first
+table in that group. These are browser entry points, not new API endpoints.
+
+The browser is a compact, information-dense, three-part layout: a collection
+selector, a table-navigation pane, and a read-only data grid. The selector
+lists groups available through the API. Selecting another collection refreshes
+the table navigation, keeps the current table name if it exists in that group
+or selects its first table, and updates the URL. Selecting a table and changing
+pages likewise update the URL and support normal browser history navigation.
+
+## 64.2 Client-side rendering
+
+The browser shell is served at `/collections` and its nested routes. It loads
+`/assets/clio.js` and uses `Clio.DataBrowser.mount(element)` to retrieve group,
+table, metadata, and record data through ClioJS and the existing v1 API. No new
+API endpoint, frontend dependency, package installation, or build step is
+introduced. The browser renders data in the user's browser; server-side table
+and form views at `/t/{group}/{table}` remain available.
+
+The grid displays visible fields in metadata order with metadata-defined labels.
+Hidden fields are omitted. Record values are rendered as text, not executable
+HTML. Decimal values remain the strings returned by the API. The browser shows
+the selected table and current record range and provides previous/next and
+numbered page navigation. Its initial page size is 50 records; page navigation
+maps to `limit=50` and `offset=(page-1)*50` and uses the API response's total.
+
+## 64.3 Boundaries and verification
+
+The browser is for inspection and navigation only. Record creation and editing
+remain in the existing `/t/` forms or API. Collection paths are reserved from
+published content so they cannot shadow the browser routes.
+
+Tests cover browser route handling and methods, loading ClioJS, group/table
+navigation, metadata-ordered visible columns, safe text rendering, URL/page
+state, empty collections/tables, and API error display. No external service or
+frontend framework is required.
 
 ---

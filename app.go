@@ -32,7 +32,7 @@ func missing(what string) *apiError     { return &apiError{404, "not_found", wha
 func conflict(message string) *apiError { return &apiError{409, "conflict", message} }
 func methodNotAllowed() *apiError       { return &apiError{405, "method_not_allowed", "Method not allowed"} }
 
-var reservedRoot = map[string]bool{"api": true, "health": true, "help": true, "assets": true, "t": true}
+var reservedRoot = map[string]bool{"api": true, "health": true, "help": true, "assets": true, "t": true, "collections": true}
 var identifierPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 var fieldTypes = map[string]bool{"string": true, "text": true, "integer": true, "decimal": true, "boolean": true, "date": true, "datetime": true, "enum": true, "url": true, "reference": true}
 
@@ -110,6 +110,10 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/t" || strings.HasPrefix(r.URL.Path, "/t/") {
 		a.tableUI(w, r)
+		return
+	}
+	if r.URL.Path == "/collections" || strings.HasPrefix(r.URL.Path, "/collections/") {
+		a.collectionBrowserUI(w, r)
 		return
 	}
 	if reservedRoot[firstSegment(r.URL.Path)] {

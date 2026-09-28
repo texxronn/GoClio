@@ -207,5 +207,237 @@
     }
   });
 
+  const DataBrowser = {
+    mount(target, options) {
+      options = options || {};
+      const doc = root.document;
+      if (!doc) throw new TypeError("Clio.DataBrowser.mount() requires a browser element");
+      const host = typeof target === "string" ? doc.querySelector(target) : target;
+      if (!host) throw new TypeError("Clio.DataBrowser.mount() requires a browser element");
+      const client = options.client || new Clio(options);
+      const pageSize = Math.min(1000, Math.max(1, Number(options.pageSize) || 50));
+      let currentGroup = "";
+      let currentTable = "";
+      let groups = [];
+      let requestNumber = 0;
+      let destroyed = false;
+
+      const element = (tag, text, className) => {
+        const value = doc.createElement(tag);
+        if (text != null) value.textContent = String(text);
+        if (className) value.className = className;
+        return value;
+      };
+      const toolbar = element("div", null, "browser-toolbar");
+      const collectionLabel = element("label", "Collection:");
+      const collectionSelect = element("select");
+      collectionSelect.setAttribute("aria-label", "Collection");
+      collectionLabel.appendChild(collectionSelect);
+      toolbar.appendChild(collectionLabel);
+      const layout = element("div", null, "browser-layout");
+      const sidebar = element("aside", null, "browser-tables");
+      sidebar.appendChild(element("h2", "Tables"));
+      const tableList = element("ul");
+      sidebar.appendChild(tableList);
+      const content = element("section", null, "browser-content");
+      content.setAttribute("aria-label", "Table data");
+      const title = element("h2", "");
+      const status = element("p", "Loading…", "browser-status");
+      status.setAttribute("role", "status");
+      const grid = element("div", null, "browser-grid");
+      const pagination = element("nav", null, "browser-pagination");
+      pagination.setAttribute("aria-label", "Pages");
+      content.append(title, status, grid, pagination);
+      layout.append(sidebar, content);
+      host.replaceChildren(toolbar, layout);
+
+      function selectedPage() {
+        const params = new URLSearchParams((root.location && root.location.search) || "");
+        const value = Number(params.get("page") || 1);
+        return Number.isFinite(value) && value > 0 ? Math.floor(value) : 1;
+      }
+
+      function setURL(group, table, page, replace) {
+        const path = group ? `/collections/${encodeURIComponent(group)}${table ? `/${encodeURIComponent(table)}` : ""}` : "/collections";
+        const query = page > 1 ? `?page=${page}` : "";
+        if (root.history && root.history[replace ? "replaceState" : "pushState"]) {
+          root.history[replace ? "replaceState" : "pushState"]({}, "", `${path}${query}`);
+        }
+      }
+
+      function drawCollections() {
+        collectionSelect.replaceChildren();
+        for (const group of groups) {
+          const option = element("option", group.label || group.name);
+          option.value = group.name;
+          option.selected = group.name === currentGroup;
+          collectionSelect.appendChild(option);
+        }
+        collectionLabel.hidden = groups.length === 0;
+      }
+
+      function drawTableLinks(tables) {
+        tableList.replaceChildren();
+        for (const table of tables) {
+          const item = element("li");
+          const link = element("a", table.label || table.name);
+          link.href = `/collections/${encodeURIComponent(currentGroup)}/${encodeURIComponent(table.name)}`;
+          if (table.name === currentTable) link.setAttribute("aria-current", "page");
+          link.addEventListener("click", (event) => {
+            event.preventDefault();
+            navigate(currentGroup, table.name, 1);
+          });
+          item.appendChild(link);
+          tableList.appendChild(item);
+        }
+      }
+
+      function valueText(value) {
+        if (value == null) return "";
+        if (typeof value === "object") return JSON.stringify(value);
+        return String(value);
+      }
+
+      function drawGrid(fields, records) {
+        grid.replaceChildren();
+        const visibleFields = fields.filter((field) => field.hidden !== true);
+        const table = element("table");
+        const head = element("thead");
+        const headingRow = element("tr");
+        for (const field of visibleFields) headingRow.appendChild(element("th", field.label || field.name));
+        head.appendChild(headingRow);
+        table.appendChild(head);
+        const body = element("tbody");
+        for (const record of records) {
+          const row = element("tr");
+          for (const field of visibleFields) row.appendChild(element("td", valueText(record[field.name])));
+          body.appendChild(row);
+        }
+        table.appendChild(body);
+        grid.appendChild(table);
+      }
+
+      function drawPages(page, selected) {
+        pagination.replaceChildren();
+        const total = Math.max(0, Number(page && page.total) || 0);
+        const pages = Math.ceil(total / pageSize);
+        const addPage = (number, label) => {
+          const link = element("a", label || number);
+          link.href = number > 1 ? `?page=${number}` : root.location.pathname;
+          if (number === selected) link.setAttribute("aria-current", "page");
+          link.addEventListener("click", (event) => {
+            event.preventDefault();
+            navigate(currentGroup, currentTable, number);
+          });
+          pagination.appendChild(link);
+        };
+        if (selected > 1) addPage(selected - 1, "Previous");
+        const start = Math.max(1, Math.min(selected - 2, pages - 4));
+        const end = Math.min(pages, Math.max(5, selected + 2));
+        if (start > 1) {
+          addPage(1);
+          if (start > 2) pagination.appendChild(element("span", "…"));
+        }
+        for (let number = start; number <= end; number++) addPage(number);
+        if (end < pages) {
+          if (end < pages - 1) pagination.appendChild(element("span", "…"));
+          addPage(pages);
+        }
+        if (selected < pages) addPage(selected + 1, "Next");
+        pagination.hidden = pages <= 1;
+      }
+
+      async function navigate(group, table, page, replaceURL) {
+        const request = ++requestNumber;
+        currentGroup = group || "";
+        currentTable = table || "";
+        page = Math.max(1, Number(page) || 1);
+        title.textContent = "";
+        grid.replaceChildren();
+        pagination.replaceChildren();
+        status.className = "browser-status";
+        status.textContent = "Loading…";
+        try {
+          if (!groups.length) groups = await client.groups();
+          if (destroyed || request !== requestNumber) return;
+          drawCollections();
+          if (!groups.length) {
+            currentGroup = currentTable = "";
+            status.textContent = "No collections are available.";
+            setURL("", "", 1, replaceURL === true);
+            return;
+          }
+          let groupItem = groups.find((item) => item.name === currentGroup);
+          if (!groupItem) groupItem = groups[0];
+          currentGroup = groupItem.name;
+          const tables = await client.group(currentGroup).tables();
+          if (destroyed || request !== requestNumber) return;
+          let tableItem = tables.find((item) => item.name === currentTable);
+          if (!tableItem) tableItem = tables[0];
+          currentTable = tableItem ? tableItem.name : "";
+          drawCollections();
+          drawTableLinks(tables);
+          if (!tableItem) {
+            title.textContent = groupItem.label || groupItem.name;
+            status.textContent = "This collection has no tables.";
+            setURL(currentGroup, "", 1, replaceURL === true);
+            return;
+          }
+          const tableClient = client.table(currentGroup, currentTable);
+          const [metadata, result] = await Promise.all([
+            tableClient.metadata(),
+            tableClient.query({ limit: pageSize, offset: (page - 1) * pageSize })
+          ]);
+          if (destroyed || request !== requestNumber) return;
+          const paging = result && result.page ? result.page : {};
+          const total = Number(paging.total) || 0;
+          const lastPage = Math.max(1, Math.ceil(total / pageSize));
+          if (page > lastPage) {
+            navigate(currentGroup, currentTable, lastPage, true);
+            return;
+          }
+          title.textContent = metadata.label || metadata.name;
+          const fields = Array.isArray(metadata.fields) ? metadata.fields : [];
+          const records = result && Array.isArray(result.data) ? result.data : [];
+          drawGrid(fields, records);
+          const start = records.length ? (page - 1) * pageSize + 1 : 0;
+          const end = records.length ? Math.min((page - 1) * pageSize + records.length, total) : 0;
+          status.textContent = `${start}–${end} of ${total} records`;
+          drawPages(paging, page);
+          setURL(currentGroup, currentTable, page, replaceURL === true);
+        } catch (error) {
+          if (destroyed || request !== requestNumber) return;
+          status.className = "browser-status browser-error";
+          status.textContent = error && error.message ? error.message : "Unable to load collection data.";
+        }
+      }
+
+      collectionSelect.addEventListener("change", () => navigate(collectionSelect.value, currentTable, 1));
+      const initialParts = ((root.location && root.location.pathname) || "").split("/").filter(Boolean);
+      const initialGroup = initialParts[0] === "collections" ? initialParts[1] || "" : "";
+      const initialTable = initialParts[0] === "collections" ? initialParts[2] || "" : "";
+      const popstate = () => {
+        const parts = (root.location.pathname || "").split("/").filter(Boolean);
+        navigate(parts[0] === "collections" ? parts[1] || "" : "", parts[0] === "collections" ? parts[2] || "" : "", selectedPage(), true);
+      };
+      if (root.addEventListener) root.addEventListener("popstate", popstate);
+      const ready = navigate(initialGroup, initialTable, selectedPage(), true);
+      return {
+        ready,
+        refresh() {
+          groups = [];
+          return navigate(currentGroup, currentTable, selectedPage(), true);
+        },
+        destroy() {
+          destroyed = true;
+          if (root.removeEventListener) root.removeEventListener("popstate", popstate);
+          host.replaceChildren();
+        }
+      };
+    }
+  };
+
+  Object.defineProperty(Clio, "DataBrowser", { value: DataBrowser, enumerable: true });
+
   root.Clio = Clio;
 })(typeof window !== "undefined" ? window : globalThis);

@@ -75,7 +75,7 @@ Fields support required, default, description, order, readonly, hidden, validati
 Records support GET list/item, POST create, PATCH update, DELETE at /api/v1/groups/{group}/tables/{table}/records[/{id}]. PATCH omitted fields remain unchanged; explicit null clears nullable fields. Defaults apply on create; omitted nullable values are returned as null. Required, unknown and readonly fields are validated.
 Decimal values are JSON strings; integer values are JSON integers; datetimes are RFC 3339 and normalized to UTC.
 References contain target record IDs and prevent deletion of referenced records/tables.
-HTML views use /t/{group}/{table}, /new, /{id}, and /{id}/edit. Forms are metadata-driven.
+HTML views use /t/{group}/{table}, /new, /{id}, and /{id}/edit. Forms are metadata-driven. The read-only Data Browser is at /collections/{group}/{table}; /collections opens the browser and selects the first available table.
 
 Example: POST /api/v1/groups/pool/tables with {"name":"readings","kind":"timeseries","timestamp_field":"timestamp","fields":[{"name":"timestamp","type":"datetime","required":true},{"name":"temperature","type":"decimal"}]}; then POST /api/v1/groups/pool/tables/readings/records with {"timestamp":"2026-09-27T12:00:00+10:00","temperature":"20.43"}. A record response contains the generated id, created_at, updated_at, and every defined field.
 
@@ -94,13 +94,13 @@ The asset /assets/clio-markdown.js exposes ClioMarkdown.render(source) for clien
 ## Browser JavaScript client
 - Load /assets/clio.js for the optional, dependency-free ClioJS v1 client (also available at /assets/clio/v1/clio.js). It uses same-origin fetch() by default and HTTP Basic Authentication supported by the browser.
 - Example: const clio = new Clio(); const table = clio.table("pool", "measurements"); const recent = await table.query({limit: 20, sort: "timestamp", order: "desc"});
-- ClioJS supports metadata, groups/tables, records, query paging/async iteration, directories and page source. Decimal values remain strings; errors expose status, code, and message.
+- ClioJS supports metadata, groups/tables, records, query paging/async iteration, directories and page source. Clio.DataBrowser.mount(element) powers the built-in read-only /collections/{group}/{table} browser. Decimal values remain strings; errors expose status, code, and message.
 - Load /assets/clio-markdown.js separately to use Clio.Markdown.render(page.content).
 
-Content paths are canonical, case-sensitive UTF-8 paths. They reject traversal, empty segments, backslashes, control characters and the reserved root names api, health, help, assets and t. The page read API returns source text in JSON.content; it does not return rendered HTML.
+Content paths are canonical, case-sensitive UTF-8 paths. They reject traversal, empty segments, backslashes, control characters and the reserved root names api, health, help, assets, t and collections. The page read API returns source text in JSON.content; it does not return rendered HTML.
 
 ## Safety and examples
-Group/table identifiers contain lowercase ASCII letters, digits, underscore and hyphen. Content paths reject traversal, backslashes, control characters and reserved root paths. API errors use {"error":"validation_error","message":"..."}. SQL values are parameterized; arbitrary SQL is unavailable.
+Group/table identifiers contain lowercase ASCII letters, digits, underscore and hyphen. Content paths reject traversal, backslashes, control characters and reserved root paths including /collections. API errors use {"error":"validation_error","message":"..."}. SQL values are parameterized; arbitrary SQL is unavailable.
 One SQLite database runs in WAL mode. Authentication is ` + authStatus + `. Enable it with CLIO_AUTH_ENABLED=true; then every route, including health, help, published content and static assets, requires HTTP Basic Authentication. API clients send standard Basic credentials. Generate a bcrypt password hash with ` + "`clio hash-password`" + ` and set CLIO_AUTH_USER and CLIO_AUTH_PASSWORD_HASH.
 When authentication is enabled, HTTPS is required by default except for localhost and explicitly configured CLIO_TRUSTED_HTTP_NETWORKS. CLIO_TRUST_PROXY=true accepts X-Forwarded-Proto only from peers in CLIO_TRUSTED_PROXY_NETWORKS. Direct TLS can be enabled with CLIO_TLS_CERT and CLIO_TLS_KEY. Basic Authentication without TLS exposes credentials to network observers; use HTTPS on untrusted networks. Published HTML is trusted executable content and should only be created by trusted publishers.
 Errors use JSON {"error":"validation_error","message":"..."}; invalid input returns 422 and resource conflicts return 409. Stop Clio before backing up or restoring the complete data directory, including the SQLite database and content/ tree.
