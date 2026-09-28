@@ -33,9 +33,10 @@ func (a *app) createRecord(group, table string, input map[string]any) (map[strin
 	}
 	id := newID()
 	now := formatUTC(time.Now())
+	timestampName := temporalField(meta, defs)
 	var timestamp any
-	if f, ok := meta["timestamp_field"].(string); ok {
-		timestamp = values[f]
+	if timestampName != "" {
+		timestamp = values[timestampName]
 	}
 	b, err := json.Marshal(values)
 	if err != nil {
@@ -78,9 +79,10 @@ func (a *app) patchRecord(group, table, id string, patch map[string]any) (map[st
 		return nil, errAPI(err)
 	}
 	now := formatUTC(time.Now())
+	timestampName := temporalField(meta, defs)
 	var timestamp any
-	if f, ok := meta["timestamp_field"].(string); ok {
-		timestamp = values[f]
+	if timestampName != "" {
+		timestamp = values[timestampName]
 	}
 	_, err = a.db.Exec(`UPDATE records SET updated_at=?,data=?,timestamp_value=? WHERE id=? AND group_name=? AND table_name=?`, now, string(b), timestamp, id, group, table)
 	if err != nil {
@@ -224,31 +226,15 @@ func (a *app) deleteRecord(group, table, id string) *apiError {
 	}
 	rows.Close()
 	for _, ref := range references {
-		matches, e := a.db.Query(`SELECT data FROM records WHERE group_name=? AND table_name=?`, ref.group, ref.table)
-		if e != nil {
+		var one int
+		expression := "json_extract(data, " + indexJSONPathSQL(ref.name) + ")"
+		e = a.db.QueryRow(`SELECT 1 FROM records WHERE group_name=? AND table_name=? AND `+expression+`=? LIMIT 1`, ref.group, ref.table, id).Scan(&one)
+		if e == nil {
+			return conflict("Record is referenced by another record")
+		}
+		if !errors.Is(e, sql.ErrNoRows) {
 			return errAPI(e)
 		}
-		for matches.Next() {
-			var raw string
-			if e = matches.Scan(&raw); e != nil {
-				matches.Close()
-				return errAPI(e)
-			}
-			values := map[string]any{}
-			if e = decodeJSON([]byte(raw), &values); e != nil {
-				matches.Close()
-				return errAPI(e)
-			}
-			if values[ref.name] == id {
-				matches.Close()
-				return conflict("Record is referenced by another record")
-			}
-		}
-		if e = matches.Err(); e != nil {
-			matches.Close()
-			return errAPI(e)
-		}
-		matches.Close()
 	}
 	_, e = a.db.Exec(`DELETE FROM records WHERE group_name=? AND table_name=? AND id=?`, group, table, id)
 	if e != nil {

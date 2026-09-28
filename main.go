@@ -150,18 +150,52 @@ func openDatabase(path string) (*sql.DB, error) {
 	}
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS groups_meta (name TEXT PRIMARY KEY, label TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0)`,
-		`CREATE TABLE IF NOT EXISTS tables_meta (group_name TEXT NOT NULL, name TEXT NOT NULL, label TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL, timestamp_field TEXT, PRIMARY KEY(group_name,name), FOREIGN KEY(group_name) REFERENCES groups_meta(name) ON DELETE CASCADE)`,
+		`CREATE TABLE IF NOT EXISTS tables_meta (group_name TEXT NOT NULL, name TEXT NOT NULL, label TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL, timestamp_field TEXT, indexes TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(group_name,name), FOREIGN KEY(group_name) REFERENCES groups_meta(name) ON DELETE CASCADE)`,
 		`CREATE TABLE IF NOT EXISTS fields_meta (group_name TEXT NOT NULL, table_name TEXT NOT NULL, name TEXT NOT NULL, position INTEGER NOT NULL, definition TEXT NOT NULL, PRIMARY KEY(group_name,table_name,name), FOREIGN KEY(group_name,table_name) REFERENCES tables_meta(group_name,name) ON DELETE CASCADE)`,
 		`CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, group_name TEXT NOT NULL, table_name TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, data TEXT NOT NULL, timestamp_value TEXT, FOREIGN KEY(group_name,table_name) REFERENCES tables_meta(group_name,name) ON DELETE CASCADE)`,
 		`CREATE TABLE IF NOT EXISTS content_page_times (path TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS managed_indexes (name TEXT PRIMARY KEY, group_name TEXT NOT NULL, table_name TEXT NOT NULL)`,
 		`CREATE INDEX IF NOT EXISTS records_table_idx ON records(group_name,table_name)`,
 		`CREATE INDEX IF NOT EXISTS records_created_idx ON records(group_name,table_name,created_at)`,
 		`CREATE INDEX IF NOT EXISTS records_timeseries_idx ON records(group_name,table_name,timestamp_value)`,
 		`CREATE INDEX IF NOT EXISTS records_created_query_idx ON records(group_name,table_name,created_at COLLATE CLIO_DATETIME DESC)`,
 		`CREATE INDEX IF NOT EXISTS records_timeseries_query_idx ON records(group_name,table_name,timestamp_value COLLATE CLIO_DATETIME)`,
+		`CREATE INDEX IF NOT EXISTS records_temporal_page_idx ON records(group_name,table_name,timestamp_value COLLATE CLIO_DATETIME DESC,id DESC)`,
 	}
 	for _, statement := range statements {
 		if _, err = db.Exec(statement); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	// Add the schema declaration column to databases created by earlier Clio versions.
+	columns, err := db.Query(`PRAGMA table_info(tables_meta)`)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	hasIndexes := false
+	for columns.Next() {
+		var cid, notnull, pk int
+		var name, typ string
+		var defaultValue any
+		if err = columns.Scan(&cid, &name, &typ, &notnull, &defaultValue, &pk); err != nil {
+			columns.Close()
+			db.Close()
+			return nil, err
+		}
+		if name == "indexes" {
+			hasIndexes = true
+		}
+	}
+	if err = columns.Err(); err != nil {
+		columns.Close()
+		db.Close()
+		return nil, err
+	}
+	columns.Close()
+	if !hasIndexes {
+		if _, err = db.Exec(`ALTER TABLE tables_meta ADD COLUMN indexes TEXT NOT NULL DEFAULT '[]'`); err != nil {
 			db.Close()
 			return nil, err
 		}

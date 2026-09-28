@@ -247,22 +247,18 @@ func (a *sqlDecimalAverage) Done() (any, error) {
 }
 
 func sqlFieldExpression(field string, def map[string]any) (string, []any) {
+	path := indexJSONPathSQL(field)
 	if def["type"] == "integer" {
-		key, _ := json.Marshal(field)
-		path := "$" + "." + string(key)
-		return "CASE WHEN typeof(json_extract(data, ?))='real' THEN clio_integer(data, ?) ELSE CAST(json_extract(data, ?) AS TEXT) END COLLATE CLIO_DECIMAL", []any{path, field, path}
+		return "CASE WHEN typeof(json_extract(data, " + path + "))='real' THEN clio_integer(data, '" + field + "') ELSE CAST(json_extract(data, " + path + ") AS TEXT) END COLLATE CLIO_DECIMAL", nil
 	}
-	key, _ := json.Marshal(field)
-	path := "$" + "." + string(key)
-	expression := "json_extract(data, ?)"
-	args := []any{path}
+	expression := "json_extract(data, " + path + ")"
 	switch def["type"] {
 	case "decimal":
 		expression += " COLLATE CLIO_DECIMAL"
 	case "datetime":
 		expression += " COLLATE CLIO_DATETIME"
 	}
-	return expression, args
+	return expression, nil
 }
 
 func sqlValue(value any, def map[string]any) any {
@@ -376,16 +372,24 @@ func (a *app) queryRecordPage(group, table string, defs map[string]map[string]an
 	if err = tx.QueryRow("SELECT COUNT(*) FROM records WHERE "+where, args...).Scan(&total); err != nil {
 		return nil, errAPI(err)
 	}
+	temporal := temporalFieldFromMap(meta, defs)
 	ordering := "created_at COLLATE CLIO_DATETIME DESC, rowid ASC"
+	if temporal != "" {
+		ordering = "timestamp_value COLLATE CLIO_DATETIME DESC, id DESC"
+	}
 	pageArgs := append([]any(nil), args...)
 	if sortField != "" {
 		if order == "" {
 			order = "asc"
 		}
-		expression, expressionArgs := sqlFieldExpression(sortField, defs[sortField])
-		ordering = "(" + expression + " IS NULL) ASC, " + expression + " " + strings.ToUpper(order) + ", rowid ASC"
-		pageArgs = append(pageArgs, expressionArgs...)
-		pageArgs = append(pageArgs, expressionArgs...)
+		if sortField == temporal {
+			ordering = "timestamp_value COLLATE CLIO_DATETIME " + strings.ToUpper(order) + ", id " + strings.ToUpper(order)
+		} else {
+			expression, expressionArgs := sqlFieldExpression(sortField, defs[sortField])
+			ordering = "(" + expression + " IS NULL) ASC, " + expression + " " + strings.ToUpper(order) + ", rowid ASC"
+			pageArgs = append(pageArgs, expressionArgs...)
+			pageArgs = append(pageArgs, expressionArgs...)
+		}
 	}
 	pageArgs = append(pageArgs, limit, offset)
 	rows, err := tx.Query("SELECT id,created_at,updated_at,data FROM records WHERE "+where+" ORDER BY "+ordering+" LIMIT ? OFFSET ?", pageArgs...)

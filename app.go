@@ -483,6 +483,13 @@ func (a *app) createTable(group string, input map[string]any) (map[string]any, *
 	if e != nil {
 		return nil, e
 	}
+	indexes := []schemaIndex{}
+	if raw, ok := input["indexes"]; ok {
+		indexes, e = normalizeIndexes(raw, fields)
+		if e != nil {
+			return nil, e
+		}
+	}
 	timestamp := str(input, "timestamp_field")
 	if kind == "timeseries" {
 		if timestamp == "" {
@@ -498,10 +505,23 @@ func (a *app) createTable(group string, input map[string]any) (map[string]any, *
 		if f["required"] != true {
 			return nil, invalid("timestamp_field must be required")
 		}
+		if role, ok := f["role"].(string); ok && role != "timestamp" {
+			return nil, invalid("timestamp_field role must be timestamp")
+		}
 	} else if timestamp != "" {
 		return nil, invalid("timestamp_field is only valid for timeseries tables")
 	}
+	principalTimestamps := 0
 	for _, f := range fields {
+		if f["role"] == "timestamp" {
+			principalTimestamps++
+			if (f["type"] != "date" && f["type"] != "datetime") || f["required"] != true {
+				return nil, invalid("A timestamp role requires a required date or datetime field")
+			}
+			if kind == "timeseries" && f["name"] != timestamp {
+				return nil, invalid("A timeseries timestamp role must match timestamp_field")
+			}
+		}
 		if f["type"] == "reference" {
 			if _, x := a.table(f["group"].(string), f["table"].(string)); x != nil {
 				return nil, x
@@ -513,18 +533,25 @@ func (a *app) createTable(group string, input map[string]any) (map[string]any, *
 			}
 		}
 	}
+	if principalTimestamps > 1 {
+		return nil, invalid("A table may have only one principal timestamp field")
+	}
 	tx, err := a.db.Begin()
 	if err != nil {
 		return nil, errAPI(err)
 	}
-	_, err = tx.Exec(`INSERT INTO tables_meta(group_name,name,label,description,kind,timestamp_field) VALUES(?,?,?,?,?,?)`, group, name, label, desc, kind, nullString(timestamp))
+	encodedIndexes, _ := encodeIndexes(indexes)
+	_, err = tx.Exec(`INSERT INTO tables_meta(group_name,name,label,description,kind,timestamp_field,indexes) VALUES(?,?,?,?,?,?,?)`, group, name, label, desc, kind, nullString(timestamp), encodedIndexes)
 	if err == nil {
 		err = saveFields(tx, group, name, fields)
+	}
+	if err == nil {
+		err = reconcileTableIndexes(tx, group, name, kind, nullString(timestamp), fields, indexes)
 	}
 	if err != nil {
 		tx.Rollback()
 		if isConstraint(err) {
-			return nil, conflict("Table already exists")
+			return nil, conflict("Table already exists or an index constraint is violated")
 		}
 		return nil, errAPI(err)
 	}
@@ -586,13 +613,21 @@ func normalizeFields(raw any) ([]map[string]any, *apiError) {
 				return nil, invalid("description must be text for field " + name)
 			}
 		}
-		for _, flag := range []string{"required", "readonly", "hidden"} {
+		for _, flag := range []string{"required", "readonly", "hidden", "unique"} {
 			if v, ok := f[flag]; ok {
 				if _, ok := v.(bool); !ok {
 					return nil, invalid(flag + " must be boolean for field " + name)
 				}
 			} else {
 				f[flag] = false
+			}
+		}
+		if role, ok := f["role"]; ok {
+			if role != "timestamp" {
+				return nil, invalid("role must be timestamp for field " + name)
+			}
+			if typ != "date" && typ != "datetime" {
+				return nil, invalid("timestamp role requires a date or datetime field: " + name)
 			}
 		}
 		if typ == "enum" {
@@ -724,7 +759,7 @@ func (a *app) updateTable(group, table string, patch map[string]any) (map[string
 		return nil, e
 	}
 	for k := range patch {
-		if !contains([]string{"label", "description", "fields"}, k) {
+		if !contains([]string{"label", "description", "fields", "indexes"}, k) {
 			return nil, invalid("Table property cannot be changed: " + k)
 		}
 	}
@@ -740,6 +775,17 @@ func (a *app) updateTable(group, table string, patch map[string]any) (map[string
 		return nil, errAPI(err)
 	}
 	defer tx.Rollback()
+	effectiveFields, _ := current["fields"].([]map[string]any)
+	var storedIndexes string
+	if err = tx.QueryRow(`SELECT indexes FROM tables_meta WHERE group_name=? AND name=?`, group, table).Scan(&storedIndexes); err != nil {
+		return nil, errAPI(err)
+	}
+	declarations, err := decodeIndexes(storedIndexes)
+	if err != nil {
+		return nil, errAPI(err)
+	}
+	indexesChanged := false
+	indexesRaw, indexesPatched := patch["indexes"]
 	if has(patch, "label") || has(patch, "description") {
 		label := current["label"]
 		desc := current["description"]
@@ -758,6 +804,7 @@ func (a *app) updateTable(group, table string, patch map[string]any) (map[string
 		if ae != nil {
 			return nil, ae
 		}
+		effectiveFields = requested
 		for _, f := range requested {
 			if f["type"] != "reference" {
 				continue
@@ -785,6 +832,21 @@ func (a *app) updateTable(group, table string, patch map[string]any) (map[string
 			if f == nil || (f["type"] != "date" && f["type"] != "datetime") || f["required"] != true {
 				return nil, conflict("The configured timestamp field must remain a required date/datetime field")
 			}
+		}
+		principalTimestamps := 0
+		for _, field := range requested {
+			if field["role"] == "timestamp" {
+				principalTimestamps++
+				if (field["type"] != "date" && field["type"] != "datetime") || field["required"] != true {
+					return nil, conflict("A timestamp role requires a required date or datetime field")
+				}
+				if current["kind"] == "timeseries" && field["name"] != current["timestamp_field"] {
+					return nil, conflict("A timeseries timestamp role must match timestamp_field")
+				}
+			}
+		}
+		if principalTimestamps > 1 {
+			return nil, invalid("A table may have only one principal timestamp field")
 		}
 		for name, of := range oldBy {
 			nf := newBy[name]
@@ -871,6 +933,34 @@ func (a *app) updateTable(group, table string, patch map[string]any) (map[string
 		if err = saveFields(tx, group, table, requested); err != nil {
 			return nil, errAPI(err)
 		}
+		indexesChanged = true
+	}
+	if indexesPatched {
+		declarations, e = normalizeIndexes(indexesRaw, effectiveFields)
+		if e != nil {
+			return nil, e
+		}
+		indexesChanged = true
+	}
+	if indexesChanged {
+		declarations = validIndexesForFields(declarations, effectiveFields)
+		if _, err = tx.Exec(`UPDATE tables_meta SET indexes=? WHERE group_name=? AND name=?`, mustEncodeIndexes(declarations), group, table); err != nil {
+			return nil, errAPI(err)
+		}
+		timestampField := current["timestamp_field"]
+		if current["kind"] != "timeseries" {
+			timestampField = principalTimestamp(effectiveFields)
+		}
+		if name, ok := timestampField.(string); ok && name != "" {
+			if _, err = tx.Exec(`UPDATE records SET timestamp_value=json_extract(data, ?) WHERE group_name=? AND table_name=?`, indexJSONPath(name), group, table); err != nil {
+				return nil, errAPI(err)
+			}
+		} else if _, err = tx.Exec(`UPDATE records SET timestamp_value=NULL WHERE group_name=? AND table_name=?`, group, table); err != nil {
+			return nil, errAPI(err)
+		}
+		if err = reconcileTableIndexes(tx, group, table, current["kind"].(string), timestampField, effectiveFields, declarations); err != nil {
+			return nil, mapIndexError(err)
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return nil, errAPI(err)
@@ -910,8 +1000,18 @@ func (a *app) deleteTable(group, table string) *apiError {
 	if err = rows.Err(); err != nil {
 		return errAPI(err)
 	}
-	_, err = a.db.Exec(`DELETE FROM tables_meta WHERE group_name=? AND name=?`, group, table)
+	tx, err := a.db.Begin()
 	if err != nil {
+		return errAPI(err)
+	}
+	defer tx.Rollback()
+	if err = reconcileTableIndexes(tx, group, table, "record", nil, nil, nil); err != nil {
+		return errAPI(err)
+	}
+	if _, err = tx.Exec(`DELETE FROM tables_meta WHERE group_name=? AND name=?`, group, table); err != nil {
+		return errAPI(err)
+	}
+	if err = tx.Commit(); err != nil {
 		return errAPI(err)
 	}
 	return nil
@@ -980,7 +1080,8 @@ func (a *app) listTables(group string) ([]map[string]any, *apiError) {
 func (a *app) table(group, name string) (map[string]any, *apiError) {
 	var label, desc, kind string
 	var timestamp sql.NullString
-	e := a.db.QueryRow(`SELECT label,description,kind,timestamp_field FROM tables_meta WHERE group_name=? AND name=?`, group, name).Scan(&label, &desc, &kind, &timestamp)
+	var rawIndexes string
+	e := a.db.QueryRow(`SELECT label,description,kind,timestamp_field,indexes FROM tables_meta WHERE group_name=? AND name=?`, group, name).Scan(&label, &desc, &kind, &timestamp, &rawIndexes)
 	if errors.Is(e, sql.ErrNoRows) {
 		return nil, missing("Table")
 	}
@@ -995,9 +1096,17 @@ func (a *app) table(group, name string) (map[string]any, *apiError) {
 	if timestamp.Valid {
 		ts = timestamp.String
 	}
+	declarations, decodeErr := decodeIndexes(rawIndexes)
+	if decodeErr != nil {
+		return nil, errAPI(decodeErr)
+	}
+	indexes := make([]map[string]any, 0, len(declarations))
+	for _, declaration := range declarations {
+		indexes = append(indexes, map[string]any{"fields": declaration.fields})
+	}
 	root := a.baseURL + "/t/" + group + "/" + name
 	api := a.baseURL + "/api/v1/groups/" + group + "/tables/" + name
-	return map[string]any{"group": group, "name": name, "label": label, "description": desc, "kind": kind, "timestamp_field": ts, "fields": fields, "url": root, "api_url": api, "records_url": api + "/records", "record_url_template": root + "/{id}"}, nil
+	return map[string]any{"group": group, "name": name, "label": label, "description": desc, "kind": kind, "timestamp_field": ts, "indexes": indexes, "fields": fields, "url": root, "api_url": api, "records_url": api + "/records", "record_url_template": root + "/{id}"}, nil
 }
 func (a *app) fields(group, table string) ([]map[string]any, *apiError) {
 	rows, e := a.db.Query(`SELECT definition FROM fields_meta WHERE group_name=? AND table_name=? ORDER BY position`, group, table)

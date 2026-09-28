@@ -491,6 +491,8 @@ description
 order
 readonly
 hidden
+unique
+role
 ```
 
 Optional validation:
@@ -506,6 +508,8 @@ pattern
 An enum field has a finite set of allowed values.
 
 A reference field identifies another table and record.
+
+`unique`, when true, declares a database-enforced unique constraint for that field. A date or datetime field may use `role: "timestamp"` to designate the table's principal temporal field. A table has at most one such field; it must be required and have type `date` or `datetime`. For a `timeseries` table, the designated temporal field is its `timestamp_field`.
 
 Complex relationship semantics are out of scope for v1.
 
@@ -547,6 +551,8 @@ Metadata includes:
 * defaults
 * references
 * timestamp configuration
+* unique field declarations
+* explicit index declarations
 * display properties
 
 Metadata must be persistent.
@@ -581,6 +587,8 @@ Responses must expose enough information to understand:
 * validation
 * references
 * timestamp configuration
+* unique field declarations
+* explicit index declarations
 * labels
 * relevant URLs
 
@@ -709,6 +717,19 @@ Time-series example:
 }
 ```
 
+Tables may also declare advanced indexes as ordered field lists. For example:
+
+```json
+{
+  "indexes": [
+    {"fields": ["vehicle_id", "serviced_at"]},
+    {"fields": ["category", "recorded_at"]}
+  ]
+}
+```
+
+Every indexed field must exist in the table. Index declarations are returned in table metadata and may be changed through table metadata updates. Clio reconciles the database indexes transactionally when fields or index declarations change.
+
 ---
 
 # 19. Table metadata updates
@@ -722,6 +743,7 @@ At minimum:
 * adding fields
 * changing display properties
 * changing safe validation properties
+* changing explicit index declarations
 
 Removing or changing fields must not silently destroy existing data.
 
@@ -842,6 +864,8 @@ Response:
 Offset paging is sufficient for v1.
 
 Cursor pagination is not required.
+
+Paged results must use deterministic ordering. Tables with a principal temporal field are ordered by that field descending and then by record ID descending unless the request supplies an explicit sort. Other tables use a suitable deterministic order. The internal pagination strategy remains an implementation detail.
 
 Reasonable implementation limits may be imposed on `limit`.
 
@@ -1649,17 +1673,13 @@ Clio must be able to open an existing database without special operational proce
 
 # 49. SQLite indexing
 
-Appropriate indexes should be used.
+Indexing is an implementation concern. Clio shall not index every field; it automatically indexes record identity, fields declared `unique`, reference fields, and the principal temporal field. Primary and group/table access indexes are also maintained. SQLite enforces uniqueness rather than relying on application checks.
 
-At minimum:
+Applications may declare additional single-field or compound indexes using the table `indexes` property. Compound field order is significant. Index declarations must be validated against table metadata and reconciled transactionally when the table schema changes; stale or duplicate indexes must be removed. Adding a unique index that conflicts with existing data fails without partially applying the schema change.
 
-* primary keys
-* table/group identifiers
-* reference fields where useful
-* time-series timestamp fields
-* time-series `(table, timestamp)` access patterns
+Time-series timestamp access uses an index scoped by table and timestamp. A table with a principal temporal field is paged in descending temporal order with record ID as a deterministic tie-breaker; other tables use a deterministic order. Offset/limit pagination remains sufficient for v1. Query operations continue to execute in SQLite and must not load whole tables into application memory.
 
-The implementation should add indexes based on actual access patterns, not indiscriminately index every field.
+Index configuration is optional for ordinary use, invisible in the primary UI, and requires no index-administration endpoint. Clio does not provide full-text/spatial indexes, index hints, workload-driven index creation, or query-plan analysis in v1.
 
 ---
 
@@ -1787,6 +1807,10 @@ Test:
 * time-range querying
 * validation
 * references where implemented
+* automatic unique/reference/temporal indexes
+* explicit compound index creation and removal
+* index reconciliation after schema updates
+* uniqueness violations and rollback
 
 ## Metadata
 
