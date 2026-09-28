@@ -143,8 +143,28 @@ func managedIndexName(group, table string, index schemaIndex) string {
 	if index.unique {
 		key += "\x00unique"
 	}
+	// The scope marker changes the derived name so that the table-scoped index
+	// definitions below replace any index created by an earlier Clio version.
+	key += "\x00scoped-v2"
 	sum := sha256.Sum256([]byte(key))
 	return "clio_data_" + hex.EncodeToString(sum[:12])
+}
+
+// sqlLiteral quotes a string for direct inclusion in a CREATE INDEX statement.
+// Managed group and table identifiers are already restricted, but escape
+// defensively anyway.
+func sqlLiteral(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
+// scopedFieldExpression wraps a field expression so that it only contributes a
+// non-null value for rows of the declaring table. Managed indexes share the
+// single records table; without this scoping a `unique` field in one table
+// would enforce uniqueness across every other table's rows as well.
+func scopedFieldExpression(group, table, field string, def map[string]any) string {
+	expression, _ := sqlFieldExpression(field, def)
+	return "CASE WHEN group_name=" + sqlLiteral(group) + " AND table_name=" + sqlLiteral(table) +
+		" THEN " + expression + " ELSE NULL END"
 }
 
 func tableIndexes(fields []map[string]any, declarations []schemaIndex, kind string, timestampField any) []schemaIndex {
@@ -231,8 +251,7 @@ func reconcileTableIndexes(tx *sql.Tx, group, table, kind string, timestampField
 		expressions := []string{"group_name", "table_name"}
 		definitions := indexFields(fields)
 		for _, field := range index.fields {
-			expression, _ := sqlFieldExpression(field, definitions[field])
-			expressions = append(expressions, expression)
+			expressions = append(expressions, scopedFieldExpression(group, table, field, definitions[field]))
 		}
 		statement := fmt.Sprintf(`CREATE %sINDEX IF NOT EXISTS "%s" ON records(%s)`, unique, name, strings.Join(expressions, ","))
 		if _, err = tx.Exec(statement); err != nil {
@@ -250,4 +269,81 @@ func mapIndexError(err error) *apiError {
 		return conflict("Index creation would violate uniqueness for existing records")
 	}
 	return errAPI(err)
+}
+
+// reconcileAllTableIndexes brings every managed index in line with its table's
+// current metadata. It runs at database open so that index definitions changed
+// by a newer Clio release (for example the table-scoped definitions added in
+// v1.2) replace stale ones without requiring special operational steps.
+func reconcileAllTableIndexes(db *sql.DB) error {
+	rows, err := db.Query(`SELECT group_name,name,kind,timestamp_field,indexes FROM tables_meta`)
+	if err != nil {
+		return err
+	}
+	type tableMeta struct {
+		group, name, kind string
+		timestamp         sql.NullString
+		indexes           string
+	}
+	tables := []tableMeta{}
+	for rows.Next() {
+		var t tableMeta
+		if err = rows.Scan(&t.group, &t.name, &t.kind, &t.timestamp, &t.indexes); err != nil {
+			rows.Close()
+			return err
+		}
+		tables = append(tables, t)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if len(tables) == 0 {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, t := range tables {
+		fields, err := fieldsInTx(tx, t.group, t.name)
+		if err != nil {
+			return err
+		}
+		declarations, err := decodeIndexes(t.indexes)
+		if err != nil {
+			return err
+		}
+		var timestamp any
+		if t.timestamp.Valid {
+			timestamp = t.timestamp.String
+		}
+		if err = reconcileTableIndexes(tx, t.group, t.name, t.kind, timestamp, fields, declarations); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func fieldsInTx(tx *sql.Tx, group, table string) ([]map[string]any, error) {
+	rows, err := tx.Query(`SELECT definition FROM fields_meta WHERE group_name=? AND table_name=? ORDER BY position`, group, table)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var raw string
+		if err = rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		field := map[string]any{}
+		if err = decodeJSON([]byte(raw), &field); err != nil {
+			return nil, err
+		}
+		out = append(out, field)
+	}
+	return out, rows.Err()
 }

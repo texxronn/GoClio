@@ -209,6 +209,10 @@ func openDatabase(path string) (*sql.DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("SQLite WAL mode unavailable (journal_mode=%s)", mode)
 	}
+	if err = reconcileAllTableIndexes(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("reconcile indexes: %w", err)
+	}
 	return db, nil
 }
 
