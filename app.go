@@ -762,6 +762,120 @@ func normalizeFields(raw any) ([]map[string]any, *apiError) {
 	return out, nil
 }
 
+// normalizeRemoveFields validates the optional remove_fields property of a
+// table metadata PATCH. It returns nil when the property is absent.
+func normalizeRemoveFields(raw any) ([]string, *apiError) {
+	if raw == nil {
+		return nil, nil
+	}
+	items, ok := raw.([]any)
+	if !ok {
+		return nil, invalid("remove_fields must be an array")
+	}
+	out := make([]string, 0, len(items))
+	seen := map[string]bool{}
+	for _, item := range items {
+		name, ok := item.(string)
+		if !ok {
+			return nil, invalid("remove_fields entries must be field names")
+		}
+		id, e := validIdentifier(name, "field")
+		if e != nil {
+			return nil, e
+		}
+		if seen[id] {
+			return nil, invalid("Duplicate field to remove: " + id)
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out, nil
+}
+
+// mergeFields applies a table metadata PATCH to an existing field list. It is
+// additive: fields named in the patch are merged onto the matching existing
+// definition (or appended when new), and existing fields not named in the
+// patch are preserved. Fields named in remove are dropped; removing a field
+// still requires that it has no stored values, which updateTable enforces.
+func mergeFields(existing []map[string]any, raw any, remove []string) ([]map[string]any, *apiError) {
+	items := []any{}
+	if raw != nil {
+		list, ok := raw.([]any)
+		if !ok {
+			return nil, invalid("fields must be an array")
+		}
+		items = list
+	}
+	existingByName := indexFields(existing)
+	merged := make([]any, 0, len(existing)+len(items))
+	nextOrder := 0
+	for _, f := range existing {
+		merged = append(merged, mapClone(f))
+		if o, e := integerExact(f["order"]); e == nil && o >= nextOrder {
+			nextOrder = o + 1
+		}
+	}
+	supplied := map[string]bool{}
+	for _, item := range items {
+		source, ok := item.(map[string]any)
+		if !ok {
+			return nil, invalid("Each field must be an object")
+		}
+		name, e := validIdentifier(str(source, "name"), "field")
+		if e != nil {
+			return nil, e
+		}
+		if supplied[name] {
+			return nil, invalid("Duplicate field: " + name)
+		}
+		supplied[name] = true
+		replaced := false
+		for i := range merged {
+			current := merged[i].(map[string]any)
+			if current["name"] != name {
+				continue
+			}
+			updated := mapClone(current)
+			for k, v := range source {
+				updated[k] = v
+			}
+			updated["name"] = name
+			merged[i] = updated
+			replaced = true
+			break
+		}
+		if !replaced {
+			added := mapClone(source)
+			added["name"] = name
+			if value, ok := added["order"]; !ok || value == nil {
+				added["order"] = nextOrder
+				nextOrder++
+			} else if o, e := integerExact(value); e == nil && o >= nextOrder {
+				nextOrder = o + 1
+			}
+			merged = append(merged, added)
+		}
+	}
+	for _, name := range remove {
+		if supplied[name] {
+			return nil, invalid("Field cannot be added and removed in the same request: " + name)
+		}
+		if existingByName[name] == nil {
+			return nil, invalid("Unknown field to remove: " + name)
+		}
+	}
+	if len(remove) > 0 {
+		kept := merged[:0]
+		for _, item := range merged {
+			if !contains(remove, item.(map[string]any)["name"].(string)) {
+				kept = append(kept, item)
+			}
+		}
+		merged = kept
+	}
+	return normalizeFields(merged)
+}
+
 func saveFields(tx *sql.Tx, group, table string, fields []map[string]any) error {
 	for i, f := range fields {
 		b, e := json.Marshal(f)
@@ -781,7 +895,7 @@ func (a *app) updateTable(group, table string, patch map[string]any) (map[string
 		return nil, e
 	}
 	for k := range patch {
-		if !contains([]string{"label", "description", "fields", "indexes"}, k) {
+		if !contains([]string{"label", "description", "fields", "remove_fields", "indexes"}, k) {
 			return nil, invalid("Table property cannot be changed: " + k)
 		}
 	}
@@ -821,8 +935,13 @@ func (a *app) updateTable(group, table string, patch map[string]any) (map[string
 			return nil, errAPI(err)
 		}
 	}
-	if raw, ok := patch["fields"]; ok {
-		requested, ae := normalizeFields(raw)
+	removeNames, removeErr := normalizeRemoveFields(patch["remove_fields"])
+	if removeErr != nil {
+		return nil, removeErr
+	}
+	fieldsRaw, fieldsPatched := patch["fields"]
+	if fieldsPatched || len(removeNames) > 0 {
+		requested, ae := mergeFields(effectiveFields, fieldsRaw, removeNames)
 		if ae != nil {
 			return nil, ae
 		}

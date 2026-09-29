@@ -1285,6 +1285,26 @@ v1 schema modification rules:
 * enable or disable `unique` on a field, subject to the duplicate check below
 * change explicit `indexes` declarations
 
+### `fields` is additive
+
+A `PATCH` request's `fields` property is a partial, additive list of field
+definitions, merged by name. A supplied field that names an existing field is
+merged onto that definition (omitted properties keep their existing values); a
+supplied field with a new name is appended. Existing fields that are not named
+in the request are retained with their definitions and stored values unchanged.
+
+An empty or partial `fields` list therefore never removes fields. This keeps the
+documented "add a field" operation safe when a client sends only the new field.
+
+To remove fields, name them explicitly in the `remove_fields` property:
+
+```json
+{"remove_fields": ["notes"]}
+```
+
+A field may not be named in both `fields` and `remove_fields` in the same
+request. Naming a field that does not exist returns `422 Unprocessable Entity`.
+
 ### Type changes
 
 A field's type may only be changed when the table contains no records.
@@ -1303,7 +1323,8 @@ committed.
 
 A field may only be deleted when there are no stored values for that field.
 
-Otherwise the operation returns:
+Deletion is requested explicitly through `remove_fields`. Otherwise the
+operation returns:
 
 ```text
 409 Conflict

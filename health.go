@@ -101,7 +101,7 @@ API root: /api/v1
 
 ## Groups, tables, fields, records
 Create a group with POST /api/v1/groups and {"name":"pool","label":"Pool"}. Read it at GET /api/v1/groups/pool; list its tables at GET /api/v1/groups/pool/tables.
-Create a table with POST /api/v1/groups/pool/tables and name, label, kind, fields, and timestamp_field for timeseries. GET and PATCH /api/v1/groups/pool/tables/{table} read and update metadata; DELETE removes an empty, unreferenced table.
+Create a table with POST /api/v1/groups/pool/tables and name, label, kind, fields, and timestamp_field for timeseries. GET and PATCH /api/v1/groups/pool/tables/{table} read and update metadata; DELETE removes an empty, unreferenced table. A metadata PATCH merges fields by name: a partial fields list adds or updates only the named fields and never drops the others. Remove fields explicitly with {"remove_fields":["name"]} when they have no stored values.
 Field types: string, text, integer, decimal, boolean, date, datetime, enum, url, reference.
 Fields support required, default, description, order, readonly, hidden, validation min/max, min_length/max_length and pattern.
 Records support GET list/item, POST create, PATCH update, DELETE at /api/v1/groups/{group}/tables/{table}/records[/{id}]. PATCH omitted fields remain unchanged; explicit null clears nullable fields. Defaults apply on create; omitted nullable values are returned as null. Required, unknown and readonly fields are validated.

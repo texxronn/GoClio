@@ -199,17 +199,136 @@ func TestTableSchemaUpdateProtectsStoredData(t *testing.T) {
 		t.Fatalf("type change with records status = %d, want 409", changedType.Code)
 	}
 
-	withoutNotes := []any{
-		map[string]any{"name": "name", "type": "string", "required": true, "min_length": 2},
-		map[string]any{"name": "category", "type": "enum", "required": true, "values": []string{"service", "repair"}},
-		map[string]any{"name": "amount", "type": "decimal"},
-		map[string]any{"name": "enabled", "type": "boolean", "default": true},
-		map[string]any{"name": "internal_code", "type": "string", "readonly": true},
-		map[string]any{"name": "source", "type": "string", "default": "imported"},
+	removeOccupied := testRequest(t, a, http.MethodPatch, "/api/v1/groups/vehicle/tables/service", map[string]any{"remove_fields": []any{"notes"}}, "application/json")
+	if removeOccupied.Code != http.StatusConflict {
+		t.Fatalf("removing populated field status = %d, want 409", removeOccupied.Code)
 	}
-	deleteField := testRequest(t, a, http.MethodPatch, "/api/v1/groups/vehicle/tables/service", map[string]any{"fields": withoutNotes}, "application/json")
-	if deleteField.Code != http.StatusConflict {
-		t.Fatalf("deleting populated field status = %d, want 409", deleteField.Code)
+}
+
+func tableFieldNames(t *testing.T, table map[string]any) []string {
+	t.Helper()
+	raw, ok := table["fields"].([]any)
+	if !ok {
+		t.Fatalf("table fields is not an array: %#v", table["fields"])
+	}
+	names := make([]string, 0, len(raw))
+	for _, item := range raw {
+		f, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("field is not an object: %#v", item)
+		}
+		names = append(names, fmt.Sprint(f["name"]))
+	}
+	return names
+}
+
+// A table metadata PATCH merges supplied fields by name. A partial list adds
+// the named field without dropping the existing schema, its record values or
+// the rendered table columns.
+func TestPatchTableFieldsMergesByName(t *testing.T) {
+	a := newTestApp(t)
+	createTestGroup(t, a, "home_utilities")
+	createTestTable(t, a, "home_utilities", map[string]any{"name": "water_bills", "label": "Water Bills", "fields": []any{
+		map[string]any{"name": "account", "type": "string", "required": true},
+		map[string]any{"name": "amount", "type": "decimal"},
+		map[string]any{"name": "due_date", "type": "date"},
+	}})
+	record := createTestRecord(t, a, "home_utilities", "water_bills", map[string]any{"account": "A-1", "amount": "42.50", "due_date": "2026-10-01"})
+
+	update := testRequest(t, a, http.MethodPatch, "/api/v1/groups/home_utilities/tables/water_bills", map[string]any{"fields": []any{
+		map[string]any{"name": "notes", "label": "Notes", "type": "text"},
+	}}, "application/json")
+	if update.Code != http.StatusOK {
+		t.Fatalf("add field status = %d, want 200: %s", update.Code, update.Body.String())
+	}
+	var updated map[string]any
+	testJSON(t, update, &updated)
+	want := "account,amount,due_date,notes"
+	if got := strings.Join(tableFieldNames(t, updated), ","); got != want {
+		t.Fatalf("fields after partial PATCH = %q, want %q", got, want)
+	}
+
+	metadata := testRequest(t, a, http.MethodGet, "/api/v1/metadata/groups/home_utilities/tables/water_bills", nil, "")
+	var table map[string]any
+	testJSON(t, metadata, &table)
+	if got := strings.Join(tableFieldNames(t, table), ","); got != want {
+		t.Fatalf("metadata fields = %q, want %q", got, want)
+	}
+	defs := make([]map[string]any, 0, len(table["fields"].([]any)))
+	for _, item := range table["fields"].([]any) {
+		defs = append(defs, item.(map[string]any))
+	}
+	account := fieldByName(defs, "account")
+	if account == nil || account["type"] != "string" || account["required"] != true || account["label"] != "account" {
+		t.Fatalf("existing field definition changed: %#v", account)
+	}
+
+	stored := testRequest(t, a, http.MethodGet, "/api/v1/groups/home_utilities/tables/water_bills/records/"+record["id"].(string), nil, "")
+	var storedRecord map[string]any
+	testJSON(t, stored, &storedRecord)
+	if storedRecord["account"] != "A-1" || storedRecord["amount"] != record["amount"] || storedRecord["due_date"] != "2026-10-01" || storedRecord["notes"] != nil {
+		t.Fatalf("record values after partial schema PATCH: %#v", storedRecord)
+	}
+
+	view := testRequest(t, a, http.MethodGet, "/t/home_utilities/water_bills", nil, "")
+	if view.Code != http.StatusOK {
+		t.Fatalf("table view status = %d, want 200", view.Code)
+	}
+	for _, header := range []string{"account", "amount", "due_date", "Notes"} {
+		if !strings.Contains(view.Body.String(), header) {
+			t.Fatalf("table view is missing column %q", header)
+		}
+	}
+
+	// Named fields are merged onto the existing definition rather than replaced.
+	relabel := testRequest(t, a, http.MethodPatch, "/api/v1/groups/home_utilities/tables/water_bills", map[string]any{"fields": []any{
+		map[string]any{"name": "account", "label": "Account number"},
+	}}, "application/json")
+	if relabel.Code != http.StatusOK {
+		t.Fatalf("relabel field status = %d, want 200: %s", relabel.Code, relabel.Body.String())
+	}
+	var relabeled map[string]any
+	testJSON(t, relabel, &relabeled)
+	defs = defs[:0]
+	for _, item := range relabeled["fields"].([]any) {
+		defs = append(defs, item.(map[string]any))
+	}
+	account = fieldByName(defs, "account")
+	if account["label"] != "Account number" || account["type"] != "string" || account["required"] != true {
+		t.Fatalf("partial field update dropped existing properties: %#v", account)
+	}
+	if got := strings.Join(tableFieldNames(t, relabeled), ","); got != want {
+		t.Fatalf("relabel changed field list to %q", got)
+	}
+
+	// An empty fields list is a no-op rather than a full replacement.
+	noop := testRequest(t, a, http.MethodPatch, "/api/v1/groups/home_utilities/tables/water_bills", map[string]any{"fields": []any{}}, "application/json")
+	if noop.Code != http.StatusOK {
+		t.Fatalf("empty fields PATCH status = %d, want 200: %s", noop.Code, noop.Body.String())
+	}
+	var noopResult map[string]any
+	testJSON(t, noop, &noopResult)
+	if got := strings.Join(tableFieldNames(t, noopResult), ","); got != want {
+		t.Fatalf("empty fields PATCH changed fields to %q", got)
+	}
+
+	// Removing a field is explicit and only allowed without stored values.
+	remove := testRequest(t, a, http.MethodPatch, "/api/v1/groups/home_utilities/tables/water_bills", map[string]any{"remove_fields": []any{"notes"}}, "application/json")
+	if remove.Code != http.StatusOK {
+		t.Fatalf("remove unused field status = %d, want 200: %s", remove.Code, remove.Body.String())
+	}
+	var removed map[string]any
+	testJSON(t, remove, &removed)
+	if got := strings.Join(tableFieldNames(t, removed), ","); got != "account,amount,due_date" {
+		t.Fatalf("fields after remove = %q", got)
+	}
+
+	conflicting := testRequest(t, a, http.MethodPatch, "/api/v1/groups/home_utilities/tables/water_bills", map[string]any{
+		"fields":        []any{map[string]any{"name": "account", "type": "string"}},
+		"remove_fields": []any{"account"},
+	}, "application/json")
+	if conflicting.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("adding and removing the same field status = %d, want 422", conflicting.Code)
 	}
 }
 
