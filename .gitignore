@@ -4,6 +4,11 @@
 *.db-shm
 *.db-wal
 
+# Local configuration and secrets (for example CLIO_AUTH_PASSWORD_HASH)
+.env
+.env.*
+!.env.example
+
 # Local builds and test outputs
 /clio
 *.test
