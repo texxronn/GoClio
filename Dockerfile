@@ -1,10 +1,14 @@
 FROM golang:1.25-bookworm AS build
 
+# Set VERSION at build time (for example --build-arg VERSION=$(git describe --tags --always | sed 's/^v//'))
+# so the image reports the release it was built from through /api/v1/health.
+ARG VERSION=1.0.0
+
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/clio .
+RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/clio .
 
 FROM debian:bookworm-slim
 

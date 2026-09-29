@@ -1,0 +1,28 @@
+services:
+  clio:
+    image: gocl.io:${CLIO_VERSION:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${CLIO_VERSION:-1.0.0}
+    container_name: clio
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      CLIO_ADDR: 0.0.0.0:8080
+      CLIO_DATA_DIR: /var/lib/clio
+      CLIO_DB: /var/lib/clio/clio.db
+      CLIO_BASE_URL: ${CLIO_BASE_URL:-http://localhost:8080}
+      CLIO_AUTH_ENABLED: ${CLIO_AUTH_ENABLED:-false}
+      CLIO_AUTH_USER: ${CLIO_AUTH_USER:-admin}
+      CLIO_AUTH_PASSWORD_HASH: ${CLIO_AUTH_PASSWORD_HASH:-}
+      CLIO_REQUIRE_HTTPS: ${CLIO_REQUIRE_HTTPS:-true}
+      CLIO_TRUST_PROXY: ${CLIO_TRUST_PROXY:-false}
+      CLIO_TRUSTED_PROXY_NETWORKS: ${CLIO_TRUSTED_PROXY_NETWORKS:-}
+    volumes:
+      - clio-data:/var/lib/clio
+
+volumes:
+  clio-data:

@@ -23,6 +23,8 @@ go vet ./...
 go build -buildvcs=false -o /tmp/gocl-clio-check .
 ```
 
+`make check` runs the same sequence and injects the git-derived product version.
+
 Tests should exercise behavior through HTTP where practical and use temporary
 SQLite databases and content directories. Add regression tests for fixes and
 new behavior without relying on external services. Specification areas are

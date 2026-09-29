@@ -3110,7 +3110,9 @@ Health should answer:
 `database.status` is `ok` only when a SQLite integrity check (`PRAGMA
 quick_check`) returns `ok`; otherwise it is `error` and the top-level `status`
 becomes `error`. The resource counts describe the whole instance. `version`
-reports the product version defined in the document header (currently `1.0.0`).
+reports the product version; release builds inject the exact version at build
+time, while the document header records the version this specification was
+written against (currently `1.0.0`).
 
 ---
 

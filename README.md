@@ -1,7 +1,7 @@
 # GoClio
 
 GoClio is a Go implementation of the frozen Clio v1 contract in `SPEC.md`
-(specification revision 1.3; product version 1.0.0; API version v1). It uses Go's
+(specification revision 1.4; product version 1.0.0; API version v1). It uses Go's
 standard HTTP server, one SQLite database in WAL mode, and the filesystem for
 published content. `SPEC-CONFORMANCE.md` maps specification areas to automated
 tests.
@@ -11,11 +11,18 @@ tests.
 Requires Go 1.25 and a C toolchain for `github.com/mattn/go-sqlite3`.
 
 ```sh
-go build -o clio .
+make build            # builds ./clio, version injected from the git tag
 CLIO_ADDR=127.0.0.1:8080 \
 CLIO_DATA_DIR=./data \
 CLIO_BASE_URL=http://localhost:8080 \
 ./clio
+```
+
+`make check` runs the tests, `go vet ./...`, and a build. Without `make`, build
+directly and pass the version yourself:
+
+```sh
+CGO_ENABLED=1 go build -buildvcs=false -ldflags="-X main.version=1.0.0" -o clio .
 ```
 
 The default listener is `0.0.0.0:8080`; the default data directory is
@@ -28,15 +35,19 @@ Build the image from the repository root and run it with a persistent named
 volume:
 
 ```sh
-docker build -t gocl.io:local .
+# Tag the image with the release it contains and bake that version into the binary.
+VERSION=$(git describe --tags --always | sed 's/^v//')
+docker build --build-arg VERSION="$VERSION" -t gocl.io:"$VERSION" .
 docker run --rm --name clio \
   --publish 8080:8080 \
   --env-file examples/clio.env.example \
   --volume clio-data:/var/lib/clio \
-  gocl.io:local
+  gocl.io:"$VERSION"
 ```
 
-The image runs as an unprivileged `clio` user. The named volume stores both the
+For a Compose build, set `CLIO_VERSION` to select both the image tag and the
+injected version; it defaults to `local` / `1.0.0` when unset. The image runs as
+an unprivileged `clio` user. The named volume stores both the
 SQLite database and published content under `/var/lib/clio`. The container
 listens on port 8080; open <http://localhost:8080/help> after startup. For a
 public deployment, set `CLIO_BASE_URL` to the canonical HTTPS URL and terminate
@@ -111,6 +122,32 @@ API and behavior contract.
 
 Ready-to-post record/time-series table metadata and Markdown publishing
 examples are in [`examples/`](examples/README.md).
+
+## Versioning and releases
+
+GoClio tracks three independent identifiers, described in `SPEC.md`:
+
+| Identifier | Current | Where it appears |
+| --- | --- | --- |
+| Specification revision | `1.4` | `SPEC.md` header |
+| Product version | `1.0.0` (source default) | `version` in `/api/v1/health` |
+| API version | `v1` | `/api/v1/` route prefix |
+
+Releases are tagged `v<MAJOR>.<MINOR>.<PATCH>` following Semantic Versioning.
+The product version reported by a binary is injected at build time from the
+nearest git tag (without the leading `v`), so a release build reports its actual
+tag. The literal `1.0.0` in `main.go` is only the default used when building
+without a tag, such as inside the Docker build context where `.git` is
+excluded. The specification header records the documented product version and is
+updated deliberately when the product version is bumped; at release time the tag
+and the header should agree.
+
+- `make build` injects `git describe`.
+- Docker accepts `--build-arg VERSION=<version>`; Compose reads `CLIO_VERSION`.
+- Add an entry to [`CHANGELOG.md`](CHANGELOG.md) for each release.
+
+The API version changes only for incompatible API changes; additive,
+backward-compatible changes stay under `/api/v1/`.
 
 ## Backup and restore
 
