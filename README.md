@@ -145,6 +145,10 @@ and the header should agree.
 - `make build` injects `git describe`.
 - Docker accepts `--build-arg VERSION=<version>`; Compose reads `CLIO_VERSION`.
 - Add an entry to [`CHANGELOG.md`](CHANGELOG.md) for each release.
+- Push a `v<version>` tag to publish a GitHub release automatically. The
+  `Release` workflow uses the matching `CHANGELOG.md` section as the notes; run
+  it manually from the Actions tab to publish a release for a tag that already
+  exists.
 
 The API version changes only for incompatible API changes; additive,
 backward-compatible changes stay under `/api/v1/`.
