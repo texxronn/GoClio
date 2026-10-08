@@ -11,9 +11,9 @@
 - **Spec:** `SPEC.md` v1.7 (sections 64, 65, 66 are new; earlier URL sections carry supersession notes)
 - **Plan:** `IMPLEMENTATION-PLAN.md`
 - **Code baseline:** Phase 7 implemented. The files partition now exposes project-scoped search at `GET /api/v1/{project}/search?q=...`: literal whitespace-separated terms are quoted and AND-combined over the `content_search` FTS5 index (title and body columns only), paged with `limit`/`offset`, ordered by relevance (`-bm25` with a title boost) and then deterministically by path and ID. Each result is `id`, `path`, `kind`, `content_type`, `source`, plain-text `snippet` (matched terms wrapped in the private sentinels `\u27e6`/`\u27e7`), and `score`. Empty/oversized `q` and out-of-range paging return `422`. The files representation now reports a real `indexed` boolean instead of a hardcoded `false`. Enrichment remains Phase 8.
-- **Branch:** `phase-7-search-api`
-- **Last merged commit:** `17cae13` (Phase 6, PR #10)
-- **Current phase:** Phase 7 complete (this commit)
+- **Branch:** `master`
+- **Last merged commit:** `558d4f3` (Phase 7, PR #11)
+- **Current phase:** Phase 7 complete and merged
 - **Next action:** Phase 8 — enrichment API: `GET`/`PUT`/`DELETE /api/v1/{project}/files/extraction?path=...` (or by ID); require a matching fingerprint (`size:mtime` or `sha256`), `409` on mismatch; store with `source = agent:<provider>`; delete falls back to native; survives move.
 - **Blockers:** none
 
