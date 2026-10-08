@@ -15,7 +15,13 @@ class Element {
   setAttribute(name, value) { this.attributes[name] = String(value); }
   addEventListener(name, handler) { this.handlers[name] = handler; }
 }
-const location = { origin: "https://clio.example", pathname: "/default/collections/pool/measurements", search: "?page=2" };
+function collectByTag(element, tag) {
+  const found = [];
+  if (element.tagName === tag) found.push(element);
+  for (const child of element.children || []) found.push(...collectByTag(child, tag));
+  return found;
+}
+const location = { origin: "https://clio.example", pathname: "/default/data", search: "?group=pool&table=measurements&page=2" };
 const context = {
   URLSearchParams,
   URL,
@@ -25,7 +31,12 @@ const context = {
     pushState(_state, _title, value) { Object.assign(location, { pathname: new URL(value, location.origin).pathname, search: new URL(value, location.origin).search }); },
     replaceState(_state, _title, value) { Object.assign(location, { pathname: new URL(value, location.origin).pathname, search: new URL(value, location.origin).search }); }
   },
-  document: { createElement: (name) => new Element(name), querySelector: () => null, documentElement: new Element("html") },
+  document: {
+    createElement: (name) => new Element(name),
+    createTextNode: (text) => { const node = new Element("#text"); node.textContent = String(text); return node; },
+    querySelector: () => null,
+    documentElement: new Element("html")
+  },
   localStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) },
   ClioMarkdown: { render: (source) => `<p>${source}</p>` },
   fetch: async function (url, options = {}) {
@@ -45,11 +56,36 @@ const context = {
       body = { error: "not_found", message: "Record not found" };
     } else if (method === "POST" || method === "PATCH") {
       body = JSON.parse(options.body);
+    } else if (parsed.pathname.endsWith("/search")) {
+      body = {
+        data: [{ id: "file-1", path: "/reports/latest.md", kind: "page", content_type: "text/markdown", source: "native", snippet: "the \u27e6needle\u27e7 is here", score: 1.1 }],
+        page: { limit: 100, offset: 0, count: 1, total: 1 }
+      };
+    } else if (parsed.pathname.endsWith("/files") && method === "DELETE" && parsed.searchParams.get("path") === "/protected.txt") {
+      status = 409;
+      body = { error: "conflict", message: "File is referenced by an attachment" };
     } else if (parsed.pathname.endsWith("/files")) {
       const p = parsed.searchParams.get("path");
-      body = p === "/reports/latest.md"
-        ? { id: "file-1", path: p, kind: "page", content_type: "text/markdown" }
-        : { path: p, kind: "directory", children: [] };
+      if (p === "/reports/latest.md") {
+        body = { id: "file-1", path: p, kind: "page", content_type: "text/markdown" };
+      } else if (p === "/") {
+        body = {
+          path: "/", kind: "directory",
+          children: [
+            { path: "/docs", name: "docs", kind: "directory", url: "https://clio.example/default/files/docs" },
+            { path: "/note.txt", name: "note.txt", kind: "file", id: "file-2", content_type: "text/plain", size: 3, url: "https://clio.example/default/files/note.txt" }
+          ]
+        };
+      } else if (p === "/docs") {
+        body = {
+          path: "/docs", kind: "directory",
+          children: [
+            { path: "/docs/old.txt", name: "old.txt", kind: "file", id: "file-3", content_type: "text/plain", size: 1, url: "https://clio.example/default/files/docs/old.txt" }
+          ]
+        };
+      } else {
+        body = { path: p, kind: "directory", children: [] };
+      }
     } else if (parsed.pathname.endsWith("/content")) {
       body = "# Hi";
     } else if (parsed.pathname.endsWith("/metadata")) {
@@ -77,9 +113,10 @@ vm.runInNewContext(source, context, { filename: "clio.js" });
 
 async function main() {
   const Clio = context.Clio;
-  assert.equal(Clio.version, "1.0.0");
+  assert.equal(Clio.version, "1.1.0");
   assert.equal(Clio.apiVersion, "v1");
   assert.equal(typeof Clio.DataBrowser.mount, "function");
+  assert.equal(typeof Clio.FileBrowser.mount, "function");
   assert.equal(Clio.Markdown.render("Hello"), "<p>Hello</p>");
 
   const clio = new Clio();
@@ -125,6 +162,13 @@ async function main() {
 
   assert.equal((await clio.page("/reports/latest.md")).content, "# Hi");
   assert.equal((await clio.directory("/reports")).path, "/reports");
+  await clio.files();
+  assert.equal(new URL(requests.at(-1).url).searchParams.has("path"), false, "files() lists the flat catalog");
+  await clio.getFile("file-1");
+  assert.match(requests.at(-1).url, /\/files\/file-1$/);
+  const searchResult = await clio.search("needle");
+  assert.equal(new URL(requests.at(-1).url).searchParams.get("q"), "needle");
+  assert.match(searchResult.data[0].snippet, /\u27e6needle\u27e7/);
 
   await clio.publishPage({ path: "/reports/new.md", content: "# New", content_type: "text/markdown" });
   assert.equal(requests.at(-1).options.method, "PUT");
@@ -152,9 +196,60 @@ async function main() {
   assert.equal(storage.get("clio-data-browser-theme"), "dark");
   const browserRequest = requests.find((request) => request.url.includes("/records?") && new URL(request.url).searchParams.get("offset") === "2");
   assert.ok(browserRequest, "browser loads the selected page through ClioJS");
-  assert.equal(location.pathname, "/default/collections/pool/measurements");
-  assert.equal(new URLSearchParams(location.search).get("page"), "2");
+  assert.equal(location.pathname, "/default/data");
+  const browserParams = new URLSearchParams(location.search);
+  assert.equal(browserParams.get("group"), "pool");
+  assert.equal(browserParams.get("table"), "measurements");
+  assert.equal(browserParams.get("page"), "2");
   browser.destroy();
+
+  // FileBrowser: gutter navigation, URL state, light actions and search.
+  location.pathname = "/default/files";
+  location.search = "";
+  const fileHost = new Element("div");
+  const fileBrowser = Clio.FileBrowser.mount(fileHost, { path: "/" });
+  await fileBrowser.ready;
+  assert.equal(fileBrowser.path, "/");
+  assert.equal(location.pathname, "/default/files");
+  assert.match(fileHost.textContent, /docs/);
+  assert.match(fileHost.textContent, /note\.txt/);
+  assert.match(fileHost.textContent, /Breadcrumb|default/);
+  assert.ok(requests.some((request) => request.url.endsWith("/files?path=%2F")), "the root directory is listed");
+
+  await fileBrowser.navigate("/docs");
+  assert.equal(fileBrowser.path, "/docs");
+  assert.equal(location.pathname, "/default/files/docs");
+  assert.match(fileHost.textContent, /old\.txt/);
+
+  await fileBrowser.createFolder("new");
+  const createRequest = requests.filter((request) => request.url.endsWith("/files/directories")).at(-1);
+  assert.ok(createRequest, "create folder uses the directories endpoint");
+  assert.deepEqual(JSON.parse(createRequest.options.body), { path: "/docs/new" });
+
+  await fileBrowser.upload("hello", "up.txt");
+  const uploadRequest = requests.filter((request) => request.options.method === "PUT" && request.url.includes("path=%2Fdocs%2Fup.txt")).at(-1);
+  assert.ok(uploadRequest, "upload puts raw bytes at the target path");
+  assert.equal(uploadRequest.options.body, "hello");
+
+  await fileBrowser.rename("/docs/old.txt", "/docs/new.txt");
+  const moveRequest = requests.filter((request) => request.url.endsWith("/files/move")).at(-1);
+  assert.ok(moveRequest, "rename uses the files move endpoint");
+  assert.deepEqual(JSON.parse(moveRequest.options.body), { from: "/docs/old.txt", to: "/docs/new.txt" });
+
+  await fileBrowser.remove("/docs/gone.txt");
+  const deleteRequest = requests.filter((request) => request.options.method === "DELETE").at(-1);
+  assert.match(deleteRequest.url, /\/files\?path=%2Fdocs%2Fgone\.txt$/);
+
+  await fileBrowser.remove("/protected.txt");
+  assert.match(fileHost.textContent, /referenced by an attachment/, "a 409 conflict message is surfaced");
+
+  await fileBrowser.search("needle");
+  const searchRequest = requests.filter((request) => request.url.includes("/search?")).at(-1);
+  assert.ok(searchRequest, "search uses the search API");
+  assert.equal(new URL(searchRequest.url).searchParams.get("q"), "needle");
+  assert.match(fileHost.textContent, /needle/);
+  assert.equal(collectByTag(fileHost, "mark").length, 1, "the search snippet highlights the matched term");
+  fileBrowser.destroy();
 
   let error;
   try {

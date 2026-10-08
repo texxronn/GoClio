@@ -110,7 +110,7 @@ Records support GET list/item, POST create, PATCH update, DELETE at /api/v1/grou
 Decimal values are JSON strings by default; integer values are JSON integers; datetimes are RFC 3339 and normalized to UTC. Record reads accept decimal_format=number to return decimal fields as JSON numbers (canonical decimal text preserved) for consumers that require numeric JSON; decimal_format=string is the default.
 References contain target record IDs and prevent deletion of referenced records/tables.
 Attachments contain content-entry IDs from the same project and prevent deletion of a referenced file (or a directory containing one) until the value is cleared.
-HTML views use /t/{group}/{table}, /new, /{id}, and /{id}/edit. Forms are metadata-driven. The read-only Data Browser is at /collections/{group}/{table}; /collections opens the browser and selects the first available table.
+HTML views use /{project}/data/{group}/{table}, /new, /{id}, and /{id}/edit. Forms are metadata-driven. The read-only Data Browser is at /{project}/data; its table view links to /{project}/data/{group}/{table}.
 
 Example: POST /api/v1/groups/pool/tables with {"name":"readings","kind":"timeseries","timestamp_field":"timestamp","fields":[{"name":"timestamp","type":"datetime","required":true},{"name":"temperature","type":"decimal"}]}; then POST /api/v1/groups/pool/tables/readings/records with {"timestamp":"2026-09-27T12:00:00+10:00","temperature":"20.43"}. A record response contains the generated id, created_at, updated_at, and every defined field.
 
@@ -129,7 +129,7 @@ The asset /assets/clio-markdown.js exposes ClioMarkdown.render(source) for clien
 ## Browser JavaScript client
 - Load /assets/clio.js for the optional, dependency-free ClioJS v1 client (also available at /assets/clio/v1/clio.js). It uses same-origin fetch() by default and HTTP Basic Authentication supported by the browser.
 - Example: const clio = new Clio(); const table = clio.table("pool", "measurements"); const recent = await table.query({limit: 20, sort: "timestamp", order: "desc"});
-- ClioJS supports metadata, groups/tables, records, query paging/async iteration, files and directory listing. Clio.DataBrowser.mount(element) powers the built-in read-only /collections/{group}/{table} browser. Decimal values remain strings; errors expose status, code, and message.
+- ClioJS supports metadata, groups/tables, records, query paging/async iteration, files and directory listing. Clio.DataBrowser.mount(element) powers the built-in read-only data browser at /{project}/data; Clio.FileBrowser.mount(element) powers the file explorer at /{project}/files. Decimal values remain strings; errors expose status, code, and message.
 - Load /assets/clio-markdown.js separately to use Clio.Markdown.render(page.content).
 
 Content paths are canonical, case-sensitive UTF-8 paths. They reject traversal, empty segments, backslashes, control characters and the reserved root names api, health, help, assets, t and collections. The files endpoints return entry metadata; the stored source is served as raw bytes from the stable ID URL, and pages render at their path URL.

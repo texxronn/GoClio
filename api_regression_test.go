@@ -115,7 +115,7 @@ func TestTableUIRootGroupEditDeleteAndErrors(t *testing.T) {
 	for _, test := range []struct {
 		path, contains string
 	}{
-		{"/default/files", "Vehicle Service"},
+		{"/default/files", "File explorer"},
 		{"/default/data/vehicle", "Vehicle tables"},
 		{"/default/data/vehicle/service", "Vehicle Service"},
 	} {

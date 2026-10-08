@@ -281,7 +281,8 @@ func TestDirectoryChildrenAndContentUI(t *testing.T) {
 	}
 
 	for path, want := range map[string]string{
-		"/default/files":                  "Collections",
+		"/default/":                       "Open data browser",
+		"/default/files":                  "File explorer",
 		"/default/files/pool":             "Published content",
 		"/default/files/pool/readme.md":   "class=\"published-markdown\"",
 		"/default/files/pool/report.html": "<h1>Report</h1>",

@@ -33,7 +33,7 @@ through HTTP and use temporary SQLite databases and content directories.
 | §62 lifecycle and graceful shutdown | `TestServeUntilSignalGracefullyDrainsActiveRequest` |
 | §54 authentication and transport | `TestLoadAuthConfigDefaultsAndValidation`, `TestAuthenticationProtectsAllApplicationRoutes`, `TestHTTPSRequirementAndTrustedNetworks`, `TestForwardedHTTPSOnlyTrustedFromProxy` |
 | §43 ClioJS browser client | `TestClioJSAssetsAndHelp`, `TestClioJSBehaviorWithNode` |
-| §35 collection data browser | `TestCollectionBrowserRoutes` |
+| §35 collection data browser (re-scoped to `/{project}/data`) | `TestDataBrowserRoutes` |
 | §65.1–§65.2/§65.5/§65.7, §66.3–§66.4 projects model, API, storage scope and reserved names | `TestProjectCreateListReadDelete`, `TestProjectReservedNamesAndValidation`, `TestProjectDeleteRejectsNonEmpty`, `TestHealthReportsProjectCount`, `TestOpenDatabaseMigratesLegacyTablesToProjectScope` |
 | §64.2 content entries and identity | `TestContentEntryIdentityStableAcrossReplace`, `TestContentReconciliationAddsAndRemoves`, `TestContentEntriesMigrationFromPageTimes`, `TestContentLayoutMigrationMovesLegacyRoot`, `TestFilesCRUDByPathAndID`, `TestFilesMoveAndCopy` |
 | §64.4 filesystem REST API | `TestFilesCRUDByPathAndID`, `TestFilesDirectoryListingAndPageKind`, `TestFilesDirectoryCreation`, `TestFilesListFiltersAndPaging`, `TestFilesMoveAndCopy`, `TestFilesConflictsAndReservedSegment`, `TestFilesDeleteByPathRemovesSubtree`, `TestFilesUploadLimitAndTraversal`, `TestFilesRescanSummary`, `TestFilesProjectIsolation` |
@@ -42,8 +42,9 @@ through HTTP and use temporary SQLite databases and content directories.
 | §64.7 search API | `TestSearchReturnsRankedResultsAndShape`, `TestSearchSnippetsArePlainTextWithSentinels`, `TestSearchPagingIsDeterministic`, `TestSearchRejectsEmptyAndOversizedAndBadPaging`, `TestSearchTreatsOperatorsAsLiterals`, `TestBuildMatchQueryQuotesAndPrefix`, `TestSearchIsProjectScoped`, `TestSearchReportsIndexSourceAndContentType` |
 | §64.8 agent enrichment API | `TestEnrichmentRequiresMatchingFingerprint`, `TestEnrichmentAcceptsSha256Fingerprint`, `TestEnrichmentByIDPathSegment`, `TestEnrichmentValidatesRequestShape`, `TestEnrichmentDeleteFallsBackToNative`, `TestEnrichmentSurvivesMove`, `TestEnrichmentIsProjectScoped`, `TestEnrichmentEditedFileInvalidatesAgentText` |
 | §64.9 attachment fields | `TestAttachmentFieldNormalizationAndMetadata`, `TestAttachmentValidationOnCreateUpdateAndDefault`, `TestAttachmentDefaultValidation`, `TestAttachmentRejectsCrossProjectEntries`, `TestAttachmentDeleteIntegrity`, `TestAttachmentDeleteIntegrityDirectorySubtree`, `TestAttachmentSurvivesRenameAndMove`, `TestAttachmentFilterSortAndDistinct`, `TestAttachmentFormAndRecordRendering` |
+| §64.14 web file explorer and human search surface | `TestFileExplorerShellRoutes`, `TestFileExplorerLightActions`, `TestSearchUIWorkflow`, `TestClioJSBehaviorWithNode` |
 | §65.3 project data scoping and isolation | `TestProjectDataIsolation`, `TestContentIsolationBetweenProjects` |
-| §66.1/§66.3/§66.5–§66.6 project-first routing, instance routes and the data partition | `TestBareRoutesRedirectToDefaultProject`, `TestUnknownProjectReturnsNotFound`, `TestProjectScopedHumanAndAPIRoutes` |
+| §66.1/§66.3/§66.5–§66.6 project-first routing, instance routes, human URLs and the data partition | `TestBareRoutesRedirectToDefaultProject`, `TestUnknownProjectReturnsNotFound`, `TestProjectScopedHumanAndAPIRoutes`, `TestDataBrowserRoutes`, `TestFileExplorerShellRoutes`, `TestSearchUIWorkflow` |
 | §66.2/§66.7 files partition replaces the Page and Directory APIs | `TestLegacyPageAndDirectoryRoutesRemoved`, `TestFilesPageCreateReplaceDeleteAndValidation`, `TestFilePageRoundTripAndPathSafety`, `TestFilesDirectoryCreation` |
 
 ## Verification commands
@@ -70,5 +71,4 @@ above as its tests land.
 | --- | --- |
 | §64.10 WebDAV | optional flag; method set including MOVE/COPY; ID preservation; auth enforcement |
 | §64.11 backup and restore | restored database plus content reproduces IDs, timestamps and agent text |
-| §64.14 web file explorer | `/files` shell and reserved route; ClioJS `Clio.FileBrowser`; breadcrumbs and URL state; upload/rename/delete actions; referenced-entry `409`; escaped search snippets |
 | §66 project-scoped URL scheme and partitions | remaining: WebDAV at both `/api/v1/{project}/files/dav` and `/{project}/files/dav` |

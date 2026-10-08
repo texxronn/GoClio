@@ -4,28 +4,16 @@ import (
 	"net/http"
 )
 
-// collectionBrowserUI serves the client-side collection data browser shell.
-// All data and navigation are loaded by ClioJS through the public API.
-func (a *app) collectionBrowserUI(w http.ResponseWriter, r *http.Request, s []string) {
-	if r.Method != http.MethodGet {
+// dataBrowserUI serves the client-side collection data browser shell at
+// /{project}/data (section 35, re-scoped to the data partition by section
+// 66.5). All data and navigation are loaded by ClioJS through the public API;
+// the URL carries the selected group, table and page as query parameters. The
+// per-table server-rendered table UI and forms remain at
+// /{project}/data/{group}/{table}.
+func (a *app) dataBrowserUI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		writeAPIError(w, methodNotAllowed())
 		return
-	}
-	if len(s) > 2 {
-		writeAPIError(w, missing("Page"))
-		return
-	}
-	if len(s) > 0 {
-		if _, err := validIdentifier(s[0], "group"); err != nil {
-			writeErr(w, err)
-			return
-		}
-	}
-	if len(s) > 1 {
-		if _, err := validIdentifier(s[1], "table"); err != nil {
-			writeErr(w, err)
-			return
-		}
 	}
 	body := `<h1>Data Browser</h1>
 <div id="clio-data-browser" aria-live="polite"></div>

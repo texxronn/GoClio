@@ -47,13 +47,13 @@ func TestDirectoryUIShowsCreateForm(t *testing.T) {
 
 func TestHomePageAndFavicon(t *testing.T) {
 	a := newTestApp(t)
-	r := httptest.NewRequest(http.MethodGet, "/default/files", nil)
+	r := httptest.NewRequest(http.MethodGet, "/default/", nil)
 	w := httptest.NewRecorder()
 	a.ServeHTTP(w, r)
 	if w.Code != http.StatusOK {
-		t.Fatalf("GET /default/files status = %d, want %d", w.Code, http.StatusOK)
+		t.Fatalf("GET /default/ status = %d, want %d", w.Code, http.StatusOK)
 	}
-	for _, want := range []string{"Everything you need", "home-hero", "Open data browser", "Published content", `href='/favicon.svg'`} {
+	for _, want := range []string{"Everything you need", "home-hero", "Open data browser", "File explorer", "Published content", `href='/favicon.svg'`} {
 		if !strings.Contains(w.Body.String(), want) {
 			t.Errorf("home page missing %q", want)
 		}
