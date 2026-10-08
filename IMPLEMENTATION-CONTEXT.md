@@ -12,8 +12,8 @@
 - **Plan:** `IMPLEMENTATION-PLAN.md`
 - **Code baseline:** Phase 9 implemented. Records can declare an `attachment` field (`type: "attachment"`, optional `accept` hint) whose value is a content-entry ID; it is validated against the same project on create/update/default (`422` otherwise), returned in the record representation as a JSON string, prevents deleting the referenced entry or a containing directory (`409`) until cleared, and links through `/{project}/files/id/{id}` in the record view. The files partition now exposes the agent enrichment API at `GET`/`PUT`/`DELETE /api/v1/{project}/files/extraction`, addressing an entry by `?path=`, `?id=`, or the files-style `/api/v1/{project}/files/{id}/extraction`. `PUT` accepts `{"fingerprint","text","provider","title"}`, validates the provider (`agent:<provider>`), requires the fingerprint to match the current on-disk bytes (`size:mtime` or the entry `sha256` when known; mismatch `409`, missing/invalid fields `422`), and stores the text in `content_search` with `source = agent:<provider>` so it is searchable through `GET /api/v1/{project}/search`. `GET` returns the current extraction (agent or native), its `source`, and the current fingerprint; `DELETE` drops the agent row and rebuilds native text so the entry falls back to native. Enrichment is keyed by entry ID and survives move. Rewriting or rescan-refreshing an entry drops its stale agent text. Phases 0–7 (search API included) remain as described above.
 - **Branch:** `master`
-- **Last merged commit:** `bc377db` (Phase 8, PR #12)
-- **Current phase:** Phase 9 implemented on `phase-9-attachment` (pending merge)
+- **Last merged commit:** `426250d` (Phase 9, PR #13)
+- **Current phase:** Phase 9 complete and merged
 - **Next action:** Phase 10 — pages/directories folded into files (§66.2, §64.14): render `.md`/`.html` at path URLs, keep the client Markdown asset, remove the Page and Directory API code paths, and cover the markdown subset and HTML trust boundary.
 - **Blockers:** none
 
