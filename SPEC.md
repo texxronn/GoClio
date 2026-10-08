@@ -4876,5 +4876,9 @@ supersedes the URL schemes, route listings and reserved roots in sections 32,
 35, 38, 41, 49, 64 and 65; those sections remain normative for behaviour where
 they do not conflict. The Directory API (section 38) and Page API (section 41)
 are replaced by the files partition. Existing `/api/v1/` semantics are otherwise
-unchanged, and an incompatible change still requires `/api/v2` (section 48).
+unchanged, and an incompatible change still requires `/api/v2` (section 48). The
+removal of the Page API (section 41) and Directory API (section 38) is an
+intentional supersession under the existing `/api/v1/` contract and is not by
+itself an incompatible change requiring `/api/v2/`; where section 64.13's
+versioning rule conflicts with this section, this section governs.
 

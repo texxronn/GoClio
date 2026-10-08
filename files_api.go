@@ -395,7 +395,9 @@ func (a *app) serveFileContent(w http.ResponseWriter, r *http.Request, id string
 
 // serveDownload streams a regular file as an attachment (section 64.5). The
 // download disposition and nosniff are set before http.ServeContent, which
-// supplies HEAD support, byte ranges and conditional requests.
+// supplies HEAD support and byte ranges. A zero modification time is passed so
+// no Last-Modified header (and therefore no If-Modified-Since/304 conditional
+// requests) is exposed, matching section 3.1; ranges and HEAD still work.
 func serveDownload(w http.ResponseWriter, r *http.Request, target, contentType string) *apiError {
 	f, err := os.Open(target)
 	if os.IsNotExist(err) {
@@ -417,7 +419,7 @@ func serveDownload(w http.ResponseWriter, r *http.Request, target, contentType s
 	if contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	}
-	http.ServeContent(w, r, info.Name(), info.ModTime(), f)
+	http.ServeContent(w, r, info.Name(), time.Time{}, f)
 	return nil
 }
 

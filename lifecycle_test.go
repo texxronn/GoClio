@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"sync"
@@ -57,6 +58,64 @@ func TestHTTPFailureLoggingOmitsRequestDetails(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "request panic: method=GET") || strings.Contains(logs.String(), "also-never-log-this") {
 		t.Fatalf("panic log is missing or includes request details: %q", logs.String())
+	}
+}
+
+// panicAfterCommitWriter commits a status then panics on its first body write,
+// so a second Write (the recovery branch appending a 500 JSON error to an
+// already-committed response) is recorded rather than panicking again.
+type panicAfterCommitWriter struct {
+	header   http.Header
+	status   int
+	writes   [][]byte
+	panicked bool
+}
+
+func (w *panicAfterCommitWriter) Header() http.Header { return w.header }
+
+func (w *panicAfterCommitWriter) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+	}
+}
+
+func (w *panicAfterCommitWriter) Write(p []byte) (int, error) {
+	if !w.panicked {
+		w.panicked = true
+		panic("handler panicked after committing the response")
+	}
+	w.writes = append(w.writes, append([]byte(nil), p...))
+	return len(p), nil
+}
+
+func TestPanicAfterResponseCommitDoesNotAppendError(t *testing.T) {
+	a := newTestApp(t)
+	logs := captureLogOutput(t)
+
+	// A handler that panics after committing a status (the body write panics
+	// here) must not have a JSON error appended to the response.
+	committed := &panicAfterCommitWriter{header: http.Header{}}
+	a.ServeHTTP(committed, httptest.NewRequest(http.MethodGet, "/help", nil))
+	if committed.status != http.StatusOK {
+		t.Fatalf("committed status = %d, want 200", committed.status)
+	}
+	if len(committed.writes) != 0 {
+		t.Fatalf("recovery appended a body after commit: %q", committed.writes)
+	}
+	if !strings.Contains(logs.String(), "request panic: method=GET") {
+		t.Fatalf("panic was not logged: %q", logs.String())
+	}
+
+	// A panic before anything is written still yields the generic 500 JSON.
+	a.db = nil
+	early := testRequest(t, a, http.MethodGet, "/api/v1/health", nil, "")
+	if early.Code != http.StatusInternalServerError {
+		t.Fatalf("panic before write status = %d, want 500", early.Code)
+	}
+	var body map[string]any
+	testJSON(t, early, &body)
+	if body["error"] != "internal_error" || body["message"] != "An internal error occurred" {
+		t.Fatalf("panic before write body = %#v", body)
 	}
 }
 

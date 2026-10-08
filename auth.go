@@ -174,7 +174,7 @@ func (a *app) authorizeRequest(w http.ResponseWriter, r *http.Request) bool {
 	validPassword := bcrypt.CompareHashAndPassword(cfg.passwordHash, []byte(password)) == nil
 	validUsername := subtle.ConstantTimeCompare([]byte(username), []byte(cfg.username)) == 1
 	if !validBasic || !validUsername || !validPassword {
-		log.Printf("authentication failure: remote=%q path=%q reason=invalid_credentials", r.RemoteAddr, r.URL.Path)
+		log.Printf("authentication failure: remote=%q reason=invalid_credentials", r.RemoteAddr)
 		w.Header().Set("WWW-Authenticate", `Basic realm="Clio"`)
 		writeAPIError(w, &apiError{http.StatusUnauthorized, "unauthorized", "Authentication required"})
 		return false

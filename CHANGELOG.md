@@ -73,8 +73,9 @@ than the product.
   - `GET /api/v1/{project}/files/{id}/content` and the human
     `/{project}/files/id/{id}` stream an entry's current raw bytes, regardless of
     its path and including pages. Both send `Content-Disposition: attachment` and
-    `X-Content-Type-Options: nosniff`, and use `http.ServeContent` so `HEAD`,
-    byte ranges and conditional requests work.
+    `X-Content-Type-Options: nosniff`, and use `http.ServeContent` so `HEAD` and
+    byte ranges work (modification-time conditionals are intentionally omitted;
+    see Fixed).
   - Non-page files at their path URL now download with the same disposition and
     nosniff headers instead of being served inline. Markdown pages still render
     (sanitised) and HTML pages remain trusted executable content at their path
@@ -172,6 +173,13 @@ than the product.
   are dropped; it refuses a non-empty target data directory unless `--force` is
   given. The documented stop-copy procedure remains
   (`README.md`, `/help`, `CLIO_DATA_DIR`/`CLIO_DB`).
+- Human state-changing requests are protected by a lightweight same-origin
+  check: a `POST`/`PUT`/`PATCH`/`DELETE` to a human route whose present `Origin`
+  or `Referer` host does not match the request host returns `403` before any
+  mutation, while a request with no such header is unaffected. This closes the
+  cross-site forged-form path when Basic credentials are cached by the browser.
+  The JSON API is deliberately unchanged (section 54 treats API clients as
+  non-browser).
 
 ### Changed
 
@@ -236,6 +244,18 @@ than the product.
 - WebDAV `GET`/`HEAD` now send `X-Content-Type-Options: nosniff` for every entry
   and `Content-Disposition: attachment` for non-page content, matching the path
   URL protections without changing page responses (spec §64.5).
+- File downloads no longer expose modification-time conditionals: `serveDownload`
+  passes a zero modification time to `http.ServeContent`, so a download has no
+  `Last-Modified`, an `If-Modified-Since` request returns `200` rather than
+  `304`, and `HEAD` and byte ranges still work (spec §3.1/§64.5).
+- A panic after a response is committed no longer appends a JSON `500` error to
+  the already-sent body. The recovery writes the generic `500` only when nothing
+  has been committed and always logs the panic (spec §56).
+- Authentication failures no longer log the request path, and internal
+  storage/filesystem errors are logged through a redacted description that keeps
+  the operation and error class but drops the path-bearing message; request
+  bodies, credentials, query strings and content are never logged
+  (spec §54.4/§56).
 
 ### Documentation
 
@@ -271,6 +291,18 @@ than the product.
 - Added the section 59 acceptance walkthrough test
   (`TestSection59AcceptanceWalkthrough`), which runs the end-to-end walkthrough
   against the project-scoped routes.
+- `SPEC.md` section 66.10 now states explicitly that the removal of the Page API
+  (section 41) and Directory API (section 38) is an intentional supersession
+  under the existing `/api/v1/` contract and is not by itself an incompatible
+  change requiring `/api/v2/`; where section 64.13's versioning rule conflicts
+  with section 66, section 66 governs.
+- `IMPLEMENTATION-CONTEXT.md` records the round-2 decisions and limitations:
+  the supported filesystem is case-sensitive and normalization-stable (case-/
+  normalization-insensitive hosts are unsupported), directory listings are paged
+  with no hard per-directory cap beyond the ZIP limits, backup archives are
+  trusted administrator input with no manifest checksum/signature, the WebDAV
+  non-page download policy is intentional, and the same-origin and log-redaction
+  choices above.
 
 All of sections 64–66 are implemented; this release brings the product to the
 `SPEC.md` v1.7 contract.
