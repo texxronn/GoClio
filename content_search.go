@@ -9,11 +9,12 @@ import (
 // nativeSearchSource marks text extracted by Clio itself (section 64.7).
 const nativeSearchSource = "native"
 
-// replaceNativeSearch writes one native text-index row for an entry, replacing
-// any existing row for the same entry ID (sections 64.6 and 65.7). Content with
-// no extracted text (binary files and image-only PDFs) leaves no row, so it is
-// not searchable natively.
-func replaceNativeSearch(exec sqlExecer, project, id, entryPath, kind, title, body string) error {
+// replaceSearch writes one text-index row for an entry, replacing any existing
+// row for the same entry ID (sections 64.6 and 65.7). Content with no text
+// leaves no row, so it is not searchable. The source records provenance:
+// "native" for Clio's own extraction or "agent:<provider>" for sidecar
+// enrichment (sections 64.7 and 64.8).
+func replaceSearch(exec sqlExecer, project, id, entryPath, kind, source, title, body string) error {
 	if _, err := exec.Exec(`DELETE FROM content_search WHERE project=? AND id=?`, project, id); err != nil {
 		return err
 	}
@@ -22,7 +23,32 @@ func replaceNativeSearch(exec sqlExecer, project, id, entryPath, kind, title, bo
 	}
 	_, err := exec.Exec(
 		`INSERT INTO content_search(id,project,path,kind,source,title,body) VALUES(?,?,?,?,?,?,?)`,
-		id, project, entryPath, kind, nativeSearchSource, title, body,
+		id, project, entryPath, kind, source, title, body,
+	)
+	return err
+}
+
+// replaceNativeSearch writes one native text-index row for an entry (section
+// 64.6). Native extraction never produces an empty body here because
+// replaceSearch drops empty text, so a format with no text leaves no row.
+func replaceNativeSearch(exec sqlExecer, project, id, entryPath, kind, title, body string) error {
+	return replaceSearch(exec, project, id, entryPath, kind, nativeSearchSource, title, body)
+}
+
+// replaceAgentSearch writes one agent-supplied text-index row for an entry
+// (section 64.8), replacing any existing native or agent row so the agent text
+// becomes the entry's searchable text.
+func replaceAgentSearch(exec sqlExecer, project, id, entryPath, kind, source, title, body string) error {
+	return replaceSearch(exec, project, id, entryPath, kind, source, title, body)
+}
+
+// clearAgentSearch drops agent-provided text for an entry whose bytes Clio has
+// rewritten or refreshed, so a stale extraction cannot shadow changed content
+// (section 64.8). Any native row is left for the caller to rebuild.
+func clearAgentSearch(exec sqlExecer, project, id string) error {
+	_, err := exec.Exec(
+		`DELETE FROM content_search WHERE project=? AND id=? AND source<>?`,
+		project, id, nativeSearchSource,
 	)
 	return err
 }

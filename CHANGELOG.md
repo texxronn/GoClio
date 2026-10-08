@@ -102,6 +102,19 @@ than the product.
   markup, so indexed content cannot inject HTML.
 - The content-entry representation now reports the real `indexed` value
   (whether the entry has native or agent text) instead of a hardcoded `false`.
+- Agent enrichment API (spec v1.7 §64.8/§66.7): `GET`/`PUT`/`DELETE
+  /api/v1/{project}/files/extraction`, addressing an entry by `?path=`, `?id=`
+  or the files-style `/api/v1/{project}/files/{id}/extraction`. `PUT` stores
+  agent-supplied text (`{"fingerprint", "text", "provider", "title"}`) with
+  `source = agent:<provider>` so sidecar agents (for example OCR) make their
+  text searchable through `GET /api/v1/{project}/search`; a missing or invalid
+  field returns `422`. The fingerprint must match the current on-disk entry —
+  `size:mtime` or the entry's `sha256` when known — or the write is refused with
+  `409`, so a stale extraction cannot shadow changed content. Enrichment is keyed
+  by entry ID and survives rename and move. `GET` returns the current extraction
+  (agent or native) with its `source` and the current fingerprint; `DELETE`
+  removes the agent row and rebuilds the native text so the entry falls back to
+  native. Rewriting or rescan-refreshing an entry drops its stale agent text.
 - Builds and tests require `-tags sqlite_fts5` so the cgo SQLite driver compiles
   in FTS5. The `Makefile`, `Dockerfile` and CI apply it; a binary built without
   the tag fails at startup when it creates `content_search`.

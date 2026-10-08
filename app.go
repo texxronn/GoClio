@@ -297,7 +297,19 @@ func (a *app) filesAPI(w http.ResponseWriter, r *http.Request, s []string) {
 			return
 		}
 		a.rescanFiles(w, r)
+	case "extraction":
+		if len(s) != 1 {
+			writeAPIError(w, missing("Endpoint"))
+			return
+		}
+		a.extractionAPI(w, r, "")
 	default:
+		if len(s) == 2 && s[1] == "extraction" {
+			// By-ID enrichment, consistent with GET /files/{id} and
+			// /files/{id}/content (section 66.7).
+			a.extractionAPI(w, r, s[0])
+			return
+		}
 		if len(s) == 2 && s[1] == "content" {
 			if r.Method != http.MethodGet && r.Method != http.MethodHead {
 				writeAPIError(w, methodNotAllowed())
