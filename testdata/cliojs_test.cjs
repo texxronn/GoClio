@@ -9,6 +9,8 @@ const session = new Map();
 const navigation = [];
 const opened = [];
 const docHandlers = {};
+const mockGroups = [{ name: "pool" }];
+const mockTables = { pool: [{ name: "measurements" }] };
 class Element {
   constructor(tagName) {
     this.tagName = tagName;
@@ -99,13 +101,29 @@ const context = {
         body = null;
       }
     } else if (parsed.pathname.endsWith("/records") && method === "GET") {
-      const offset = Number(parsed.searchParams.get("offset") || 0);
-      body = offset === 0
-        ? { data: [{ id: "1", amount: "10.20" }, { id: "2", amount: "20.30" }], page: { limit: 2, offset: 0, count: 2, total: 3 } }
-        : { data: [{ id: "3", amount: "30.40" }], page: { limit: 2, offset: 2, count: 1, total: 3 } };
+      if (parsed.pathname.includes("/garage/")) {
+        body = { data: [], page: { limit: 50, offset: 0, count: 0, total: 0 } };
+      } else {
+        const offset = Number(parsed.searchParams.get("offset") || 0);
+        body = offset === 0
+          ? { data: [{ id: "1", amount: "10.20" }, { id: "2", amount: "20.30" }], page: { limit: 2, offset: 0, count: 2, total: 3 } }
+          : { data: [{ id: "3", amount: "30.40" }], page: { limit: 2, offset: 2, count: 1, total: 3 } };
+      }
     } else if (parsed.pathname.endsWith("/records/missing")) {
       status = 404;
       body = { error: "not_found", message: "Record not found" };
+    } else if (parsed.pathname.endsWith("/data/groups") && method === "POST") {
+      body = JSON.parse(options.body);
+      mockGroups.push({ name: body.name, label: body.label || body.name });
+      status = 201;
+    } else if (parsed.pathname.endsWith("/tables") && method === "POST" && JSON.parse(options.body).name === "duplicate") {
+      status = 409;
+      body = { error: "conflict", message: "Table already exists" };
+    } else if (parsed.pathname.endsWith("/tables") && method === "POST") {
+      body = JSON.parse(options.body);
+      const g = decodeURIComponent(parsed.pathname.split("/groups/")[1].split("/tables")[0]);
+      (mockTables[g] = mockTables[g] || []).push({ name: body.name, label: body.label || body.name, kind: body.kind });
+      status = 201;
     } else if (method === "POST" || method === "PATCH") {
       body = JSON.parse(options.body);
     } else if (parsed.pathname.endsWith("/search")) {
@@ -171,12 +189,13 @@ const context = {
       body = { api_version: "v1", groups: [] };
     } else if (parsed.pathname.endsWith("/groups/pool/tables/measurements")) {
       body = { group: "pool", name: "measurements", label: "Measurements", kind: "timeseries", fields: [{ name: "amount", label: "Amount", type: "decimal" }, { name: "hidden", label: "Hidden", hidden: true }] };
-    } else if (parsed.pathname.endsWith("/groups/pool/tables")) {
-      body = [{ name: "measurements" }];
-    } else if (parsed.pathname.endsWith("/groups/pool")) {
-      body = { name: "pool" };
+    } else if (parsed.pathname.endsWith("/tables") && method === "GET") {
+      const g = decodeURIComponent(parsed.pathname.split("/groups/")[1].split("/tables")[0]);
+      body = mockTables[g] || [];
+    } else if (/\/groups\/[^/]+$/.test(parsed.pathname) && method === "GET") {
+      body = { name: decodeURIComponent(parsed.pathname.split("/groups/")[1]) };
     } else if (parsed.pathname.endsWith("/groups")) {
-      body = [{ name: "pool" }];
+      body = mockGroups;
     } else {
       body = {};
     }
@@ -192,7 +211,7 @@ vm.runInNewContext(source, context, { filename: "clio.js" });
 
 async function main() {
   const Clio = context.Clio;
-  assert.equal(Clio.version, "1.4.0");
+  assert.equal(Clio.version, "1.5.0");
   assert.equal(Clio.apiVersion, "v1");
   assert.equal(typeof Clio.DataBrowser.mount, "function");
   assert.equal(typeof Clio.FileBrowser.mount, "function");
@@ -276,11 +295,10 @@ async function main() {
   const tableViewLink = toolbar.children[2];
   assert.equal(tableViewLink.href, "/default/data/pool/measurements");
   assert.equal(tableViewLink.hidden, false);
-  const themeToggle = toolbar.children[3];
-  assert.equal(themeToggle.attributes["aria-label"], "Switch to dark theme");
-  themeToggle.handlers.click();
+  assert.equal(collectByTag(browserHost, "button").filter((button) => button.className === "browser-theme-toggle").length, 0, "the data browser renders no duplicate theme toggle");
+  assert.equal(Clio.Theme.toggle(), "dark", "Clio.Theme.toggle() flips the theme directly");
   assert.equal(context.document.documentElement.attributes["data-theme"], "dark");
-  assert.equal(storage.get("clio-theme"), "dark", "the toggle writes the shared clio-theme key");
+  assert.equal(storage.get("clio-theme"), "dark", "the shared theme controller writes the clio-theme key");
   assert.equal(storage.has("clio-data-browser-theme"), false, "the old bespoke theme key is no longer used");
   assert.equal(Clio.Theme.current(), "dark");
   assert.equal(Clio.Theme.effective(), "dark");
@@ -292,6 +310,119 @@ async function main() {
   assert.equal(browserParams.get("table"), "measurements");
   assert.equal(browserParams.get("page"), "2");
   browser.destroy();
+
+  // --- DataBrowser create flow: New collection / New table ---
+  location.pathname = "/default/data";
+  location.search = "?group=pool&table=measurements";
+  const createHost = new Element("div");
+  const createBrowser = Clio.DataBrowser.mount(createHost, { pageSize: 2 });
+  await createBrowser.ready;
+  const createPanel = collectByTag(createHost, "section").find((section) => section.className === "browser-create");
+  assert.ok(createPanel, "the data browser renders an inline browser-create section");
+  assert.equal(createPanel.hidden, true, "the create form is hidden by default");
+  const newCollectionButton = collectByTag(createHost, "button").find((button) => button.className === "browser-new-collection");
+  const newTableButton = collectByTag(createHost, "button").find((button) => button.className === "browser-new-table");
+  assert.ok(newCollectionButton, "the toolbar has a New collection button");
+  assert.ok(newTableButton, "the toolbar has a New table button");
+  newTableButton.handlers.click({ preventDefault() {} });
+  assert.equal(createPanel.hidden, false, "New table opens the create form");
+  const createForm = collectByTag(createPanel, "form").find((form) => form.className === "browser-create-form");
+  assert.ok(createForm, "the create controls are an inline form, not a dialog");
+  const inputByClass = (root, className) => collectByTag(root, "input").find((input) => input.className === className);
+  const selectByClass = (root, className) => collectByTag(root, "select").find((select) => select.className === className);
+  const createFieldNames = () => collectByTag(createPanel, "input").filter((input) => input.className === "browser-field-name");
+  const createFieldTypes = () => collectByTag(createPanel, "select").filter((select) => select.className === "browser-field-type");
+  const createButton = (className) => collectByTag(createPanel, "button").find((button) => button.className === className);
+  const tablePosts = () => requests.filter((request) => request.options.method === "POST" && request.url.endsWith("/tables")).length;
+  const groupPosts = () => requests.filter((request) => request.options.method === "POST" && request.url.endsWith("/data/groups")).length;
+
+  // Existing collection: one table POST, no group POST.
+  inputByClass(createPanel, "browser-create-name").value = "readings";
+  inputByClass(createPanel, "browser-create-label").value = "Readings";
+  createFieldNames()[0].value = "metric";
+  createFieldTypes()[0].value = "decimal";
+  createButton("browser-field-add").handlers.click({ preventDefault() {} });
+  assert.equal(createFieldNames().length, 2, "a field row can be added");
+  createFieldNames()[1].value = "obsolete";
+  createFieldTypes()[1].value = "text";
+  collectByTag(createPanel, "button").filter((button) => button.className === "browser-field-remove")[1].handlers.click({ preventDefault() {} });
+  assert.equal(createFieldNames().length, 1, "a field row can be removed");
+  selectByClass(createPanel, "browser-create-collection").value = "pool";
+  const groupPostsBeforeExisting = groupPosts();
+  const tablePostsBeforeExisting = tablePosts();
+  await createForm.handlers.submit({ preventDefault() {} });
+  await settle();
+  assert.equal(tablePosts(), tablePostsBeforeExisting + 1, "creating in an existing collection issues one table POST");
+  assert.equal(groupPosts(), groupPostsBeforeExisting, "no group is created for an existing collection");
+  const tablePost = requests.filter((request) => request.options.method === "POST" && request.url.endsWith("/groups/pool/tables")).at(-1);
+  assert.deepEqual(JSON.parse(tablePost.options.body), { name: "readings", kind: "record", label: "Readings", fields: [{ name: "metric", type: "decimal" }] });
+  assert.equal(createPanel.hidden, true, "the form closes after success");
+  assert.match(createHost.textContent, /Created table/, "a confirmation is shown");
+  const selectedLink = collectByTag(createHost, "a").find((link) => link.attributes["aria-current"] === "page");
+  assert.equal(selectedLink.textContent, "Readings", "the new table is selected after success");
+
+  // New collection: POST /data/groups first, then the table POST.
+  newTableButton.handlers.click({ preventDefault() {} });
+  inputByClass(createPanel, "browser-create-name").value = "readings";
+  createFieldNames()[0].value = "metric";
+  createFieldTypes()[0].value = "decimal";
+  const collectionSelect = selectByClass(createPanel, "browser-create-collection");
+  collectionSelect.value = "__new__";
+  collectionSelect.handlers.change();
+  inputByClass(createPanel, "browser-create-new-collection").value = "garage";
+  const groupPostsBeforeNew = groupPosts();
+  await createForm.handlers.submit({ preventDefault() {} });
+  await settle();
+  assert.equal(groupPosts(), groupPostsBeforeNew + 1, "a new collection is created first");
+  const groupPost = requests.filter((request) => request.options.method === "POST" && request.url.endsWith("/data/groups")).at(-1);
+  assert.deepEqual(JSON.parse(groupPost.options.body), { name: "garage", label: "garage" });
+  const garageTablePost = requests.filter((request) => request.options.method === "POST" && request.url.endsWith("/groups/garage/tables")).at(-1);
+  assert.ok(garageTablePost, "the table is created in the new collection");
+  assert.equal(JSON.parse(garageTablePost.options.body).name, "readings");
+  assert.equal(createPanel.hidden, true, "the form closes after creating a new collection and table");
+
+  // Client-side validation blocks an empty name and a field-less table.
+  newTableButton.handlers.click({ preventDefault() {} });
+  selectByClass(createPanel, "browser-create-collection").value = "pool";
+  const tablePostsBeforeValidation = tablePosts();
+  await createForm.handlers.submit({ preventDefault() {} });
+  await settle();
+  assert.equal(tablePosts(), tablePostsBeforeValidation, "an empty table name sends no request");
+  assert.match(collectByTag(createPanel, "p").map((item) => item.textContent).join(" "), /Table name is required/, "the empty-name validation is explained");
+  inputByClass(createPanel, "browser-create-name").value = "no_fields";
+  collectByTag(createPanel, "button").filter((button) => button.className === "browser-field-remove").forEach((button) => button.handlers.click({ preventDefault() {} }));
+  assert.equal(createFieldNames().length, 0, "every field row can be removed");
+  await createForm.handlers.submit({ preventDefault() {} });
+  await settle();
+  assert.equal(tablePosts(), tablePostsBeforeValidation, "a field-less table sends no request");
+  assert.equal(createPanel.hidden, false, "the form stays open after a validation error");
+
+  // A 409 from the API is surfaced and keeps the form open.
+  inputByClass(createPanel, "browser-create-name").value = "duplicate";
+  createButton("browser-field-add").handlers.click({ preventDefault() {} });
+  createFieldNames()[0].value = "metric";
+  createFieldTypes()[0].value = "string";
+  await createForm.handlers.submit({ preventDefault() {} });
+  await settle();
+  assert.match(createPanel.textContent, /already exists/, "the 409 message is surfaced");
+  assert.equal(createPanel.hidden, false, "the form stays open after a 409");
+
+  // A timeseries table sends its timestamp field as required with the timestamp role.
+  newTableButton.handlers.click({ preventDefault() {} });
+  inputByClass(createPanel, "browser-create-name").value = "samples";
+  selectByClass(createPanel, "browser-create-kind").value = "timeseries";
+  createFieldNames()[0].value = "taken_at";
+  createFieldTypes()[0].value = "datetime";
+  inputByClass(createPanel, "browser-create-timestamp").value = "taken_at";
+  selectByClass(createPanel, "browser-create-collection").value = "pool";
+  await createForm.handlers.submit({ preventDefault() {} });
+  await settle();
+  const timeseriesPost = requests.filter((request) => request.options.method === "POST" && request.url.endsWith("/groups/pool/tables")).at(-1);
+  const timeseriesBody = JSON.parse(timeseriesPost.options.body);
+  assert.equal(timeseriesBody.kind, "timeseries");
+  assert.equal(timeseriesBody.timestamp_field, "taken_at");
+  assert.deepEqual(timeseriesBody.fields, [{ name: "taken_at", type: "datetime", required: true, role: "timestamp" }]);
+  createBrowser.destroy();
 
   // FileBrowser: gutter navigation, URL state, light actions and search.
   location.pathname = "/default/files";
@@ -343,7 +474,7 @@ async function main() {
 
   // Unified theme: one controller and one storage key shared by the
   // DataBrowser and FileBrowser, with no per-page data-theme writes.
-  assert.equal(storage.get("clio-theme"), "dark", "the DataBrowser toggle persisted the shared key");
+  assert.equal(storage.get("clio-theme"), "dark", "Clio.Theme persisted the shared key");
   assert.equal(Clio.Theme.toggle(), "light");
   assert.equal(context.document.documentElement.attributes["data-theme"], "light");
   assert.equal(storage.get("clio-theme"), "light");

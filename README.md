@@ -22,7 +22,7 @@ Feature summary:
 - `attachment` fields that link records to files by stable ID.
 - Optional WebDAV, an opt-in one-command backup/restore path, an interactive
   data browser, file explorer and project manager, and a dependency-free
-  browser client (ClioJS 1.4.0).
+  browser client (ClioJS 1.5.0).
 
 ## Build and run
 
@@ -156,7 +156,7 @@ non-empty project returns `409`. Without JavaScript the overview server-renders
 the project list with project-scoped links. There is deliberately no human
 `/projects` route (section 66.3): the manager lives inside the existing
 project-scoped pages, and every URL it generates is `/{name}/`. The browser
-client exposes it as `Clio.Projects.mount(element)` (ClioJS 1.4.0).
+client exposes it as `Clio.Projects.mount(element)` (ClioJS 1.5.0).
 
 Only the default project exposes cross-project navigation. While you are in any
 other project the single cross-project affordance is a **Home** link to bare `/`
@@ -171,8 +171,11 @@ Each project is divided into two partitions:
 - **`data`** — structured data. The API lives under
   `/api/v1/{project}/data/...` (metadata, groups, tables, fields and records);
   the server-rendered table UI and forms live under
-  `/{project}/data/{group}/{table}`, and the read-only data browser is at
-  `/{project}/data` (group, table and page in the query string).
+  `/{project}/data/{group}/{table}`, and the data browser is at
+  `/{project}/data` (group, table and page in the query string). The browser can
+  also create a collection and a table through the public API with an inline
+  **New collection** / **New table** form (simple field types only; `enum` and
+  `reference` fields are a follow-up).
 - **`files`** — the content tree. The API lives under
   `/api/v1/{project}/files...` (list, read, create/replace, move, copy, delete,
   rescan, search, extraction and WebDAV); the human file explorer is at
@@ -181,7 +184,7 @@ Each project is divided into two partitions:
   `/{project}/search`.
 
 The file explorer at `/{project}/files` is a classic file browser built on
-ClioJS 1.4.0: a **lazy-loading folder tree** on the left (chevrons expand a
+ClioJS 1.5.0: a **lazy-loading folder tree** on the left (chevrons expand a
 directory the first time, ancestors of the current path auto-expand, keyboard
 navigation uses a roving tabindex, and the expansion state is kept in
 `sessionStorage` per project) and a **single uniform list** on the right
