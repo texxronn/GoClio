@@ -879,6 +879,7 @@
       uploadInput.type = "file";
       uploadInput.multiple = true;
       uploadInput.hidden = true;
+      uploadInput.className = "fb-file-input";
       uploadInput.setAttribute("aria-label", "Choose files to stage");
       const projectSwitcher = appendProjectNav(doc, toolbar, project, (next) => {
         if (!next || next === project) return;
