@@ -11,6 +11,8 @@ than the product.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-08
+
 ### Added
 
 - The file explorer at `/{project}/files` is redesigned as a classic file
