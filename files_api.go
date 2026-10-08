@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 )
@@ -245,44 +244,62 @@ func (a *app) directoryRepresentation(clean, target string, limit, offset int) (
 	if err != nil {
 		return nil, errAPI(err)
 	}
-	indexed, err := a.indexedEntryIDs()
-	if err != nil {
-		return nil, errAPI(err)
+	// ReadDir already sorts by name. Keep only representable children, then
+	// page over names before stat-ing or representing anything, so a large
+	// directory does not build every child to return one page (section 23).
+	type dirChild struct {
+		entry os.DirEntry
+		isDir bool
 	}
-	children := make([]map[string]any, 0, len(entries))
+	visible := make([]dirChild, 0, len(entries))
 	for _, de := range entries {
 		if de.Type()&os.ModeSymlink != 0 {
 			continue
 		}
-		child := joinContentPath(clean, de.Name())
-		info, err := de.Info()
+		isDir, isRegular := de.IsDir(), de.Type().IsRegular()
+		if !isDir && !isRegular {
+			// The entry type may be unknown on some filesystems (or name a
+			// special file); stat to decide whether it is representable.
+			info, err := de.Info()
+			if err != nil {
+				return nil, errAPI(err)
+			}
+			isDir, isRegular = info.IsDir(), info.Mode().IsRegular()
+		}
+		if !isDir && !isRegular {
+			continue
+		}
+		visible = append(visible, dirChild{entry: de, isDir: isDir})
+	}
+	total := len(visible)
+	window := pageSlice(visible, limit, offset)
+	children := make([]map[string]any, 0, len(window))
+	indexed, err := a.indexedEntryIDs()
+	if err != nil {
+		return nil, errAPI(err)
+	}
+	for _, child := range window {
+		childPath := joinContentPath(clean, child.entry.Name())
+		if child.isDir {
+			children = append(children, map[string]any{"path": childPath, "kind": "directory", "url": a.contentURL(childPath)})
+			continue
+		}
+		info, err := child.entry.Info()
 		if err != nil {
 			return nil, errAPI(err)
 		}
-		if info.IsDir() {
-			children = append(children, map[string]any{"path": child, "kind": "directory", "url": a.contentURL(child)})
-			continue
-		}
-		if !info.Mode().IsRegular() {
-			continue
-		}
-		entry, ae := a.entryForExistingFile(child, info)
+		entry, ae := a.entryForExistingFile(childPath, info)
 		if ae != nil {
 			return nil, ae
 		}
 		children = append(children, a.contentEntryRepresentationIndexed(entry, indexed[entry.ID]))
 	}
-	sort.Slice(children, func(i, j int) bool {
-		return children[i]["path"].(string) < children[j]["path"].(string)
-	})
-	total := len(children)
-	page := pageSlice(children, limit, offset)
 	return map[string]any{
 		"path":     clean,
 		"kind":     "directory",
 		"url":      a.contentURL(clean),
-		"children": page,
-		"page":     pageInfo(limit, offset, len(page), total),
+		"children": children,
+		"page":     pageInfo(limit, offset, len(children), total),
 	}, nil
 }
 

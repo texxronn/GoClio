@@ -238,3 +238,135 @@ func TestContentLayoutMigrationMovesLegacyRoot(t *testing.T) {
 		t.Error("migrated content has no entry")
 	}
 }
+
+// TestRescanPreservesDeclaredTypeAndEnrichment guards that rescan detects
+// change from actual bytes, not from the stored content type: a file uploaded
+// with a custom declared type keeps that type and its agent enrichment across a
+// reconcile (sections 64.2, 64.6 and 64.8).
+func TestRescanPreservesDeclaredTypeAndEnrichment(t *testing.T) {
+	a := newTestApp(t)
+	entry := putFile(t, a, "default", "/uploads/blob.bin", "custom bytes", "application/x-custom")
+	id, _ := entry["id"].(string)
+	if entry["content_type"] != "application/x-custom" {
+		t.Fatalf("declared content type = %v", entry["content_type"])
+	}
+	fingerprint := diskFingerprint(t, a, "/uploads/blob.bin")
+	if w := putEnrichment(t, a, extractionURL("default", "/uploads/blob.bin"), map[string]any{
+		"fingerprint": fingerprint,
+		"text":        "agent extracted quokka",
+		"provider":    "ocr:test",
+	}); w.Code != http.StatusOK {
+		t.Fatalf("enrichment status = %d: %s", w.Code, w.Body.String())
+	}
+
+	scoped := a.withProject("default")
+	if err := scoped.reconcileContent(); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	stored, found := contentEntryRow(t, a, "default", "/uploads/blob.bin")
+	if !found {
+		t.Fatal("entry vanished after rescan")
+	}
+	if stored.ContentType != "application/x-custom" {
+		t.Errorf("rescan overwrote the declared content type: %q", stored.ContentType)
+	}
+	if stored.ID != id {
+		t.Errorf("rescan changed the entry id: %s -> %s", id, stored.ID)
+	}
+	if res := search(t, a, "default", "quokka"); len(res.Data) != 1 || res.Data[0]["source"] != "agent:ocr:test" {
+		t.Errorf("agent enrichment lost on rescan: %#v", res.Data)
+	}
+}
+
+// TestRescanDetectsSameSizeEditAndInvalidatesAgentText guards that a same-size
+// external edit is detected by content hash, refreshing the stored hash and
+// native text and dropping stale agent text (sections 64.2 and 64.8).
+func TestRescanDetectsSameSizeEditAndInvalidatesAgentText(t *testing.T) {
+	a := newTestApp(t)
+	entry := putFile(t, a, "default", "/docs/note.txt", "alpha", "text/plain")
+	id, _ := entry["id"].(string)
+	fingerprint := diskFingerprint(t, a, "/docs/note.txt")
+	if w := putEnrichment(t, a, extractionURL("default", "/docs/note.txt"), map[string]any{
+		"fingerprint": fingerprint,
+		"text":        "stale agent bravo",
+		"provider":    "ocr:test",
+	}); w.Code != http.StatusOK {
+		t.Fatalf("enrichment status = %d: %s", w.Code, w.Body.String())
+	}
+
+	// "alpha" and "gamma" are the same length, so only the hash can tell them
+	// apart.
+	target := filepath.Join(a.content, "default", "docs", "note.txt")
+	if err := os.WriteFile(target, []byte("gamma"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	scoped := a.withProject("default")
+	summary, err := scoped.rescanContent()
+	if err != nil {
+		t.Fatalf("rescan: %v", err)
+	}
+	if summary.Refreshed != 1 {
+		t.Errorf("rescan refreshed = %d, want 1", summary.Refreshed)
+	}
+	stored, found := contentEntryRow(t, a, "default", "/docs/note.txt")
+	if !found || stored.ID != id {
+		t.Fatalf("entry after same-size edit = %+v found=%v", stored, found)
+	}
+	sum := sha256.Sum256([]byte("gamma"))
+	if stored.SHA256 != hex.EncodeToString(sum[:]) {
+		t.Errorf("sha256 not refreshed: %q", stored.SHA256)
+	}
+	if res := search(t, a, "default", "bravo"); len(res.Data) != 0 {
+		t.Errorf("stale agent text survived a same-size edit: %#v", res.Data)
+	}
+	if res := search(t, a, "default", "gamma"); len(res.Data) != 1 {
+		t.Errorf("new content not indexed after a same-size edit: %#v", res.Data)
+	}
+}
+
+// TestSymlinkedContentRootsAreRejected guards that a symlinked content
+// directory or project subtree is never followed by reads or writes (section
+// 64.2).
+func TestSymlinkedContentRootsAreRejected(t *testing.T) {
+	t.Run("project root", func(t *testing.T) {
+		a := newTestApp(t)
+		putFile(t, a, "default", "/keep.txt", "keep", "text/plain")
+		outside := t.TempDir()
+		if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("secret"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		root := filepath.Join(a.content, "default")
+		if err := os.RemoveAll(root); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, root); err != nil {
+			t.Fatal(err)
+		}
+		if w := testRequest(t, a, http.MethodGet, filesURL("default", "/"), nil, ""); w.Code != http.StatusUnprocessableEntity {
+			t.Errorf("GET symlinked project root status = %d, want 422: %s", w.Code, w.Body.String())
+		}
+		if w := testRequest(t, a, http.MethodPut, filesURL("default", "/new.txt"), "new", "text/plain"); w.Code != http.StatusUnprocessableEntity {
+			t.Errorf("PUT symlinked project root status = %d, want 422: %s", w.Code, w.Body.String())
+		}
+		if _, err := os.Stat(filepath.Join(outside, "new.txt")); !os.IsNotExist(err) {
+			t.Errorf("write followed a symlinked project root: %v", err)
+		}
+	})
+
+	t.Run("content directory", func(t *testing.T) {
+		a := newTestApp(t)
+		outside := t.TempDir()
+		if err := os.RemoveAll(a.content); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, a.content); err != nil {
+			t.Fatal(err)
+		}
+		if w := testRequest(t, a, http.MethodGet, filesURL("default", "/"), nil, ""); w.Code != http.StatusUnprocessableEntity {
+			t.Errorf("GET symlinked content directory status = %d, want 422: %s", w.Code, w.Body.String())
+		}
+		if _, err := os.Stat(filepath.Join(outside, "default")); !os.IsNotExist(err) {
+			t.Errorf("read followed a symlinked content directory: %v", err)
+		}
+	})
+}

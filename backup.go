@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 )
@@ -108,6 +107,9 @@ func restoreCommand(args []string, getenv func(string) string, stdout io.Writer)
 // recursive content copy, and a manifest. dest must not exist or must be an
 // empty directory (section 57).
 func createBackup(dest, dbPath, contentDir, productVersion string) error {
+	if err := checkBackupDestination(dest, contentDir); err != nil {
+		return err
+	}
 	if err := prepareBackupDir(dest); err != nil {
 		return err
 	}
@@ -135,6 +137,33 @@ func createBackup(dest, dbPath, contentDir, productVersion string) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dest, backupManifestName), append(raw, '\n'), 0644)
+}
+
+// checkBackupDestination rejects a destination inside the content tree. A
+// destination such as `content/backup` would make copyTree walk its own output
+// and copy it recursively. Both paths are absolutized and, where they exist,
+// symlink-resolved before comparison.
+func checkBackupDestination(dest, contentDir string) error {
+	absDest, err := filepath.Abs(dest)
+	if err != nil {
+		return err
+	}
+	absContent, err := filepath.Abs(contentDir)
+	if err != nil {
+		return err
+	}
+	if resolved, evalErr := filepath.EvalSymlinks(absContent); evalErr == nil {
+		absContent = resolved
+	}
+	if resolved, evalErr := filepath.EvalSymlinks(absDest); evalErr == nil {
+		absDest = resolved
+	} else if parent, evalErr := filepath.EvalSymlinks(filepath.Dir(absDest)); evalErr == nil {
+		absDest = filepath.Join(parent, filepath.Base(absDest))
+	}
+	if within(absContent, absDest) {
+		return fmt.Errorf("backup destination %s is inside the content directory %s", dest, contentDir)
+	}
+	return nil
 }
 
 // prepareBackupDir creates dest, or accepts an existing empty directory. A
@@ -262,27 +291,24 @@ func readBackupManifest(src string) (backupManifest, error) {
 	if manifest.FormatVersion != backupFormatVersion {
 		return manifest, fmt.Errorf("%w: unsupported format version %d", errBackupInvalid, manifest.FormatVersion)
 	}
-	for _, name := range []string{manifest.Database, manifest.Content} {
-		if !safeBackupName(name) {
-			return manifest, fmt.Errorf("%w: unsafe backup entry %q", errBackupInvalid, name)
-		}
-		if _, err := os.Stat(filepath.Join(src, name)); err != nil {
-			return manifest, fmt.Errorf("%w: %s is missing", errBackupInvalid, name)
-		}
+	// A restore only accepts the names Clio writes, and each must have the
+	// expected file type, so a malformed manifest cannot point the restore at
+	// an arbitrary path before validation (section 57).
+	if manifest.Database != backupDatabaseName {
+		return manifest, fmt.Errorf("%w: unexpected database name %q", errBackupInvalid, manifest.Database)
+	}
+	if manifest.Content != backupContentName {
+		return manifest, fmt.Errorf("%w: unexpected content name %q", errBackupInvalid, manifest.Content)
+	}
+	dbInfo, err := os.Stat(filepath.Join(src, manifest.Database))
+	if err != nil || !dbInfo.Mode().IsRegular() {
+		return manifest, fmt.Errorf("%w: %s is not a regular file", errBackupInvalid, manifest.Database)
+	}
+	contentInfo, err := os.Stat(filepath.Join(src, manifest.Content))
+	if err != nil || !contentInfo.IsDir() {
+		return manifest, fmt.Errorf("%w: %s is not a directory", errBackupInvalid, manifest.Content)
 	}
 	return manifest, nil
-}
-
-// safeBackupName reports whether a manifest field is a plain relative name that
-// cannot point outside the backup directory.
-func safeBackupName(name string) bool {
-	if name == "" || name == "." || name == ".." {
-		return false
-	}
-	if filepath.IsAbs(name) || strings.ContainsAny(name, `/\`) {
-		return false
-	}
-	return filepath.Base(name) == name
 }
 
 // restoreReport summarises a completed restore and its reconciliation pass.
@@ -298,7 +324,9 @@ type restoreReport struct {
 // contentDir with the backup at src, then reconciles the restored catalog with
 // the restored files and rebuilds any missing native text (section 64.11).
 // Without force it refuses to overwrite existing data; force permits an
-// in-place restore.
+// in-place restore. The restored database and content are staged and validated
+// in a temporary directory before the target is touched, so a malformed or
+// unsafe source cannot destroy an existing installation (section 57).
 func restoreBackup(src, dataDir, dbPath, contentDir string, force bool) (restoreReport, error) {
 	var report restoreReport
 	manifest, err := readBackupManifest(src)
@@ -317,41 +345,120 @@ func restoreBackup(src, dataDir, dbPath, contentDir string, force bool) (restore
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
 		return report, err
 	}
-	// Restore content first so a database that lives inside the content
-	// directory is not wiped after it is copied.
-	if err := os.RemoveAll(contentDir); err != nil {
-		return report, err
-	}
-	if err := copyTree(filepath.Join(src, manifest.Content), contentDir); err != nil {
-		return report, fmt.Errorf("restore content: %w", err)
-	}
-	if err := replaceFile(filepath.Join(src, manifest.Database), dbPath); err != nil {
-		return report, fmt.Errorf("restore database: %w", err)
-	}
-	// Reconcile the restored catalog with the restored files: an entry kept in
-	// the database keeps its ID and timestamps, a raw file added before the
-	// backup is adopted, and an entry whose file vanished is dropped.
-	db, err := openDatabase(dbPath)
+	stage, err := os.MkdirTemp(filepath.Dir(dbPath), ".clio-restore-")
 	if err != nil {
 		return report, err
 	}
-	defer db.Close()
-	a := &app{db: db, content: contentDir, contentMu: &sync.Mutex{}}
-	if err := a.migrateContentLayout(); err != nil {
+	defer os.RemoveAll(stage)
+	stageDB := filepath.Join(stage, "clio.db")
+	stageContent := filepath.Join(stage, "content")
+	if err = copyTree(filepath.Join(src, manifest.Content), stageContent); err != nil {
+		return report, fmt.Errorf("restore content: %w", err)
+	}
+	if err = replaceFile(filepath.Join(src, manifest.Database), stageDB); err != nil {
+		return report, fmt.Errorf("restore database: %w", err)
+	}
+	// Reconcile the staged catalog with the staged files: an entry kept in the
+	// database keeps its ID and timestamps, a raw file added before the backup
+	// is adopted, and an entry whose file vanished is dropped. A database that
+	// cannot be opened or that holds an unsafe project name is rejected here,
+	// before the target is modified.
+	db, err := openDatabase(stageDB)
+	if err != nil {
+		return report, err
+	}
+	a := &app{db: db, content: stageContent, contentMu: &sync.Mutex{}}
+	if err = a.validateProjectNames(); err != nil {
+		db.Close()
+		return report, fmt.Errorf("%w: %v", errBackupInvalid, err)
+	}
+	if err = a.migrateContentLayout(); err != nil {
+		db.Close()
 		return report, err
 	}
 	summary, err := a.reconcileAllContentSummary()
 	if err != nil {
+		db.Close()
 		return report, err
 	}
 	report.Added, report.Removed, report.Refreshed = summary.Added, summary.Removed, summary.Refreshed
-	if err := db.QueryRow(`SELECT count(*) FROM projects`).Scan(&report.Projects); err != nil {
+	if err = db.QueryRow(`SELECT count(*) FROM projects`).Scan(&report.Projects); err != nil {
+		db.Close()
 		return report, err
 	}
-	if err := db.QueryRow(`SELECT count(*) FROM content_entries`).Scan(&report.Entries); err != nil {
+	if err = db.QueryRow(`SELECT count(*) FROM content_entries`).Scan(&report.Entries); err != nil {
+		db.Close()
+		return report, err
+	}
+	if err = db.Close(); err != nil {
+		return report, err
+	}
+	// Compact the reconciled staged database into one self-contained file
+	// (VACUUM INTO) so the install cannot lose uncheckpointed WAL data, then
+	// swap it and the staged content into the target with rollback on failure.
+	cleanDB := filepath.Join(stage, "clio-clean.db")
+	if err = backupDatabase(stageDB, cleanDB); err != nil {
+		return report, fmt.Errorf("compact restored database: %w", err)
+	}
+	if err = installRestored(stageContent, cleanDB, dbPath, contentDir); err != nil {
 		return report, err
 	}
 	return report, nil
+}
+
+// savedPath records a target path moved aside during an install so a failure
+// can put it back.
+type savedPath struct{ from, to string }
+
+// installRestored swaps the staged content and database into the target. The
+// previous content, database and database sidecars are moved aside first and
+// only deleted once the install succeeds, so a failure rolls the target back.
+func installRestored(stageContent, stageDB, dbPath, contentDir string) error {
+	saved := []savedPath{}
+	rollback := func() {
+		for _, p := range []string{contentDir, dbPath, dbPath + "-wal", dbPath + "-shm"} {
+			_ = os.RemoveAll(p)
+		}
+		for i := len(saved) - 1; i >= 0; i-- {
+			_ = os.Rename(saved[i].from, saved[i].to)
+		}
+	}
+	save := func(p string) error {
+		if _, err := os.Lstat(p); err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		dest := p + ".clio-restore-old"
+		if err := os.Rename(p, dest); err != nil {
+			return err
+		}
+		saved = append(saved, savedPath{from: dest, to: p})
+		return nil
+	}
+	// Clean up stale aside paths from an interrupted previous install.
+	for _, p := range []string{contentDir, dbPath, dbPath + "-wal", dbPath + "-shm"} {
+		_ = os.RemoveAll(p + ".clio-restore-old")
+	}
+	for _, p := range []string{contentDir, dbPath, dbPath + "-wal", dbPath + "-shm"} {
+		if err := save(p); err != nil {
+			rollback()
+			return err
+		}
+	}
+	if err := copyTree(stageContent, contentDir); err != nil {
+		rollback()
+		return fmt.Errorf("install restored content: %w", err)
+	}
+	if err := replaceFile(stageDB, dbPath); err != nil {
+		rollback()
+		return fmt.Errorf("install restored database: %w", err)
+	}
+	for _, p := range saved {
+		_ = os.RemoveAll(p.from)
+	}
+	return nil
 }
 
 // targetHasData reports whether the restore target already holds data: an

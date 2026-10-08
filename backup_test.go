@@ -330,3 +330,128 @@ func TestBackupRestoreCommands(t *testing.T) {
 		t.Error("restoreCommand with two sources should fail")
 	}
 }
+
+// writeBackupManifest writes a manifest with the given database/content names.
+func writeBackupManifest(t *testing.T, dir, database, content string) {
+	t.Helper()
+	manifest := backupManifest{
+		Format:         backupFormat,
+		FormatVersion:  backupFormatVersion,
+		ProductVersion: "test",
+		CreatedAt:      "2026-01-01T00:00:00Z",
+		Database:       database,
+		Content:        content,
+	}
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(dir, backupManifestName), raw, 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// seedRestoreTarget creates an existing data directory with a database and
+// content file so a test can prove a rejected restore left it untouched.
+func seedRestoreTarget(t *testing.T) (dataDir, dbPath, contentDir string) {
+	t.Helper()
+	dataDir = t.TempDir()
+	dbPath = filepath.Join(dataDir, "clio.db")
+	contentDir = filepath.Join(dataDir, "content")
+	if err := os.WriteFile(filepath.Join(dataDir, "keep.txt"), []byte("keep"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(contentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(contentDir, "existing.txt"), []byte("existing"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return dataDir, dbPath, contentDir
+}
+
+// assertTargetUntouched checks that a rejected restore did not modify the
+// seeded target.
+func assertTargetUntouched(t *testing.T, dataDir, dbPath, contentDir string) {
+	t.Helper()
+	if got, err := os.ReadFile(filepath.Join(dataDir, "keep.txt")); err != nil || string(got) != "keep" {
+		t.Errorf("target data changed: %q err=%v", got, err)
+	}
+	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+		t.Errorf("target database was created despite rejection: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(contentDir, "existing.txt")); err != nil || string(got) != "existing" {
+		t.Errorf("target content changed: %q err=%v", got, err)
+	}
+}
+
+// TestBackupRefusesDestinationInsideContentTree guards that createBackup cannot
+// recurse by writing its output inside the content source (section 57).
+func TestBackupRefusesDestinationInsideContentTree(t *testing.T) {
+	a, src := newBackupApp(t)
+	putFile(t, a, "default", "/x.md", "# x", "text/markdown")
+	dest := filepath.Join(src.ContentDir, "backup")
+	if err := createBackup(dest, src.DBPath, src.ContentDir, "1.0.0"); err == nil {
+		t.Fatal("backup into the content tree should fail")
+	}
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Errorf("backup destination was created: %v", err)
+	}
+}
+
+// TestRestoreMalformedManifestDoesNotModifyTarget guards that forced restore
+// validates the source before touching the target: a manifest whose database is
+// not a usable SQLite file must leave the target intact (section 57).
+func TestRestoreMalformedManifestDoesNotModifyTarget(t *testing.T) {
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, backupDatabaseName), []byte("not a sqlite database"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(src, backupContentName), 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeBackupManifest(t, src, backupDatabaseName, backupContentName)
+
+	dataDir, dbPath, contentDir := seedRestoreTarget(t)
+	if _, err := restoreBackup(src, dataDir, dbPath, contentDir, true); err == nil {
+		t.Fatal("restore of a malformed database should fail")
+	}
+	assertTargetUntouched(t, dataDir, dbPath, contentDir)
+}
+
+// TestRestoreRejectsUnsafeProjectNameWithoutTouchingTarget guards that restore
+// refuses a database whose project name would escape the content root, before
+// the target is modified (sections 57 and 65.2).
+func TestRestoreRejectsUnsafeProjectNameWithoutTouchingTarget(t *testing.T) {
+	srcDB := filepath.Join(t.TempDir(), "clio.db")
+	db, err := openDatabase(srcDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`INSERT INTO projects(name,label,description,sort_order,created_at) VALUES('..','bad','',0,'2026-01-01T00:00:00Z')`); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`INSERT INTO content_entries(id,project,path,kind,content_type,size,sha256,created_at,updated_at) VALUES('bad','..','/x.md','page','text/markdown',1,'','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	src := t.TempDir()
+	if err = copyFile(srcDB, filepath.Join(src, backupDatabaseName), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(filepath.Join(src, backupContentName), 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeBackupManifest(t, src, backupDatabaseName, backupContentName)
+
+	dataDir, dbPath, contentDir := seedRestoreTarget(t)
+	if _, err = restoreBackup(src, dataDir, dbPath, contentDir, true); !errors.Is(err, errBackupInvalid) {
+		t.Fatalf("restore of an unsafe project name error = %v, want errBackupInvalid", err)
+	}
+	assertTargetUntouched(t, dataDir, dbPath, contentDir)
+}

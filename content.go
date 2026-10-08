@@ -552,7 +552,7 @@ func canonicalContentPath(raw string) (string, *apiError) {
 		if p == "" || p == "." || p == ".." || strings.Contains(p, "\\") || hasControl(p) {
 			return "", invalid("Invalid content path")
 		}
-		if i == 0 && (reservedRoot[p] || reservedContentSegments[p]) {
+		if i == 0 && reservedContentSegments[p] {
 			return "", invalid("Reserved root path")
 		}
 	}
@@ -563,12 +563,16 @@ func (a *app) contentPath(raw string) (string, *apiError) {
 	if e != nil {
 		return "", e
 	}
+	root, ae := a.contentRootChecked()
+	if ae != nil {
+		return "", ae
+	}
 	rel := strings.TrimPrefix(clean, "/")
-	target := filepath.Join(a.contentRoot(), filepath.FromSlash(rel))
-	if !within(a.contentRoot(), target) {
+	target := filepath.Join(root, filepath.FromSlash(rel))
+	if !within(root, target) {
 		return "", invalid("Path escapes content directory")
 	}
-	for p := target; p != a.contentRoot(); p = filepath.Dir(p) {
+	for p := target; p != root; p = filepath.Dir(p) {
 		info, e := os.Lstat(p)
 		if e == nil && info.Mode()&os.ModeSymlink != 0 {
 			return "", invalid("Symbolic links are not permitted in content paths")

@@ -39,8 +39,9 @@ func TestDataBrowserRoutes(t *testing.T) {
 	// The superseded /collections route is gone (section 66.5).
 	assertAPIError(t, testRequest(t, a, http.MethodGet, "/default/collections", nil, ""), http.StatusNotFound)
 
-	// The /collections root remains reserved for content (section 32.3).
-	if r := testRequest(t, a, http.MethodPut, filesURL("default", "/collections/page.md"), "blocked", "text/markdown"); r.Code != http.StatusUnprocessableEntity {
-		t.Errorf("publishing under /default/collections status=%d, want 422", r.Code)
+	// Former reserved root names are ordinary content names now that content
+	// lives under /{project}/files/ (section 66.4).
+	if r := testRequest(t, a, http.MethodPut, filesURL("default", "/collections/page.md"), "allowed", "text/markdown"); r.Code != http.StatusCreated {
+		t.Errorf("publishing under /default/collections status=%d, want 201", r.Code)
 	}
 }

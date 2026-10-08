@@ -249,6 +249,57 @@ func TestContentSearchMoveKeepsIDAndPath(t *testing.T) {
 	}
 }
 
+// TestContentSearchMoveRefreshesMetadata guards that a rename refreshes the
+// index row's kind and title from the new path and re-extracts native text when
+// the extension changes, while a same-extension rename keeps agent enrichment
+// (sections 64.6 and 64.8).
+func TestContentSearchMoveRefreshesMetadata(t *testing.T) {
+	a := newTestApp(t)
+
+	// A file renamed to a page must report the page kind and the new title, and
+	// the old title must no longer match.
+	created := putFile(t, a, "default", "/docs/notes.txt", "alpha body words", "text/plain")
+	id, _ := created["id"].(string)
+	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/files/move", map[string]any{"from": "/docs/notes.txt", "to": "/docs/notes.md"}, "application/json"); w.Code != http.StatusOK {
+		t.Fatalf("move txt->md: %d %s", w.Code, w.Body.String())
+	}
+	row, ok := contentSearchRow(t, a, "default", id)
+	if !ok || row["kind"] != "page" || row["title"] != "notes.md" || row["path"] != "/docs/notes.md" {
+		t.Errorf("index row after txt->md move = %#v, ok=%v", row, ok)
+	}
+	if !strings.Contains(row["body"], "alpha") {
+		t.Errorf("native text not re-extracted after move: %q", row["body"])
+	}
+	if res := search(t, a, "default", "notes.txt"); len(res.Data) != 0 {
+		t.Errorf("old title still matches after move: %#v", res.Data)
+	}
+	if res := search(t, a, "default", "alpha"); len(res.Data) != 1 || res.Data[0]["kind"] != "page" || res.Data[0]["path"] != "/docs/notes.md" {
+		t.Errorf("search after move = %#v", res.Data)
+	}
+
+	// A same-extension rename keeps agent enrichment and retitles it.
+	entry := putFile(t, a, "default", "/docs/a.txt", "plain words", "text/plain")
+	entryID, _ := entry["id"].(string)
+	fingerprint := diskFingerprint(t, a, "/docs/a.txt")
+	if w := putEnrichment(t, a, extractionURL("default", "/docs/a.txt"), map[string]any{
+		"fingerprint": fingerprint,
+		"text":        "agent quokka text",
+		"provider":    "ocr:test",
+	}); w.Code != http.StatusOK {
+		t.Fatalf("enrichment: %d %s", w.Code, w.Body.String())
+	}
+	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/files/move", map[string]any{"from": "/docs/a.txt", "to": "/docs/b.txt"}, "application/json"); w.Code != http.StatusOK {
+		t.Fatalf("move txt->txt: %d %s", w.Code, w.Body.String())
+	}
+	row, ok = contentSearchRow(t, a, "default", entryID)
+	if !ok || row["source"] != "agent:ocr:test" || row["title"] != "b.txt" || row["path"] != "/docs/b.txt" {
+		t.Errorf("agent row after same-extension move = %#v, ok=%v", row, ok)
+	}
+	if res := search(t, a, "default", "quokka"); len(res.Data) != 1 || res.Data[0]["source"] != "agent:ocr:test" {
+		t.Errorf("agent enrichment lost on same-extension move: %#v", res.Data)
+	}
+}
+
 func TestContentSearchProjectScoped(t *testing.T) {
 	a := newTestApp(t)
 	if w := testRequest(t, a, http.MethodPost, "/api/v1/projects", map[string]any{"name": "bills"}, "application/json"); w.Code != http.StatusCreated {

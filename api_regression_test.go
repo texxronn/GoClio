@@ -59,7 +59,11 @@ func TestAPIRequestAndQueryErrors(t *testing.T) {
 func TestFilesPageCreateReplaceDeleteAndValidation(t *testing.T) {
 	a := newTestApp(t)
 	assertAPIError(t, testRequest(t, a, http.MethodPut, filesURL("default", "/../escape.md"), "x", "text/markdown"), http.StatusUnprocessableEntity)
-	assertAPIError(t, testRequest(t, a, http.MethodPut, filesURL("default", "/api/note.md"), "x", "text/markdown"), http.StatusUnprocessableEntity)
+	// `id` and `dav` are the reserved segments directly under the files tree;
+	// formerly root-only names such as `api` are ordinary content names now
+	// that content lives under /{project}/files/ (sections 66.4 and 66.5).
+	assertAPIError(t, testRequest(t, a, http.MethodPut, filesURL("default", "/id/note.md"), "x", "text/markdown"), http.StatusUnprocessableEntity)
+	assertAPIError(t, testRequest(t, a, http.MethodPut, filesURL("default", "/dav/note.md"), "x", "text/markdown"), http.StatusUnprocessableEntity)
 	assertAPIError(t, testRequest(t, a, http.MethodGet, filesURL("default", "/missing.md"), nil, ""), http.StatusNotFound)
 
 	created := testRequest(t, a, http.MethodPut, filesURL("default", "/reports/current.md"), "first", "text/markdown")
@@ -96,7 +100,7 @@ func TestFilesPathAndRootGuards(t *testing.T) {
 	assertAPIError(t, testRequest(t, a, http.MethodDelete, "/api/v1/default/files", nil, ""), http.StatusUnprocessableEntity)
 	assertAPIError(t, testRequest(t, a, http.MethodGet, filesURL("default", "/missing"), nil, ""), http.StatusNotFound)
 	assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories", `{"path":"/reports/"}`, "application/json"), http.StatusUnprocessableEntity)
-	assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories", `{"path":"/api/private"}`, "application/json"), http.StatusUnprocessableEntity)
+	assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories", `{"path":"/id/private"}`, "application/json"), http.StatusUnprocessableEntity)
 	created := testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories", map[string]any{"path": "/reports"}, "application/json")
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create directory status = %d, want 201", created.Code)

@@ -215,10 +215,13 @@ starting Clio with the same `CLIO_DB` and `CLIO_DATA_DIR` configuration.
 Confirm recovery through `/health`; SQLite runs `quick_check` as part of that
 endpoint.
 
-A one-command path is also available:
+A one-command path is also available. It is **not** coordinated with live
+writers: stop Clio before running `clio backup`, exactly as for the stop-copy
+procedure, so the content copy and the database snapshot describe the same
+point in time.
 
 ```sh
-# Consistent snapshot of the configured database and content tree.
+# Stop Clio first; then snapshot the configured database and content tree.
 CLIO_DATA_DIR=./data clio backup /backups/2026-10-08
 
 # Restore into the configured data directory. Refuses to overwrite existing
@@ -229,14 +232,18 @@ CLIO_DATA_DIR=./data clio restore /backups/2026-10-08 --force
 `clio backup <dest>` creates `dest` (it must not exist or must be empty),
 snapshots the database with SQLite `VACUUM INTO` — one consistent, compact file
 that includes the FTS5 full-text index, so no `-wal`/`-shm` sidecars are needed
-— copies the content tree, and writes `manifest.json`. It fails safely when
-`dest` is not empty, and requires the database to exist.
+— copies the content tree, and writes `manifest.json`. `VACUUM INTO` alone makes
+the database file internally consistent, but the copy of the content tree is not
+transactionally coordinated with it; run the command with the service stopped so
+neither the database nor the content tree changes during the backup. It fails
+safely when `dest` is not empty, and requires the database to exist.
 
 `clio restore <src>` validates `manifest.json`, replaces the configured
 database and content directory, then reconciles the catalog with the restored
 files: entry IDs, timestamps and agent text are preserved, a raw file present
 before the backup is adopted, and an entry whose file vanished is dropped.
-Restore refuses a non-empty `CLIO_DATA_DIR` unless `--force` is given.
+Restore refuses a non-empty `CLIO_DATA_DIR` unless `--force` is given, and must
+also be run with Clio stopped.
 
 A backup directory contains:
 
