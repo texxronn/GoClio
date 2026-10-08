@@ -734,6 +734,13 @@
     return `${(value / (1024 * 1024)).toFixed(1)} MB`;
   }
 
+  // formatStamp renders an RFC 3339 timestamp as a compact "YYYY-MM-DD HH:MM".
+  function formatStamp(value) {
+    const raw = String(value == null ? "" : value).trim();
+    if (!raw) return "–";
+    return raw.slice(0, 16).replace("T", " ");
+  }
+
   // appendHighlighted renders an untrusted search snippet as text, turning only
   // Clio's private sentinels into <mark> elements. Escaping happens through
   // textContent (or text nodes), so indexed content cannot inject markup.
@@ -777,6 +784,8 @@
       let selectedEntry = "";
       let currentEntries = [];
       let rowEntry = new Map();
+      let sortColumn = "name";
+      let sortDirection = "asc";
       let menuEl = null;
       let menuItems = [];
       let menuActions = [];
@@ -1393,7 +1402,6 @@
         menuIndex = 0;
         menuEntry = null;
         unbindMenuDocument();
-        if (entry && entry.kebab) entry.kebab.setAttribute("aria-expanded", "false");
         if (typeof el.remove === "function") el.remove();
         else if (el.parentNode && el.parentNode.removeChild) el.parentNode.removeChild(el);
         const row = menuAnchorRow;
@@ -1405,7 +1413,6 @@
         if (!doc.addEventListener) return;
         const down = (event) => {
           if (menuEl && event && event.target && typeof menuEl.contains === "function" && menuEl.contains(event.target)) return;
-          if (event && event.target && typeof event.target.closest === "function" && event.target.closest(".fb-row-menu")) return;
           closeMenu(false);
         };
         const key = (event) => {
@@ -1483,14 +1490,39 @@
         menuEl = menu;
         menuEntry = entry;
         menuAnchorRow = row || null;
-        if (entry.kebab) entry.kebab.setAttribute("aria-expanded", "true");
         bindMenuDocument();
         focusMenuItem(0);
       }
 
-      // drawEntries renders one uniform table: directories first, then files,
-      // each sorted by name. Every row carries an icon, a basename and a kebab
-      // that opens the context menu.
+      function entrySortValue(entry, column) {
+        const child = entry.child || {};
+        switch (column) {
+          case "size": return Number(child.size) || 0;
+          case "created": return String(child.created_at || "");
+          case "modified": return String(child.updated_at || "");
+          default: return String(entry.name || "").toLowerCase();
+        }
+      }
+
+      function sortEntries(entries) {
+        const direction = sortDirection === "desc" ? -1 : 1;
+        entries.sort((a, b) => {
+          let result;
+          if (sortColumn === "size") {
+            result = entrySortValue(a, sortColumn) - entrySortValue(b, sortColumn);
+          } else {
+            result = String(entrySortValue(a, sortColumn)).localeCompare(String(entrySortValue(b, sortColumn)));
+          }
+          if (result === 0) result = String(a.name).localeCompare(String(b.name));
+          return result * direction;
+        });
+        return entries;
+      }
+
+      // drawEntries renders one uniform table: folders first, then files, each
+      // group ordered by the active sort column. Columns are Name, Size, Created
+      // and Modified; row actions live in the right-click context menu.
+      const tableColumns = [["name", "Name"], ["size", "Size"], ["created", "Created"], ["modified", "Modified"]];
       function drawEntries(children) {
         list.replaceChildren();
         rowEntry = new Map();
@@ -1499,14 +1531,13 @@
         const files = [];
         for (const child of children) {
           const childPath = String(child.path || joinContentPath(currentPath, child.name || ""));
-          const entry = { child, childPath, name: baseName(childPath), id: child && child.id ? String(child.id) : "", kebab: null };
+          const entry = { child, childPath, name: baseName(childPath), id: child && child.id ? String(child.id) : "" };
           currentEntries.push(entry);
           if (child && child.kind === "directory") directories.push(entry);
           else files.push(entry);
         }
-        const byName = (a, b) => String(a.name).localeCompare(String(b.name));
-        directories.sort(byName);
-        files.sort(byName);
+        sortEntries(directories);
+        sortEntries(files);
         if (!currentEntries.length) {
           list.appendChild(element("p", "This folder is empty.", "fb-empty"));
           return;
@@ -1514,7 +1545,23 @@
         const table = element("table", null, "fb-table");
         const head = element("thead");
         const headingRow = element("tr");
-        for (const label of ["Name", "Size", ""]) headingRow.appendChild(element("th", label));
+        for (const column of tableColumns) {
+          const th = element("th");
+          const button = element("button", null, "fb-sort");
+          button.type = "button";
+          const active = sortColumn === column[0];
+          button.textContent = column[1] + (active ? (sortDirection === "asc" ? " ▲" : " ▼") : "");
+          button.setAttribute("aria-label", `Sort by ${column[1]}`);
+          if (active) button.setAttribute("aria-pressed", "true");
+          button.addEventListener("click", (event) => {
+            if (event && event.preventDefault) event.preventDefault();
+            if (sortColumn === column[0]) sortDirection = sortDirection === "asc" ? "desc" : "asc";
+            else { sortColumn = column[0]; sortDirection = "asc"; }
+            drawEntries(currentChildren);
+          });
+          th.appendChild(button);
+          headingRow.appendChild(th);
+        }
         head.appendChild(headingRow);
         table.appendChild(head);
         const body = element("tbody");
@@ -1536,22 +1583,8 @@
           nameCell.appendChild(link);
           row.appendChild(nameCell);
           row.appendChild(element("td", isDir ? "–" : formatBytes(item.child.size), "fb-size-cell"));
-          const actionsCell = element("td", null, "fb-actions-cell");
-          const kebab = element("button", "⋮", "fb-row-menu");
-          kebab.type = "button";
-          kebab.setAttribute("aria-label", `Actions for ${item.name}`);
-          kebab.setAttribute("aria-haspopup", "menu");
-          kebab.setAttribute("aria-expanded", "false");
-          kebab.addEventListener("click", (event) => {
-            if (event && event.preventDefault) event.preventDefault();
-            if (event && event.stopPropagation) event.stopPropagation();
-            selectEntry(item.childPath);
-            const rect = typeof kebab.getBoundingClientRect === "function" ? kebab.getBoundingClientRect() : null;
-            openMenu(item, rect ? rect.left : 0, rect ? rect.bottom : 0, row);
-          });
-          item.kebab = kebab;
-          actionsCell.appendChild(kebab);
-          row.appendChild(actionsCell);
+          row.appendChild(element("td", formatStamp(item.child.created_at), "fb-date-cell"));
+          row.appendChild(element("td", formatStamp(item.child.updated_at), "fb-date-cell"));
           row.addEventListener("click", () => selectEntry(item.childPath));
           row.addEventListener("dblclick", (event) => {
             if (event && event.preventDefault) event.preventDefault();
