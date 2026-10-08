@@ -17,10 +17,18 @@ func TestDataBrowserRoutes(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("GET /default/data status=%d: %s", response.Code, response.Body.String())
 	}
-	for _, want := range []string{"Data Browser", "assets/clio.js", "Clio.DataBrowser.mount", "clio-data-browser", "browser-theme-toggle", "browser-table-view", "prefers-color-scheme"} {
+	for _, want := range []string{"Data Browser", "assets/clio.js", "Clio.DataBrowser.mount", "clio-data-browser", "browser-theme-toggle", "browser-table-view", "clio-theme-toggle", "clio-theme", ":root{color-scheme:light", `:root[data-theme="dark"]`, "prefers-color-scheme", "var(--page)", "var(--surface-raised)", "var(--text)", "var(--line)", "var(--accent)", "var(--accent-soft)", "var(--hover)", "var(--danger)", "var(--on-accent)"} {
 		if !strings.Contains(response.Body.String(), want) {
 			t.Errorf("GET /default/data missing %q", want)
 		}
+	}
+	// The shared palette is defined once (in pageShell), not again in the data
+	// browser body.
+	if n := strings.Count(response.Body.String(), ":root{color-scheme:light"); n != 1 {
+		t.Errorf("GET /default/data defines the palette %d times, want the single shared definition", n)
+	}
+	if strings.Contains(response.Body.String(), "#f4f7fb") {
+		t.Errorf("GET /default/data still hardcodes the light page colour")
 	}
 
 	// The per-table server-rendered table UI and group listing remain under

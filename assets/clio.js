@@ -405,6 +405,86 @@
     return switcher;
   }
 
+  // Theme is the single human-UI theme controller. It reads and writes the
+  // shared storage key "clio-theme" (values "light"/"dark"; absent means follow
+  // the operating system), applies the choice as data-theme on the document
+  // element, and keeps every mounted toggle in sync. The server-rendered shared
+  // nav and Clio.DataBrowser both use it, so pages cannot disagree.
+  const themeKey = "clio-theme";
+  const themeMounts = new Set();
+  function notifyTheme() {
+    for (const refresh of Array.from(themeMounts)) refresh();
+  }
+  const Theme = {
+    current() {
+      try {
+        const value = root.localStorage && root.localStorage.getItem(themeKey);
+        return value === "dark" || value === "light" ? value : null;
+      } catch (_) {
+        return null;
+      }
+    },
+    effective() {
+      const stored = Theme.current();
+      if (stored) return stored;
+      return root.matchMedia && root.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    },
+    set(value) {
+      const next = value === "dark" || value === "light" ? value : null;
+      const doc = root.document;
+      if (doc && doc.documentElement && doc.documentElement.setAttribute) {
+        if (next) {
+          doc.documentElement.setAttribute("data-theme", next);
+        } else if (doc.documentElement.removeAttribute) {
+          doc.documentElement.removeAttribute("data-theme");
+        }
+      }
+      try {
+        if (next && root.localStorage) {
+          root.localStorage.setItem(themeKey, next);
+        } else if (root.localStorage && root.localStorage.removeItem) {
+          root.localStorage.removeItem(themeKey);
+        }
+      } catch (_) {}
+      notifyTheme();
+      return Theme.effective();
+    },
+    toggle() {
+      return Theme.set(Theme.effective() === "dark" ? "light" : "dark");
+    },
+    mount(element) {
+      if (!element) throw new TypeError("Clio.Theme.mount() requires an element");
+      const refresh = () => {
+        const effective = Theme.effective();
+        const next = effective === "dark" ? "light" : "dark";
+        if ("textContent" in element) element.textContent = effective === "dark" ? "☀ Light" : "☾ Dark";
+        if (element.setAttribute) {
+          element.setAttribute("aria-label", `Switch to ${next} theme`);
+          element.setAttribute("aria-pressed", String(effective === "dark"));
+        }
+      };
+      themeMounts.add(refresh);
+      refresh();
+      const onClick = () => Theme.toggle();
+      if (element.addEventListener) element.addEventListener("click", onClick);
+      return {
+        refresh,
+        destroy() {
+          themeMounts.delete(refresh);
+          if (element.removeEventListener) element.removeEventListener("click", onClick);
+        }
+      };
+    }
+  };
+  if (root.matchMedia && typeof root.matchMedia === "function") {
+    const systemTheme = root.matchMedia("(prefers-color-scheme: dark)");
+    if (systemTheme && typeof systemTheme.addEventListener === "function") {
+      systemTheme.addEventListener("change", () => {
+        if (Theme.current() === null) notifyTheme();
+      });
+    }
+  }
+
   const DataBrowser = {
     mount(target, options) {
       options = options || {};
@@ -442,32 +522,8 @@
       toolbar.appendChild(tableViewLink);
       const themeToggle = element("button", null, "browser-theme-toggle");
       themeToggle.type = "button";
-      themeToggle.setAttribute("aria-pressed", "false");
       toolbar.appendChild(themeToggle);
-      let theme;
-      try {
-        theme = root.localStorage.getItem("clio-data-browser-theme");
-      } catch (_) {}
-      if (theme !== "light" && theme !== "dark") {
-        theme = root.matchMedia && root.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-      }
-      const updateTheme = (persist) => {
-        doc.documentElement.setAttribute("data-theme", theme);
-        const nextTheme = theme === "dark" ? "light" : "dark";
-        themeToggle.textContent = theme === "dark" ? "☀ Light" : "☾ Dark";
-        themeToggle.setAttribute("aria-label", `Switch to ${nextTheme} theme`);
-        themeToggle.setAttribute("aria-pressed", String(theme === "dark"));
-        if (persist) {
-          try {
-            root.localStorage.setItem("clio-data-browser-theme", theme);
-          } catch (_) {}
-        }
-      };
-      updateTheme(false);
-      themeToggle.addEventListener("click", () => {
-        theme = theme === "dark" ? "light" : "dark";
-        updateTheme(true);
-      });
+      const themeControl = Theme.mount(themeToggle);
       const layout = element("div", null, "browser-layout");
       const sidebar = element("aside", null, "browser-tables");
       sidebar.appendChild(element("h2", "Tables"));
@@ -677,6 +733,7 @@
         },
         destroy() {
           destroyed = true;
+          if (themeControl) themeControl.destroy();
           if (root.removeEventListener) root.removeEventListener("popstate", popstate);
           host.replaceChildren();
         }
@@ -1995,6 +2052,7 @@
   Object.defineProperty(Clio, "DataBrowser", { value: DataBrowser, enumerable: true });
   Object.defineProperty(Clio, "FileBrowser", { value: FileBrowser, enumerable: true });
   Object.defineProperty(Clio, "Projects", { value: Projects, enumerable: true });
+  Object.defineProperty(Clio, "Theme", { value: Theme, enumerable: true });
 
   root.Clio = Clio;
 })(typeof window !== "undefined" ? window : globalThis);

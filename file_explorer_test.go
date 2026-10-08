@@ -18,10 +18,18 @@ func TestFileExplorerShellRoutes(t *testing.T) {
 	if shell.Code != http.StatusOK {
 		t.Fatalf("GET /default/files status=%d: %s", shell.Code, shell.Body.String())
 	}
-	for _, want := range []string{"File explorer", "assets/clio.js", "Clio.FileBrowser.mount", "clio-file-browser", "<noscript>", "notes", ".fb-tree{", ".fb-tree-pane{", ".fb-staging{", ".fb-staging-row{", ".fb-menu{", ".fb-menu-danger{", ".fb-sort{"} {
+	for _, want := range []string{"File explorer", "assets/clio.js", "Clio.FileBrowser.mount", "clio-file-browser", "<noscript>", "notes", ".fb-tree{", ".fb-tree-pane{", ".fb-staging{", ".fb-staging-row{", ".fb-menu{", ".fb-menu-danger{", ".fb-sort{", "clio-theme-toggle", "clio-theme", ":root{color-scheme:light", `:root[data-theme="dark"]`, "var(--page)", "var(--on-accent)", "var(--danger)"} {
 		if !strings.Contains(shell.Body.String(), want) {
 			t.Errorf("GET /default/files missing %q", want)
 		}
+	}
+	// The shared palette is defined once (in pageShell), not again in the file
+	// explorer body.
+	if n := strings.Count(shell.Body.String(), ":root{color-scheme:light"); n != 1 {
+		t.Errorf("GET /default/files defines the palette %d times, want the single shared definition", n)
+	}
+	if strings.Contains(shell.Body.String(), "#f4f7fb") {
+		t.Errorf("GET /default/files still hardcodes the light page colour")
 	}
 
 	// Content paths under /files still serve directory pages, rendered pages
