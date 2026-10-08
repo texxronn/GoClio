@@ -33,6 +33,9 @@ type app struct {
 	auth      authConfig
 	started   time.Time
 	contentMu *sync.Mutex
+	// webdavEnabled gates the WebDAV mount (section 64.10). It is off by
+	// default and enabled with CLIO_WEBDAV_ENABLED=true.
+	webdavEnabled bool
 	// project is the project scope of a request. The zero value means the
 	// default project. ServeHTTP replaces the handler with a shallow copy that
 	// carries the resolved project (see withProject); the shared fields are
@@ -80,6 +83,10 @@ func main() {
 	}
 	dataDir := env("CLIO_DATA_DIR", "./data")
 	dbPath := env("CLIO_DB", filepath.Join(dataDir, "clio.db"))
+	webdavEnabled, err := strconv.ParseBool(env("CLIO_WEBDAV_ENABLED", "false"))
+	if err != nil {
+		log.Fatalf("CLIO_WEBDAV_ENABLED must be a boolean")
+	}
 	baseURL := strings.TrimRight(env("CLIO_BASE_URL", "http://localhost:8080"), "/")
 	publicURL, err := url.Parse(baseURL)
 	if err != nil || (publicURL.Scheme != "http" && publicURL.Scheme != "https") || publicURL.Host == "" || (publicURL.Path != "" && publicURL.Path != "/") || publicURL.RawQuery != "" || publicURL.Fragment != "" || publicURL.User != nil {
@@ -97,7 +104,7 @@ func main() {
 		log.Fatalf("open database: %v", err)
 	}
 	defer db.Close()
-	a := &app{db: db, content: content, baseURL: baseURL, auth: auth, started: time.Now(), contentMu: &sync.Mutex{}}
+	a := &app{db: db, content: content, baseURL: baseURL, auth: auth, started: time.Now(), contentMu: &sync.Mutex{}, webdavEnabled: webdavEnabled}
 	if err = a.migrateContentLayout(); err != nil {
 		log.Fatalf("migrate content layout: %v", err)
 	}

@@ -147,6 +147,18 @@ than the product.
   as text; the search snippet is escaped before its private sentinels become
   highlight markup. `Clio.version` is now `1.1.0`; the file helpers gain
   `files`, `search`, `getFile`, `moveFile`, `copyFile` and `putFile`.
+- WebDAV (spec v1.7 §64.10/§66.8), opt-in with `CLIO_WEBDAV_ENABLED=true`
+  (default off). When enabled, a project's content tree is mounted read/write at
+  `/api/v1/{project}/files/dav/...` and `/{project}/files/dav/...` with the
+  standard method set (`OPTIONS`, `PROPFIND`, `PROPPATCH`, `GET`, `HEAD`, `PUT`,
+  `DELETE`, `MKCOL`, `COPY`, `MOVE`, `LOCK`, `UNLOCK`). Every mutation flows
+  through the files API logic, so `PUT` preserves the entry ID on replace,
+  `MOVE` preserves entry IDs (including descendants), `COPY` assigns new IDs,
+  writes refresh timestamps and the text index, and `DELETE` returns
+  `409 Conflict` when an attachment field still references the entry or its
+  subtree. Locks are in-memory and do not survive a restart. The mount is
+  behind the same authentication and HTTPS policy as every route, and when
+  disabled it does not exist (returns `404`).
 
 ### Changed
 

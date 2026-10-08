@@ -422,58 +422,13 @@ func (a *app) putFile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, ae)
 		return
 	}
-	a.contentLock().Lock()
-	defer a.contentLock().Unlock()
-	target, ae := a.contentPath(clean)
-	if ae != nil {
-		writeErr(w, ae)
-		return
-	}
-	existed := false
-	createdAt := ""
-	if info, e := os.Lstat(target); e == nil {
-		if info.IsDir() || !info.Mode().IsRegular() {
-			writeAPIError(w, conflict("An incompatible resource already exists at this path"))
-			return
-		}
-		existed = true
-		entry, found, lookupErr := a.contentEntryByPath(clean)
-		if lookupErr != nil {
-			writeErr(w, errAPI(lookupErr))
-			return
-		}
-		if found {
-			createdAt = entry.CreatedAt
-		} else {
-			createdAt = info.ModTime().UTC().Format(time.RFC3339Nano)
-		}
-	} else if !os.IsNotExist(e) {
-		writeErr(w, errAPI(e))
-		return
-	}
-	if ae = a.checkNoFileParent(filepath.Dir(target)); ae != nil {
-		writeErr(w, ae)
-		return
-	}
-	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-		writeErr(w, errAPI(err))
-		return
-	}
-	if err := atomicWriteFile(target, body); err != nil {
-		writeErr(w, errAPI(err))
-		return
-	}
 	contentType := ""
 	if contentKind(clean) == "file" {
 		contentType = requestMediaType(r)
 	}
-	if err := a.saveContentEntryTyped(clean, body, createdAt, contentType); err != nil {
-		writeErr(w, errAPI(err))
-		return
-	}
-	entry, found, err := a.contentEntryByPath(clean)
-	if err != nil || !found {
-		writeErr(w, errAPI(firstError(err, fmt.Errorf("content entry missing after write: %s", clean))))
+	entry, existed, ae := a.storeContentFile(clean, body, contentType)
+	if ae != nil {
+		writeErr(w, ae)
 		return
 	}
 	status := http.StatusCreated
@@ -481,6 +436,58 @@ func (a *app) putFile(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusOK
 	}
 	writeJSON(w, status, a.contentEntryRepresentation(entry))
+}
+
+// storeContentFile writes bytes atomically at a canonical content path and
+// records the entry, preserving the ID and created_at on replace. The files
+// API and the WebDAV mount share it so both apply the same 16 MiB limit,
+// timestamps and index updates (sections 64.2, 64.4 and 64.10).
+func (a *app) storeContentFile(clean string, body []byte, contentType string) (contentEntry, bool, *apiError) {
+	if int64(len(body)) > fileUploadLimit {
+		return contentEntry{}, false, &apiError{http.StatusRequestEntityTooLarge, "body_too_large", "Request body is too large"}
+	}
+	a.contentLock().Lock()
+	defer a.contentLock().Unlock()
+	target, ae := a.contentPath(clean)
+	if ae != nil {
+		return contentEntry{}, false, ae
+	}
+	existed := false
+	createdAt := ""
+	if info, e := os.Lstat(target); e == nil {
+		if info.IsDir() || !info.Mode().IsRegular() {
+			return contentEntry{}, false, conflict("An incompatible resource already exists at this path")
+		}
+		existed = true
+		entry, found, lookupErr := a.contentEntryByPath(clean)
+		if lookupErr != nil {
+			return contentEntry{}, false, errAPI(lookupErr)
+		}
+		if found {
+			createdAt = entry.CreatedAt
+		} else {
+			createdAt = info.ModTime().UTC().Format(time.RFC3339Nano)
+		}
+	} else if !os.IsNotExist(e) {
+		return contentEntry{}, false, errAPI(e)
+	}
+	if ae = a.checkNoFileParent(filepath.Dir(target)); ae != nil {
+		return contentEntry{}, false, ae
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+		return contentEntry{}, false, errAPI(err)
+	}
+	if err := atomicWriteFile(target, body); err != nil {
+		return contentEntry{}, false, errAPI(err)
+	}
+	if err := a.saveContentEntryTyped(clean, body, createdAt, contentType); err != nil {
+		return contentEntry{}, false, errAPI(err)
+	}
+	entry, found, err := a.contentEntryByPath(clean)
+	if err != nil || !found {
+		return contentEntry{}, false, errAPI(firstError(err, fmt.Errorf("content entry missing after write: %s", clean)))
+	}
+	return entry, existed, nil
 }
 
 func readRawBody(r *http.Request, limit int64) ([]byte, *apiError) {
@@ -540,71 +547,68 @@ func (a *app) deleteFileByPath(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, ae)
 		return
 	}
-	if clean == "/" {
-		writeAPIError(w, conflict("The content root cannot be deleted"))
+	if ae := a.removeContentPath(clean); ae != nil {
+		writeErr(w, ae)
 		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// removeContentPath deletes a file or a directory subtree and its entries,
+// enforcing the attachment-reference 409 (section 64.9). The files API and the
+// WebDAV mount share it (sections 64.4 and 64.10).
+func (a *app) removeContentPath(clean string) *apiError {
+	if clean == "/" {
+		return conflict("The content root cannot be deleted")
 	}
 	a.contentLock().Lock()
 	defer a.contentLock().Unlock()
 	target, ae := a.contentPath(clean)
 	if ae != nil {
-		writeErr(w, ae)
-		return
+		return ae
 	}
 	info, err := os.Lstat(target)
 	if os.IsNotExist(err) {
-		writeAPIError(w, missing("File"))
-		return
+		return missing("File")
 	}
 	if err != nil {
-		writeErr(w, errAPI(err))
-		return
+		return errAPI(err)
 	}
 	if info.IsDir() {
 		ids, lookupErr := a.contentEntryIDsUnder(clean)
 		if lookupErr != nil {
-			writeErr(w, errAPI(lookupErr))
-			return
+			return errAPI(lookupErr)
 		}
 		if e := a.attachmentDeleteConflict(ids); e != nil {
-			writeErr(w, e)
-			return
+			return e
 		}
 		if err = os.RemoveAll(target); err != nil {
-			writeErr(w, errAPI(err))
-			return
+			return errAPI(err)
 		}
 		if err = a.deleteContentEntriesUnder(clean); err != nil {
-			writeErr(w, errAPI(err))
-			return
+			return errAPI(err)
 		}
-		w.WriteHeader(http.StatusNoContent)
-		return
+		return nil
 	}
 	if !info.Mode().IsRegular() {
-		writeAPIError(w, missing("File"))
-		return
+		return missing("File")
 	}
 	entry, found, lookupErr := a.contentEntryByPath(clean)
 	if lookupErr != nil {
-		writeErr(w, errAPI(lookupErr))
-		return
+		return errAPI(lookupErr)
 	}
 	if found {
 		if e := a.attachmentDeleteConflict([]string{entry.ID}); e != nil {
-			writeErr(w, e)
-			return
+			return e
 		}
 	}
 	if err = os.Remove(target); err != nil {
-		writeErr(w, errAPI(err))
-		return
+		return errAPI(err)
 	}
 	if err = a.deleteContentEntry(clean); err != nil {
-		writeErr(w, errAPI(err))
-		return
+		return errAPI(err)
 	}
-	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 // deleteFileByID serves DELETE /api/v1/{project}/files/{id} (section 64.4).
@@ -676,72 +680,7 @@ func (a *app) transferFile(w http.ResponseWriter, r *http.Request, copying bool)
 		writeErr(w, ae)
 		return
 	}
-	if from == "/" || to == "/" {
-		writeAPIError(w, invalid("The content root cannot be moved or copied"))
-		return
-	}
-	if from == to {
-		writeAPIError(w, conflict("Source and destination are the same"))
-		return
-	}
-	if strings.HasPrefix(to+"/", from+"/") {
-		writeAPIError(w, conflict("A directory cannot be moved or copied into itself"))
-		return
-	}
-	a.contentLock().Lock()
-	defer a.contentLock().Unlock()
-	src, ae := a.contentPath(from)
-	if ae != nil {
-		writeErr(w, ae)
-		return
-	}
-	dst, ae := a.contentPath(to)
-	if ae != nil {
-		writeErr(w, ae)
-		return
-	}
-	info, err := os.Lstat(src)
-	if os.IsNotExist(err) {
-		writeAPIError(w, missing("File"))
-		return
-	}
-	if err != nil {
-		writeErr(w, errAPI(err))
-		return
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		writeAPIError(w, missing("File"))
-		return
-	}
-	if _, err = os.Lstat(dst); err == nil {
-		writeAPIError(w, conflict("A resource already exists at the destination"))
-		return
-	} else if !os.IsNotExist(err) {
-		writeErr(w, errAPI(err))
-		return
-	}
-	if ae = a.checkNoFileParent(filepath.Dir(dst)); ae != nil {
-		writeErr(w, ae)
-		return
-	}
-	if err = os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-		writeErr(w, errAPI(err))
-		return
-	}
-	switch {
-	case info.IsDir() && copying:
-		ae = a.copyDirectory(from, to, src, dst)
-	case info.IsDir():
-		ae = a.moveDirectory(from, to, src, dst)
-	case info.Mode().IsRegular() && copying:
-		ae = a.copyRegularFile(from, to, src, dst)
-	case info.Mode().IsRegular():
-		ae = a.moveRegularFile(from, to, src, dst)
-	default:
-		writeAPIError(w, missing("File"))
-		return
-	}
-	if ae != nil {
+	if ae := a.transferContent(from, to, copying); ae != nil {
 		writeErr(w, ae)
 		return
 	}
@@ -755,6 +694,66 @@ func (a *app) transferFile(w http.ResponseWriter, r *http.Request, copying bool)
 		status = http.StatusCreated
 	}
 	writeJSON(w, status, node)
+}
+
+// transferContent moves or copies a file or directory between two canonical
+// content paths. A move preserves the entry ID (and descendant IDs); a copy
+// assigns new IDs (sections 64.2 and 64.4). The files API and the WebDAV mount
+// share it (section 64.10).
+func (a *app) transferContent(from, to string, copying bool) *apiError {
+	if from == "/" || to == "/" {
+		return invalid("The content root cannot be moved or copied")
+	}
+	if from == to {
+		return conflict("Source and destination are the same")
+	}
+	if strings.HasPrefix(to+"/", from+"/") {
+		return conflict("A directory cannot be moved or copied into itself")
+	}
+	a.contentLock().Lock()
+	defer a.contentLock().Unlock()
+	src, ae := a.contentPath(from)
+	if ae != nil {
+		return ae
+	}
+	dst, ae := a.contentPath(to)
+	if ae != nil {
+		return ae
+	}
+	info, err := os.Lstat(src)
+	if os.IsNotExist(err) {
+		return missing("File")
+	}
+	if err != nil {
+		return errAPI(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return missing("File")
+	}
+	if _, err = os.Lstat(dst); err == nil {
+		return conflict("A resource already exists at the destination")
+	} else if !os.IsNotExist(err) {
+		return errAPI(err)
+	}
+	if ae = a.checkNoFileParent(filepath.Dir(dst)); ae != nil {
+		return ae
+	}
+	if err = os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return errAPI(err)
+	}
+	switch {
+	case info.IsDir() && copying:
+		ae = a.copyDirectory(from, to, src, dst)
+	case info.IsDir():
+		ae = a.moveDirectory(from, to, src, dst)
+	case info.Mode().IsRegular() && copying:
+		ae = a.copyRegularFile(from, to, src, dst)
+	case info.Mode().IsRegular():
+		ae = a.moveRegularFile(from, to, src, dst)
+	default:
+		return missing("File")
+	}
+	return ae
 }
 
 // moveRegularFile renames bytes on disk and updates the entry path, preserving

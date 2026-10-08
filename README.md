@@ -75,6 +75,7 @@ Configuration:
 | `CLIO_TRUSTED_PROXY_NETWORKS` | empty | CIDRs of trusted immediate reverse-proxy peers; required if proxy trust is enabled |
 | `CLIO_TLS_CERT` | unset | TLS certificate for direct HTTPS; configure with `CLIO_TLS_KEY` |
 | `CLIO_TLS_KEY` | unset | TLS private key for direct HTTPS; configure with `CLIO_TLS_CERT` |
+| `CLIO_WEBDAV_ENABLED` | `false` | Expose the project content tree over WebDAV at `/{project}/files/dav` and `/api/v1/{project}/files/dav` |
 
 Authentication is disabled by default. When enabled, all routes—including
 health, help, published pages, API endpoints, and static assets—require Basic
