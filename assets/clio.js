@@ -2,7 +2,7 @@
   "use strict";
 
   const apiVersion = "v1";
-  const libraryVersion = "1.2.0";
+  const libraryVersion = "1.3.0";
 
   class ClioError extends Error {
     constructor(status, code, message, body) {
@@ -752,6 +752,10 @@
     }
   }
 
+  // FileBrowser is a classic file explorer: a lazy-loading folder tree in the
+  // left pane, a compact detailed list in the right pane and a staged upload
+  // tray. Folder names and staged values are assigned as text (textContent), so
+  // server data is never rendered as HTML.
   const FileBrowser = {
     mount(target, options) {
       options = options || {};
@@ -761,7 +765,10 @@
       if (!host) throw new TypeError("Clio.FileBrowser.mount() requires a browser element");
       const project = fileBrowserProject(options);
       const client = options.client || new Clio(Object.assign({}, options, { project }));
+      const uploadLimit = Number(options.uploadLimit) > 0 ? Number(options.uploadLimit) : 16 * 1024 * 1024;
       let currentPath = normalizeContentPath(options.path || initialFileBrowserPath());
+      let currentChildren = [];
+      let selectedEntry = "";
       let requestNumber = 0;
       let destroyed = false;
 
@@ -785,32 +792,463 @@
       searchForm.append(searchInput, searchButton);
       const newFolderButton = element("button", "New folder");
       newFolderButton.type = "button";
+      const uploadButton = element("button", "Upload…", "fb-upload-button");
+      uploadButton.type = "button";
       const uploadInput = element("input");
       uploadInput.type = "file";
-      uploadInput.setAttribute("aria-label", "Upload file");
+      uploadInput.multiple = true;
+      uploadInput.hidden = true;
+      uploadInput.setAttribute("aria-label", "Choose files to stage");
       const projectSwitcher = appendProjectNav(doc, toolbar, project, (next) => {
         if (!next || next === project) return;
+        if (!confirmDiscardStaged()) return;
         const sub = currentPath === "/" ? "/files" : "/files" + encodeURI(currentPath);
         switchProject(next, sub);
       });
-      toolbar.append(searchForm, newFolderButton, uploadInput);
+      toolbar.append(searchForm, newFolderButton, uploadButton, uploadInput);
 
       const breadcrumbs = element("nav", null, "fb-breadcrumbs");
       breadcrumbs.setAttribute("aria-label", "Breadcrumb");
       const status = element("p", "Loading…", "fb-status");
       status.setAttribute("role", "status");
+      const staging = element("section", null, "fb-staging");
+      staging.setAttribute("aria-label", "Staged uploads");
+      staging.hidden = true;
       const layout = element("div", null, "fb-layout");
-      const gutter = element("aside", null, "fb-gutter");
-      gutter.appendChild(element("h2", "Folders"));
-      const gutterList = element("div");
-      gutter.appendChild(gutterList);
+      const treePane = element("aside", null, "fb-tree-pane");
+      treePane.appendChild(element("h2", "Folders", "fb-tree-heading"));
+      const treeContainer = element("div", null, "fb-tree");
+      treeContainer.setAttribute("role", "tree");
+      treeContainer.setAttribute("aria-label", "Folder tree");
+      treePane.appendChild(treeContainer);
       const contentArea = element("section", null, "fb-content");
       contentArea.setAttribute("aria-label", "Folder contents");
       const list = element("div", null, "fb-list");
       contentArea.appendChild(list);
-      layout.append(gutter, contentArea);
-      host.replaceChildren(toolbar, breadcrumbs, status, layout);
+      layout.append(treePane, contentArea);
+      host.replaceChildren(toolbar, breadcrumbs, status, staging, layout);
 
+      // --- lazy folder tree -------------------------------------------------
+      const treeNodes = new Map();
+      let focusIndex = 0;
+      let lastFocused = null;
+      const treeStorageKey = `clio-filebrowser-tree:${project}`;
+      // The project root is always expanded so the tree is usable immediately.
+      ensureTreeNode("/").expanded = true;
+
+      function treeName(path) {
+        const value = normalizeContentPath(path);
+        if (value === "/") return project;
+        const parts = value.split("/").filter(Boolean);
+        return parts.length ? parts[parts.length - 1] : project;
+      }
+
+      function ensureTreeNode(path) {
+        const value = normalizeContentPath(path);
+        let node = treeNodes.get(value);
+        if (!node) {
+          node = { path: value, name: treeName(value), loaded: false, loading: false, expanded: false, children: [], rawCount: 0, total: 0, error: "" };
+          treeNodes.set(value, node);
+        }
+        return node;
+      }
+
+      function readExpandedPaths() {
+        try {
+          const raw = root.sessionStorage ? root.sessionStorage.getItem(treeStorageKey) : null;
+          if (!raw) return [];
+          const parsed = JSON.parse(raw);
+          return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
+        } catch (_) {
+          return [];
+        }
+      }
+
+      function saveExpandedPaths() {
+        try {
+          if (!root.sessionStorage) return;
+          const paths = [];
+          for (const node of treeNodes.values()) if (node.expanded) paths.push(node.path);
+          root.sessionStorage.setItem(treeStorageKey, JSON.stringify(paths));
+        } catch (_) {}
+      }
+
+      function directoryChildren(listing, base) {
+        const result = [];
+        const children = listing && Array.isArray(listing.children) ? listing.children : [];
+        for (const child of children) {
+          if (!child || child.kind !== "directory") continue;
+          const childPath = String(child.path || joinContentPath(base, child.name));
+          const node = ensureTreeNode(childPath);
+          if (child.name != null) node.name = String(child.name);
+          result.push(childPath);
+        }
+        return result;
+      }
+
+      function visibleTreeItems() {
+        const items = [];
+        const walk = (path, level) => {
+          const node = ensureTreeNode(path);
+          items.push({ path, node, level, more: false });
+          if (!node.expanded) return;
+          for (const childPath of node.children) walk(childPath, level + 1);
+          if (node.loaded && node.rawCount < node.total) items.push({ path, node, level: level + 1, more: true });
+        };
+        walk("/", 1);
+        return items;
+      }
+
+      function renderTree() {
+        treeContainer.replaceChildren();
+        const items = visibleTreeItems();
+        if (focusIndex > items.length - 1) focusIndex = Math.max(0, items.length - 1);
+        lastFocused = null;
+        items.forEach((item, index) => {
+          const node = item.node;
+          const isCurrent = !item.more && item.path === currentPath;
+          const row = element("div");
+          row.className = "fb-tree-item" + (isCurrent ? " fb-tree-current" : "") + (item.more ? " fb-tree-more" : "");
+          row.setAttribute("role", "treeitem");
+          row.setAttribute("aria-level", String(item.level));
+          row.setAttribute("aria-selected", isCurrent ? "true" : "false");
+          row.tabIndex = index === focusIndex ? 0 : -1;
+          row.setAttribute("tabindex", String(index === focusIndex ? 0 : -1));
+          if (index === focusIndex) lastFocused = row;
+          if (item.more) {
+            const more = element("button", "Load more…", "fb-tree-more-button");
+            more.type = "button";
+            more.addEventListener("click", (event) => {
+              if (event && event.preventDefault) event.preventDefault();
+              loadMoreTreeNode(item.path, node);
+            });
+            row.appendChild(more);
+          } else {
+            row.setAttribute("data-path", item.path);
+            row.setAttribute("aria-expanded", node.expanded ? "true" : "false");
+            const chevron = element("button", node.loading ? "…" : (node.expanded ? "▾" : "▸"), "fb-tree-toggle" + (node.loading ? " fb-tree-loading" : ""));
+            chevron.type = "button";
+            chevron.setAttribute("aria-label", `${node.loading ? "Loading" : (node.expanded ? "Collapse" : "Expand")} ${node.name}`);
+            chevron.addEventListener("click", (event) => {
+              if (event && event.preventDefault) event.preventDefault();
+              toggleTreeNode(item.path);
+            });
+            const label = element("button", node.name, "fb-tree-label");
+            label.type = "button";
+            label.setAttribute("aria-label", `Open ${node.name}`);
+            label.addEventListener("click", (event) => {
+              if (event && event.preventDefault) event.preventDefault();
+              requestNavigate(item.path, false);
+            });
+            row.append(chevron, label);
+          }
+          treeContainer.appendChild(row);
+        });
+      }
+
+      async function loadTreeNode(path, offset) {
+        const node = ensureTreeNode(path);
+        if (node.loading) return;
+        offset = offset || 0;
+        node.loading = true;
+        renderTree();
+        try {
+          const listing = await client.directory(path, { limit: 1000, offset });
+          if (destroyed) return;
+          const dirs = directoryChildren(listing, path);
+          node.children = offset > 0 ? node.children.concat(dirs) : dirs;
+          const children = listing && Array.isArray(listing.children) ? listing.children : [];
+          const page = (listing && listing.page) || {};
+          node.rawCount = offset + children.length;
+          node.total = Number(page.total != null ? page.total : node.rawCount) || node.rawCount;
+          node.loaded = true;
+          node.error = "";
+        } catch (error) {
+          if (destroyed) return;
+          node.loaded = true;
+          node.error = error && error.message ? error.message : "Unable to load this folder.";
+        } finally {
+          node.loading = false;
+        }
+        if (!destroyed) renderTree();
+      }
+
+      async function toggleTreeNode(path) {
+        const node = ensureTreeNode(path);
+        if (node.expanded) {
+          node.expanded = false;
+          saveExpandedPaths();
+          renderTree();
+          return;
+        }
+        node.expanded = true;
+        saveExpandedPaths();
+        renderTree();
+        if (!node.loaded) await loadTreeNode(path);
+      }
+
+      function loadMoreTreeNode(path, node) {
+        if (node && node.loading) return;
+        return loadTreeNode(path, node ? node.rawCount : 0);
+      }
+
+      async function ensureAncestors(path) {
+        const value = normalizeContentPath(path);
+        const parts = value.split("/").filter(Boolean);
+        const ancestors = ["/"];
+        let current = "/";
+        for (let i = 0; i < parts.length - 1; i++) {
+          current = current === "/" ? "/" + parts[i] : current + "/" + parts[i];
+          ancestors.push(current);
+        }
+        for (const ancestor of ancestors) {
+          const node = ensureTreeNode(ancestor);
+          node.expanded = true;
+          if (!node.loaded && !node.loading) await loadTreeNode(ancestor);
+        }
+      }
+
+      function seedTreeNode(path, listing) {
+        const node = ensureTreeNode(path);
+        node.children = directoryChildren(listing, path);
+        const children = listing && Array.isArray(listing.children) ? listing.children : [];
+        const page = (listing && listing.page) || {};
+        node.rawCount = children.length;
+        node.total = Number(page.total != null ? page.total : children.length) || children.length;
+        node.loaded = true;
+        node.error = "";
+      }
+
+      function setFocus(index, items) {
+        focusIndex = Math.max(0, Math.min(index, items.length - 1));
+        renderTree();
+        if (lastFocused && typeof lastFocused.focus === "function") lastFocused.focus();
+      }
+
+      function focusedItem(items) {
+        if (!items.length) return null;
+        return items[Math.max(0, Math.min(focusIndex, items.length - 1))];
+      }
+
+      function activateFocused(items) {
+        const item = focusedItem(items);
+        if (!item) return;
+        if (item.more) { loadMoreTreeNode(item.path, item.node); return; }
+        requestNavigate(item.path, false);
+      }
+
+      function expandFocused(items) {
+        const item = focusedItem(items);
+        if (!item || item.more) return;
+        if (!item.node.expanded) { toggleTreeNode(item.path); return; }
+        if (item.node.children.length) setFocus(focusIndex + 1, items);
+      }
+
+      function collapseFocused(items) {
+        const item = focusedItem(items);
+        if (!item || item.more) return;
+        if (item.node.expanded) { toggleTreeNode(item.path); return; }
+        const parent = parentContentPath(item.path);
+        const index = items.findIndex((candidate) => !candidate.more && candidate.path === parent);
+        if (index >= 0) setFocus(index, items);
+      }
+
+      treeContainer.addEventListener("keydown", (event) => {
+        const key = event && event.key;
+        if (!key) return;
+        const items = visibleTreeItems();
+        if (!items.length) return;
+        if (key === "ArrowDown" || key === "ArrowUp") {
+          if (event.preventDefault) event.preventDefault();
+          setFocus(focusIndex + (key === "ArrowDown" ? 1 : -1), items);
+        } else if (key === "ArrowRight") {
+          if (event.preventDefault) event.preventDefault();
+          expandFocused(items);
+        } else if (key === "ArrowLeft") {
+          if (event.preventDefault) event.preventDefault();
+          collapseFocused(items);
+        } else if (key === "Enter") {
+          if (event.preventDefault) event.preventDefault();
+          activateFocused(items);
+        }
+      });
+
+      // --- staged upload tray -----------------------------------------------
+      let tray = [];
+      let stagingSeq = 0;
+      let uploading = false;
+
+      function sanitizeUploadName(raw) {
+        let name = String(raw == null ? "" : raw).replace(/\\/g, "/");
+        const parts = name.split("/");
+        name = parts[parts.length - 1];
+        name = name.replace(/[\u0000-\u001f\u007f]/g, "").trim();
+        if (name === "" || name === "." || name === "..") return "";
+        return name;
+      }
+
+      function existingNames() {
+        const names = new Set();
+        for (const child of currentChildren) {
+          const name = child && child.name != null ? String(child.name) : treeName(String((child && child.path) || ""));
+          if (name) names.add(name);
+        }
+        return names;
+      }
+
+      function revalidateStaging() {
+        const names = existingNames();
+        for (const item of tray) {
+          if (item.status === "done") continue;
+          item.replaces = names.has(item.name);
+        }
+        renderStaging();
+      }
+
+      function stageFiles(fileList) {
+        const files = fileList ? Array.prototype.slice.call(fileList) : [];
+        let rejected = 0;
+        let staged = 0;
+        for (const file of files) {
+          if (!file) continue;
+          const size = Number(file.size);
+          if (Number.isFinite(size) && size > uploadLimit) { rejected++; continue; }
+          const name = sanitizeUploadName(file.name != null ? file.name : "upload");
+          if (!name) { rejected++; continue; }
+          tray.push({
+            key: ++stagingSeq,
+            file,
+            name,
+            size: Number.isFinite(size) ? size : 0,
+            type: String(file.type || ""),
+            target: joinContentPath(currentPath, name),
+            status: "queued",
+            error: "",
+            replaces: false
+          });
+          staged++;
+        }
+        revalidateStaging();
+        if (rejected > 0) {
+          status.className = "fb-status fb-error";
+          status.textContent = `${rejected} file(s) were not staged: files must be no larger than 16 MiB and have a usable name.`;
+        } else if (staged > 0) {
+          status.className = "fb-status";
+          status.textContent = `${staged} file(s) staged. Choose Upload to send them.`;
+        }
+        return staged;
+      }
+
+      function clearStaging() {
+        tray = [];
+        renderStaging();
+      }
+
+      function confirmDiscardStaged() {
+        if (!tray.length) return true;
+        const message = `Discard ${tray.length} staged upload${tray.length === 1 ? "" : "s"}?`;
+        const confirmed = typeof root.confirm === "function" ? root.confirm(message) : true;
+        if (!confirmed) return false;
+        clearStaging();
+        return true;
+      }
+
+      function renderStaging() {
+        staging.replaceChildren();
+        if (!tray.length) {
+          staging.hidden = true;
+          return;
+        }
+        staging.hidden = false;
+        staging.appendChild(element("p", "Staged uploads", "fb-staging-heading"));
+        const rows = element("div", null, "fb-staging-rows");
+        for (const item of tray) {
+          const row = element("div", null, "fb-staging-row");
+          row.setAttribute("data-status", item.status);
+          row.setAttribute("data-replaces", item.replaces ? "true" : "false");
+          row.appendChild(element("span", item.name, "fb-staging-name"));
+          row.appendChild(element("span", formatBytes(item.size), "fb-staging-size"));
+          row.appendChild(element("span", item.type || "application/octet-stream", "fb-staging-type"));
+          row.appendChild(element("span", item.target, "fb-staging-target"));
+          let label = item.status;
+          if (item.status === "error") label = `error: ${item.error || "upload failed"}`;
+          else if (item.replaces) label = `${item.status} · will replace`;
+          row.appendChild(element("span", label, "fb-staging-status"));
+          const remove = element("button", "×", "fb-staging-remove");
+          remove.type = "button";
+          remove.disabled = uploading;
+          remove.setAttribute("aria-label", `Remove ${item.name} from the staged uploads`);
+          remove.addEventListener("click", (event) => {
+            if (event && event.preventDefault) event.preventDefault();
+            tray = tray.filter((entry) => entry !== item);
+            renderStaging();
+          });
+          row.appendChild(remove);
+          rows.appendChild(row);
+        }
+        const actions = element("div", null, "fb-staging-actions");
+        const upload = element("button", `Upload ${tray.length} file${tray.length === 1 ? "" : "s"}`, "fb-staging-upload");
+        upload.type = "button";
+        upload.disabled = uploading || tray.length === 0;
+        upload.addEventListener("click", (event) => {
+          if (event && event.preventDefault) event.preventDefault();
+          uploadStaged();
+        });
+        const clear = element("button", "Clear", "fb-staging-clear");
+        clear.type = "button";
+        clear.disabled = uploading;
+        clear.addEventListener("click", (event) => {
+          if (event && event.preventDefault) event.preventDefault();
+          clearStaging();
+        });
+        actions.append(upload, clear);
+        staging.append(rows, actions);
+      }
+
+      async function uploadStaged() {
+        if (uploading || !tray.length) return;
+        const pending = tray.filter((item) => item.status !== "done");
+        if (!pending.length) return;
+        if (pending.some((item) => item.replaces)) {
+          const message = "Some staged files already exist and will be replaced. Continue?";
+          const confirmed = typeof root.confirm === "function" ? root.confirm(message) : true;
+          if (!confirmed) return;
+        }
+        uploading = true;
+        renderStaging();
+        let index = 0;
+        let changed = false;
+        for (const item of pending) {
+          if (destroyed) break;
+          index++;
+          item.status = "uploading";
+          item.error = "";
+          renderStaging();
+          status.className = "fb-status";
+          status.textContent = `Uploading ${index} of ${pending.length}…`;
+          try {
+            await client.putFile(item.target, item.file, { contentType: item.type });
+            changed = true;
+            tray = tray.filter((entry) => entry !== item);
+          } catch (error) {
+            item.status = "error";
+            item.error = error && error.message ? error.message : "Upload failed.";
+          }
+          if (!destroyed) renderStaging();
+        }
+        uploading = false;
+        if (destroyed) return;
+        renderStaging();
+        if (changed) await loadDirectory(currentPath, true);
+        if (destroyed) return;
+        const failed = tray.length;
+        if (failed) {
+          status.className = "fb-status fb-error";
+          status.textContent = `${failed} upload(s) failed. Fix or remove them and try again.`;
+        }
+      }
+
+      // --- navigation and listing -------------------------------------------
       function setURL(path, replace) {
         const base = `/${encodeURIComponent(project)}/files`;
         const url = path === "/" ? base : base + encodeURI(path);
@@ -825,8 +1263,8 @@
         const rootLink = element("a", project);
         rootLink.href = `/${encodeURIComponent(project)}/files`;
         rootLink.addEventListener("click", (event) => {
-          event.preventDefault();
-          navigate("/", false);
+          if (event && event.preventDefault) event.preventDefault();
+          requestNavigate("/", false);
         });
         breadcrumbs.appendChild(rootLink);
         let accumulated = "";
@@ -837,32 +1275,21 @@
           const link = element("a", part);
           link.href = `/${encodeURIComponent(project)}/files${encodeURI(target)}`;
           link.addEventListener("click", (event) => {
-            event.preventDefault();
-            navigate(target, false);
+            if (event && event.preventDefault) event.preventDefault();
+            requestNavigate(target, false);
           });
           breadcrumbs.appendChild(link);
         }
       }
 
-      function drawGutter(children) {
-        gutterList.replaceChildren();
-        const directories = children.filter((child) => child.kind === "directory");
-        if (!directories.length) {
-          gutterList.appendChild(element("p", "No subfolders.", "fb-empty"));
+      function openEntry(child, childPath) {
+        if (child && child.kind === "directory") {
+          requestNavigate(childPath, false);
           return;
         }
-        const nav = element("nav");
-        for (const directory of directories) {
-          const childPath = String(directory.path || joinContentPath(currentPath, directory.name));
-          const link = element("a", directory.name || childPath);
-          link.href = `/${encodeURIComponent(project)}/files${encodeURI(childPath)}`;
-          link.addEventListener("click", (event) => {
-            event.preventDefault();
-            navigate(childPath, false);
-          });
-          nav.appendChild(link);
-        }
-        gutterList.appendChild(nav);
+        const url = child && child.url ? String(child.url) : `/${encodeURIComponent(project)}/files${encodeURI(childPath)}`;
+        if (typeof root.open === "function") root.open(url, "_blank");
+        else if (root.location && "href" in root.location) root.location.href = url;
       }
 
       function drawEntries(children) {
@@ -871,7 +1298,7 @@
           list.appendChild(element("p", "This folder is empty.", "fb-empty"));
           return;
         }
-        const table = element("table");
+        const table = element("table", null, "fb-table");
         const head = element("thead");
         const headingRow = element("tr");
         for (const label of ["Name", "Kind", "Size", "Actions"]) headingRow.appendChild(element("th", label));
@@ -881,16 +1308,20 @@
         for (const child of children) {
           const name = String(child.name != null ? child.name : child.path || "");
           const childPath = String(child.path || joinContentPath(currentPath, name));
-          const row = element("tr");
+          const row = element("tr", null, childPath === selectedEntry ? "fb-row-selected" : "");
+          row.setAttribute("data-path", childPath);
           const nameCell = element("td");
           const link = element("a", name);
           link.href = child.url ? String(child.url) : `/${encodeURIComponent(project)}/files${encodeURI(childPath)}`;
-          if (child.kind === "directory") {
-            link.addEventListener("click", (event) => {
-              event.preventDefault();
-              navigate(childPath, false);
-            });
-          }
+          link.addEventListener("click", (event) => {
+            if (event && event.preventDefault) event.preventDefault();
+            selectedEntry = childPath;
+            drawEntries(currentChildren);
+          });
+          link.addEventListener("dblclick", (event) => {
+            if (event && event.preventDefault) event.preventDefault();
+            openEntry(child, childPath);
+          });
           nameCell.appendChild(link);
           if (child.id && child.kind !== "directory") {
             const stable = element("a", "download");
@@ -905,17 +1336,27 @@
           const actions = element("td");
           const renameButton = element("button", "Rename");
           renameButton.type = "button";
-          renameButton.addEventListener("click", () => {
+          renameButton.addEventListener("click", (event) => {
+            if (event && event.preventDefault) event.preventDefault();
             const next = ask("New name", name);
             if (next) renameEntry(childPath, joinContentPath(parentContentPath(childPath), next));
           });
           const deleteButton = element("button", "Delete", "fb-danger");
           deleteButton.type = "button";
-          deleteButton.addEventListener("click", () => {
+          deleteButton.addEventListener("click", (event) => {
+            if (event && event.preventDefault) event.preventDefault();
             if (confirmDelete(name)) removeEntry(childPath);
           });
           actions.append(renameButton, deleteButton);
           row.appendChild(actions);
+          row.addEventListener("click", () => {
+            selectedEntry = childPath;
+            drawEntries(currentChildren);
+          });
+          row.addEventListener("dblclick", (event) => {
+            if (event && event.preventDefault) event.preventDefault();
+            openEntry(child, childPath);
+          });
           body.appendChild(row);
         }
         table.appendChild(body);
@@ -927,7 +1368,7 @@
         status.textContent = "Working…";
         return Promise.resolve(promise).then(
           () => {
-            if (!destroyed) return navigate(currentPath, true);
+            if (!destroyed) return loadDirectory(currentPath, true);
           },
           (error) => {
             if (destroyed) return;
@@ -945,7 +1386,7 @@
 
       function upload(file, name, parent) {
         if (!file) return Promise.resolve();
-        const fileName = String(name || file.name || "upload");
+        const fileName = sanitizeUploadName(name || file.name || "upload") || "upload";
         const target = joinContentPath(parent == null ? currentPath : parent, fileName);
         return action(client.putFile(target, file, { contentType: file.type || "" }), "Could not upload the file.");
       }
@@ -963,11 +1404,10 @@
       async function runSearch(query) {
         const value = String(query == null ? searchInput.value : query).trim();
         const request = ++requestNumber;
-        if (!value) return navigate(currentPath, true);
+        if (!value) return loadDirectory(currentPath, true);
         status.className = "fb-status";
         status.textContent = "Searching…";
         list.replaceChildren();
-        gutterList.replaceChildren();
         try {
           const result = await client.search(value);
           if (destroyed || request !== requestNumber) return;
@@ -994,25 +1434,33 @@
         }
       }
 
-      async function navigate(path, replaceURL) {
+      async function loadDirectory(path, replaceURL) {
         const target = normalizeContentPath(path == null ? "/" : path);
         const request = ++requestNumber;
         status.className = "fb-status";
         status.textContent = "Loading…";
         try {
-          const node = await client.directory(target);
+          const listing = await client.directory(target);
           if (destroyed || request !== requestNumber) return;
-          if (!node || node.kind !== "directory") {
+          if (!listing || listing.kind !== "directory") {
             const parent = parentContentPath(target);
-            if (parent !== target) return navigate(parent, replaceURL);
+            if (parent !== target) return loadDirectory(parent, replaceURL);
             throw new TypeError("Path is not a directory");
           }
-          currentPath = normalizeContentPath(node.path || target);
-          const children = Array.isArray(node.children) ? node.children : [];
+          currentPath = normalizeContentPath(listing.path || target);
+          currentChildren = Array.isArray(listing.children) ? listing.children : [];
+          const node = ensureTreeNode(currentPath);
+          if (node.expanded) seedTreeNode(currentPath, listing);
+          await ensureAncestors(currentPath);
+          if (destroyed || request !== requestNumber) return;
+          const items = visibleTreeItems();
+          const index = items.findIndex((candidate) => !candidate.more && candidate.path === currentPath);
+          if (index >= 0) focusIndex = index;
           drawBreadcrumbs();
-          drawGutter(children);
-          drawEntries(children);
-          status.textContent = `${children.length} item(s)`;
+          renderTree();
+          drawEntries(currentChildren);
+          revalidateStaging();
+          status.textContent = `${currentChildren.length} item(s)`;
           searchInput.value = "";
           setURL(currentPath, replaceURL === true);
         } catch (error) {
@@ -1022,37 +1470,69 @@
         }
       }
 
+      function requestNavigate(path, replaceURL) {
+        if (destroyed) return Promise.resolve();
+        if (!confirmDiscardStaged()) return Promise.resolve();
+        return loadDirectory(path, replaceURL);
+      }
+
+      // --- wiring -----------------------------------------------------------
       searchForm.addEventListener("submit", (event) => {
         if (event && event.preventDefault) event.preventDefault();
         runSearch(searchInput.value);
       });
-      newFolderButton.addEventListener("click", () => {
+      newFolderButton.addEventListener("click", (event) => {
+        if (event && event.preventDefault) event.preventDefault();
         const name = ask("Folder name", "");
         if (name) createFolder(name, currentPath);
       });
-      uploadInput.addEventListener("change", () => {
-        const files = uploadInput.files ? Array.prototype.slice.call(uploadInput.files) : [];
-        let chain = Promise.resolve();
-        for (const file of files) chain = chain.then(() => upload(file, file.name, currentPath));
-        chain.then(() => navigate(currentPath, true));
+      uploadButton.addEventListener("click", () => {
+        if (typeof uploadInput.click === "function") uploadInput.click();
       });
-      const popstate = () => navigate(initialFileBrowserPath(), true);
+      uploadInput.addEventListener("change", () => {
+        stageFiles(uploadInput.files);
+        try { uploadInput.value = ""; } catch (_) {}
+      });
+      list.addEventListener("dragover", (event) => {
+        if (event && event.preventDefault) event.preventDefault();
+        list.className = "fb-list fb-drop";
+      });
+      list.addEventListener("dragleave", () => { list.className = "fb-list"; });
+      list.addEventListener("drop", (event) => {
+        if (event && event.preventDefault) event.preventDefault();
+        list.className = "fb-list";
+        const files = event && event.dataTransfer ? event.dataTransfer.files : null;
+        if (files && files.length) stageFiles(files);
+      });
+      const popstate = () => requestNavigate(initialFileBrowserPath(), true);
       if (root.addEventListener) root.addEventListener("popstate", popstate);
 
-      const ready = navigate(currentPath, true);
+      // Restore the persisted expansion state, then load the tree.
+      const persisted = readExpandedPaths();
+      for (const path of persisted) ensureTreeNode(path).expanded = true;
+      const ready = loadDirectory(currentPath, true).then(async () => {
+        for (const path of persisted) {
+          const node = ensureTreeNode(path);
+          if (node.expanded && !node.loaded && !node.loading) await loadTreeNode(path);
+        }
+      });
       const projectsReady = projectSwitcher
         ? fillProjectSwitcher(doc, projectSwitcher.select, client, project)
         : Promise.resolve();
       return {
         ready: Promise.all([ready, projectsReady]).then(() => undefined),
         get path() { return currentPath; },
-        refresh() { return navigate(currentPath, true); },
-        navigate(path) { return navigate(path, false); },
+        refresh() { return loadDirectory(currentPath, true); },
+        navigate(path) { return requestNavigate(path, false); },
         search(query) { return runSearch(query); },
         createFolder(name, parent) { return createFolder(name, parent); },
         upload(file, name, parent) { return upload(file, name, parent); },
         rename(from, to) { return renameEntry(from, to); },
         remove(path) { return removeEntry(path); },
+        stage(files) { return stageFiles(files); },
+        uploadStaged() { return uploadStaged(); },
+        clearStaging() { return clearStaging(); },
+        get staged() { return tray.map((item) => ({ name: item.name, size: item.size, type: item.type, target: item.target, status: item.status, replaces: item.replaces })); },
         destroy() {
           destroyed = true;
           if (root.removeEventListener) root.removeEventListener("popstate", popstate);

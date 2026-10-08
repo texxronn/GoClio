@@ -18,7 +18,7 @@ func TestFileExplorerShellRoutes(t *testing.T) {
 	if shell.Code != http.StatusOK {
 		t.Fatalf("GET /default/files status=%d: %s", shell.Code, shell.Body.String())
 	}
-	for _, want := range []string{"File explorer", "assets/clio.js", "Clio.FileBrowser.mount", "clio-file-browser", "<noscript>", "notes"} {
+	for _, want := range []string{"File explorer", "assets/clio.js", "Clio.FileBrowser.mount", "clio-file-browser", "<noscript>", "notes", ".fb-tree{", ".fb-tree-pane{", ".fb-staging{", ".fb-staging-row{"} {
 		if !strings.Contains(shell.Body.String(), want) {
 			t.Errorf("GET /default/files missing %q", want)
 		}
