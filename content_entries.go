@@ -52,10 +52,21 @@ func contentMediaType(path string) string {
 }
 
 func (a *app) contentEntryByPath(path string) (contentEntry, bool, error) {
+	return a.contentEntryWhere(`project=? AND path=?`, a.project, path)
+}
+
+// contentEntryByID resolves an entry by its opaque ID within a project. IDs are
+// globally unique, but resolution stays project-scoped like every other query
+// (section 65.3).
+func (a *app) contentEntryByID(id string) (contentEntry, bool, error) {
+	return a.contentEntryWhere(`project=? AND id=?`, a.project, id)
+}
+
+func (a *app) contentEntryWhere(where string, args ...any) (contentEntry, bool, error) {
 	var entry contentEntry
 	err := a.db.QueryRow(
-		`SELECT id,project,path,kind,content_type,size,sha256,created_at,updated_at FROM content_entries WHERE project=? AND path=?`,
-		a.project, path,
+		`SELECT id,project,path,kind,content_type,size,sha256,created_at,updated_at FROM content_entries WHERE `+where,
+		args...,
 	).Scan(&entry.ID, &entry.Project, &entry.Path, &entry.Kind, &entry.ContentType, &entry.Size, &entry.SHA256, &entry.CreatedAt, &entry.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return contentEntry{}, false, nil
@@ -75,20 +86,30 @@ type sqlExecer interface {
 // created_at are preserved across replacement; the path stays mutable through
 // move (section 64.2).
 func (a *app) saveContentEntry(path string, data []byte, createdAt string) error {
-	return saveContentEntryExec(a.db, a.project, path, data, createdAt)
+	return saveContentEntryExec(a.db, a.project, path, data, createdAt, "")
 }
 
-func saveContentEntryExec(exec sqlExecer, project, path string, data []byte, createdAt string) error {
+// saveContentEntryTyped records bytes with an explicit content type. Pages keep
+// the type implied by their extension (section 64.2); files may carry the
+// declared upload type.
+func (a *app) saveContentEntryTyped(path string, data []byte, createdAt, contentType string) error {
+	return saveContentEntryExec(a.db, a.project, path, data, createdAt, contentType)
+}
+
+func saveContentEntryExec(exec sqlExecer, project, path string, data []byte, createdAt, contentType string) error {
 	now := formatUTC(time.Now())
 	if createdAt == "" {
 		createdAt = now
+	}
+	if contentKind(path) == "page" || contentType == "" {
+		contentType = contentMediaType(path)
 	}
 	sum := sha256.Sum256(data)
 	sha := hex.EncodeToString(sum[:])
 	_, err := exec.Exec(
 		`INSERT INTO content_entries(id,project,path,kind,content_type,size,sha256,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)
 		 ON CONFLICT(project,path) DO UPDATE SET kind=excluded.kind,content_type=excluded.content_type,size=excluded.size,sha256=excluded.sha256,updated_at=excluded.updated_at`,
-		newID(), project, path, contentKind(path), contentMediaType(path), len(data), sha, createdAt, now,
+		newID(), project, path, contentKind(path), contentType, len(data), sha, createdAt, now,
 	)
 	return err
 }
@@ -104,27 +125,44 @@ func (a *app) deleteContentEntriesUnder(path string) error {
 	return err
 }
 
+// contentRescan summarises a reconciliation pass (section 64.4).
+type contentRescan struct {
+	Added     int
+	Removed   int
+	Refreshed int
+}
+
 // reconcileContent brings the project's entries in line with its content
 // subtree: an existing path keeps its ID, a new path receives a new ID, and a
 // row whose path no longer exists is removed. Symbolic links are never
 // followed (section 64.2).
 func (a *app) reconcileContent() error {
+	_, err := a.rescanContent()
+	return err
+}
+
+// rescanContent reconciles the catalog with the filesystem and reports how many
+// entries were added, removed and refreshed (section 64.4). A refreshed entry
+// is one whose stored size or content type no longer matches the file on disk;
+// its bytes are not re-hashed, so a stale sha256 is cleared.
+func (a *app) rescanContent() (contentRescan, error) {
+	summary := contentRescan{}
 	existing := map[string]contentEntry{}
-	rows, err := a.db.Query(`SELECT id,path,created_at FROM content_entries WHERE project=?`, a.project)
+	rows, err := a.db.Query(`SELECT id,path,kind,content_type,size,created_at FROM content_entries WHERE project=?`, a.project)
 	if err != nil {
-		return err
+		return summary, err
 	}
 	for rows.Next() {
 		var entry contentEntry
-		if err = rows.Scan(&entry.ID, &entry.Path, &entry.CreatedAt); err != nil {
+		if err = rows.Scan(&entry.ID, &entry.Path, &entry.Kind, &entry.ContentType, &entry.Size, &entry.CreatedAt); err != nil {
 			rows.Close()
-			return err
+			return summary, err
 		}
 		existing[entry.Path] = entry
 	}
 	if err = rows.Err(); err != nil {
 		rows.Close()
-		return err
+		return summary, err
 	}
 	rows.Close()
 
@@ -156,28 +194,47 @@ func (a *app) reconcileContent() error {
 		}
 		clean := "/" + filepath.ToSlash(rel)
 		seen[clean] = true
-		if _, ok := existing[clean]; ok {
+		kind, contentType := contentKind(clean), contentMediaType(clean)
+		if entry, ok := existing[clean]; ok {
+			if entry.Size == info.Size() && entry.Kind == kind && entry.ContentType == contentType {
+				return nil
+			}
+			_, err = a.db.Exec(
+				`UPDATE content_entries SET kind=?,content_type=?,size=?,sha256='',updated_at=? WHERE id=?`,
+				kind, contentType, info.Size(), formatUTC(time.Now()), entry.ID,
+			)
+			if err != nil {
+				return err
+			}
+			summary.Refreshed++
 			return nil
 		}
 		now := formatUTC(time.Now())
-		_, err = a.db.Exec(
+		result, err := a.db.Exec(
 			`INSERT OR IGNORE INTO content_entries(id,project,path,kind,content_type,size,sha256,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`,
-			newID(), a.project, clean, contentKind(clean), contentMediaType(clean), info.Size(), "", now, now,
+			newID(), a.project, clean, kind, contentType, info.Size(), "", now, now,
 		)
-		return err
+		if err != nil {
+			return err
+		}
+		if affected, err := result.RowsAffected(); err == nil && affected > 0 {
+			summary.Added++
+		}
+		return nil
 	})
 	if walkErr != nil && !os.IsNotExist(walkErr) {
-		return walkErr
+		return summary, walkErr
 	}
 	for path, entry := range existing {
 		if seen[path] {
 			continue
 		}
 		if _, err = a.db.Exec(`DELETE FROM content_entries WHERE id=?`, entry.ID); err != nil {
-			return err
+			return summary, err
 		}
+		summary.Removed++
 	}
-	return nil
+	return summary, nil
 }
 
 // reconcileAllContent reconciles every project's content subtree.

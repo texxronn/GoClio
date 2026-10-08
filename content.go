@@ -740,7 +740,7 @@ func (a *app) uploadZip(w http.ResponseWriter, r *http.Request, destination stri
 				writeErr(w, errAPI(readErr))
 				return
 			}
-			if txErr = saveContentEntryExec(tx, a.project, uploadContentPath(dest, rel), data, created); txErr != nil {
+			if txErr = saveContentEntryExec(tx, a.project, uploadContentPath(dest, rel), data, created, ""); txErr != nil {
 				tx.Rollback()
 				rollback()
 				writeErr(w, errAPI(txErr))
@@ -852,7 +852,7 @@ func canonicalContentPath(raw string) (string, *apiError) {
 		if p == "" || p == "." || p == ".." || strings.Contains(p, "\\") || hasControl(p) {
 			return "", invalid("Invalid content path")
 		}
-		if i == 0 && reservedRoot[p] {
+		if i == 0 && (reservedRoot[p] || p == reservedFilesSegment) {
 			return "", invalid("Reserved root path")
 		}
 	}

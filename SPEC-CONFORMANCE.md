@@ -35,7 +35,8 @@ through HTTP and use temporary SQLite databases and content directories.
 | §43 ClioJS browser client | `TestClioJSAssetsAndHelp`, `TestClioJSBehaviorWithNode` |
 | §35 collection data browser | `TestCollectionBrowserRoutes` |
 | §65.1–§65.2/§65.5/§65.7, §66.3–§66.4 projects model, API, storage scope and reserved names | `TestProjectCreateListReadDelete`, `TestProjectReservedNamesAndValidation`, `TestProjectDeleteRejectsNonEmpty`, `TestHealthReportsProjectCount`, `TestOpenDatabaseMigratesLegacyTablesToProjectScope` |
-| §64.2 content entries and identity | `TestContentEntryIdentityStableAcrossReplace`, `TestContentReconciliationAddsAndRemoves`, `TestContentEntriesMigrationFromPageTimes`, `TestContentLayoutMigrationMovesLegacyRoot` |
+| §64.2 content entries and identity | `TestContentEntryIdentityStableAcrossReplace`, `TestContentReconciliationAddsAndRemoves`, `TestContentEntriesMigrationFromPageTimes`, `TestContentLayoutMigrationMovesLegacyRoot`, `TestFilesCRUDByPathAndID`, `TestFilesMoveAndCopy` |
+| §64.4 filesystem REST API | `TestFilesCRUDByPathAndID`, `TestFilesDirectoryListingAndPageKind`, `TestFilesListFiltersAndPaging`, `TestFilesMoveAndCopy`, `TestFilesConflictsAndReservedSegment`, `TestFilesDeleteByPathRemovesSubtree`, `TestFilesUploadLimitAndTraversal`, `TestFilesRescanSummary`, `TestFilesProjectIsolation` |
 | §65.3 project data scoping and isolation | `TestProjectDataIsolation`, `TestContentIsolationBetweenProjects` |
 | §66.1/§66.3/§66.5–§66.6 project-first routing, instance routes and the data partition | `TestBareRoutesRedirectToDefaultProject`, `TestUnknownProjectReturnsNotFound`, `TestProjectScopedHumanAndAPIRoutes` |
 
@@ -51,18 +52,15 @@ Building requires Go 1.25 and a C toolchain for the cgo SQLite driver. The
 ClioJS behaviour test additionally runs Node.js when it is available and skips
 otherwise.
 
-## Pending conformance (spec v1.5)
+## Pending conformance
 
-Section 64 of [`SPEC.md`](SPEC.md) is normative but not yet implemented. The
+Section 64 of [`SPEC.md`](SPEC.md) is normative and partly implemented. The
 areas below have no automated coverage yet; each row must move into the table
-above as its tests land. Until then, the implementation does not conform to
-spec v1.5.
+above as its tests land.
 
 | Spec area | Planned tests |
 | --- | --- |
-| §64.2 file identity and reconciliation | remaining: files API `move` preserves the ID and `copy` gets a new ID; a rescan endpoint |
 | §64.3/§64.5 stable URLs and serving | `/f/{id}` and `/f/{id}/{name}`; download disposition and nosniff; byte ranges |
-| §64.4 filesystem REST API | list and directory listing; create/replace (`PUT`), directory create, delete, `move`, `copy`, `rescan`; content transfer and ranges; conflict rules; size limit |
 | §64.6 extraction and text index | text-like extraction; PDF text; size cap; rebuild by rescan |
 | §64.7 search API | ranking and snippets; literal-term safety; paging; empty/oversized query |
 | §64.8 agent enrichment | fingerprint match/mismatch; survives move; delete falls back to native |
@@ -70,5 +68,5 @@ spec v1.5.
 | §64.10 WebDAV | optional flag; method set including MOVE/COPY; ID preservation; auth enforcement |
 | §64.11 backup and restore | restored database plus content reproduces IDs, timestamps and agent text |
 | §64.14 web file explorer | `/files` shell and reserved route; ClioJS `Clio.FileBrowser`; breadcrumbs and URL state; upload/rename/delete actions; referenced-entry `409`; escaped search snippets |
-| §65 namespaces (projects) | remaining: the unified files API, search and enrichment scoped per project |
-| §66 project-scoped URL scheme and partitions | remaining: the unified files partition (`PUT`/`DELETE`/`GET /files`, `/{project}/files/id/{id}`, WebDAV at both `/api/v1/{project}/files/dav` and `/{project}/files/dav`); Page and Directory APIs replaced |
+| §65 namespaces (projects) | remaining: search and enrichment scoped per project |
+| §66 project-scoped URL scheme and partitions | remaining: stable human file URLs (`/{project}/files/id/{id}`, Phase 5); WebDAV at both `/api/v1/{project}/files/dav` and `/{project}/files/dav`; Page and Directory APIs replaced |

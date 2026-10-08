@@ -251,12 +251,21 @@ func (a *app) dataAPI(w http.ResponseWriter, r *http.Request, s []string) {
 	}
 }
 
-// filesAPI serves the project files partition. Until the unified files API
-// lands (section 66.7), the directory and page operations are exposed under it
-// and keep their legacy shapes.
+// filesAPI serves the project files partition (sections 64.4 and 66.7). The
+// directory and page operations remain under /directories and /pages as
+// compatibility facades (sections 38 and 41) until Phase 10 removes them.
 func (a *app) filesAPI(w http.ResponseWriter, r *http.Request, s []string) {
 	if len(s) == 0 {
-		writeAPIError(w, missing("Endpoint"))
+		switch r.Method {
+		case http.MethodGet:
+			a.filesCollection(w, r)
+		case http.MethodPut:
+			a.putFile(w, r)
+		case http.MethodDelete:
+			a.deleteFileByPath(w, r)
+		default:
+			writeAPIError(w, methodNotAllowed())
+		}
 		return
 	}
 	switch s[0] {
@@ -264,8 +273,37 @@ func (a *app) filesAPI(w http.ResponseWriter, r *http.Request, s []string) {
 		a.directoriesAPI(w, r)
 	case "pages":
 		a.pagesAPI(w, r)
+	case "move":
+		if r.Method != http.MethodPost {
+			writeAPIError(w, methodNotAllowed())
+			return
+		}
+		a.transferFile(w, r, false)
+	case "copy":
+		if r.Method != http.MethodPost {
+			writeAPIError(w, methodNotAllowed())
+			return
+		}
+		a.transferFile(w, r, true)
+	case "rescan":
+		if r.Method != http.MethodPost {
+			writeAPIError(w, methodNotAllowed())
+			return
+		}
+		a.rescanFiles(w, r)
 	default:
-		writeAPIError(w, missing("Endpoint"))
+		if len(s) != 1 {
+			writeAPIError(w, missing("Endpoint"))
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			a.getFile(w, r, s[0])
+		case http.MethodDelete:
+			a.deleteFileByID(w, r, s[0])
+		default:
+			writeAPIError(w, methodNotAllowed())
+		}
 	}
 }
 
