@@ -135,10 +135,11 @@ const context = {
           children: [
             { path: "/docs", name: "docs", kind: "directory", url: "https://clio.example/default/files/docs" },
             { path: "/note.txt", name: "note.txt", kind: "file", id: "file-2", content_type: "text/plain", size: 3, created_at: "2026-01-02T03:04:05Z", updated_at: "2026-02-03T04:05:06Z", url: "https://clio.example/default/files/note.txt" },
+            { path: "/zeta.pdf", name: "zeta.pdf", kind: "file", id: "file-4", content_type: "application/pdf", size: 10, created_at: "2026-03-04T05:06:07Z", updated_at: "2026-04-05T06:07:08Z", url: "https://clio.example/default/files/zeta.pdf" },
             { path: "/a", name: "a", kind: "directory", url: "https://clio.example/default/files/a" },
             { path: "/big", name: "big", kind: "directory", url: "https://clio.example/default/files/big" }
           ],
-          page: { limit: 100, offset: 0, count: 4, total: 4 }
+          page: { limit: 100, offset: 0, count: 5, total: 5 }
         };
       } else if (p === "/docs") {
         body = {
@@ -576,22 +577,24 @@ async function main() {
   // One uniform table: no separate .fb-dirs block, directories before files.
   assert.ok(fbTable(ctxHost), "the right pane renders a single .fb-table");
   assert.equal(collectByTag(ctxHost, "section").filter((section) => section.className === "fb-dirs").length, 0, "there is no separate .fb-dirs block");
-  assert.deepEqual(fbRows(ctxHost).map((row) => row.attributes["data-path"]), ["/a", "/big", "/docs", "/note.txt"], "directories come first, each group sorted by name");
+  assert.deepEqual(fbRows(ctxHost).map((row) => row.attributes["data-path"]), ["/a", "/big", "/docs", "/note.txt", "/zeta.pdf"], "directories come first, each group sorted by name");
   assert.equal(fbIcon(ctxHost, "/docs"), "📁", "directories use the folder icon");
   assert.equal(fbIcon(ctxHost, "/note.txt"), "📄", "files use the document icon");
-  assert.equal(fbRow(ctxHost, "/docs").children[1].textContent, "–", "directories show a dash size");
-  assert.equal(fbRow(ctxHost, "/note.txt").children[1].textContent, "3 B", "files show a human-readable size");
+  assert.equal(fbRow(ctxHost, "/docs").children[2].textContent, "–", "directories show a dash size");
+  assert.equal(fbRow(ctxHost, "/note.txt").children[2].textContent, "3 B", "files show a human-readable size");
+  assert.equal(fbRow(ctxHost, "/docs").children[1].textContent, "Folder", "directories show the Folder type");
+  assert.equal(fbRow(ctxHost, "/note.txt").children[1].textContent, "TXT", "files show their upper-cased extension as the type");
   assert.equal(collectByTag(ctxHost, "button").filter((button) => button.className === "fb-danger" || button.textContent === "Rename" || button.textContent === "Delete").length, 0, "the old inline Rename/Delete buttons are gone");
   assert.equal(collectByTag(ctxHost, "button").filter((button) => button.className === "fb-row-menu").length, 0, "the kebab column is gone");
   const sortButton = (label) => collectByTag(ctxHost, "button").find((button) => button.className === "fb-sort" && button.textContent.replace(/[ ▲▼]+$/, "") === label);
   assert.deepEqual(
     collectByTag(ctxHost, "button").filter((button) => button.className === "fb-sort").map((button) => button.textContent.replace(/[ ▲▼]+$/, "")),
-    ["Name", "Size", "Created", "Modified"],
-    "the columns are Name/Size/Created/Modified"
+    ["Name", "Type", "Size", "Created", "Modified"],
+    "the columns are Name/Type/Size/Created/Modified"
   );
-  assert.equal(fbRow(ctxHost, "/note.txt").children[2].textContent, "2026-01-02 03:04", "Created shows the created_at timestamp");
-  assert.equal(fbRow(ctxHost, "/note.txt").children[3].textContent, "2026-02-03 04:05", "Modified shows the updated_at timestamp");
-  assert.equal(fbRow(ctxHost, "/docs").children[2].textContent, "–", "directories show a dash for Created");
+  assert.equal(fbRow(ctxHost, "/note.txt").children[3].textContent, "2026-01-02 03:04", "Created shows the created_at timestamp");
+  assert.equal(fbRow(ctxHost, "/note.txt").children[4].textContent, "2026-02-03 04:05", "Modified shows the updated_at timestamp");
+  assert.equal(fbRow(ctxHost, "/docs").children[3].textContent, "–", "directories show a dash for Created");
 
   // Right-click a file row opens the full menu at the pointer.
   fbRow(ctxHost, "/note.txt").handlers.contextmenu({ preventDefault() {}, clientX: 24, clientY: 30 });
@@ -648,9 +651,12 @@ async function main() {
 
   // Sorting: clicking the Name header toggles direction, folders still first.
   sortButton("Name").handlers.click({ preventDefault() {} });
-  assert.deepEqual(fbRows(ctxHost).map((row) => row.attributes["data-path"]), ["/docs", "/big", "/a", "/note.txt"], "clicking Name sorts descending within each group");
+  assert.deepEqual(fbRows(ctxHost).map((row) => row.attributes["data-path"]), ["/docs", "/big", "/a", "/zeta.pdf", "/note.txt"], "clicking Name sorts descending within each group");
   sortButton("Name").handlers.click({ preventDefault() {} });
-  assert.deepEqual(fbRows(ctxHost).map((row) => row.attributes["data-path"]), ["/a", "/big", "/docs", "/note.txt"], "clicking Name again restores ascending");
+  assert.deepEqual(fbRows(ctxHost).map((row) => row.attributes["data-path"]), ["/a", "/big", "/docs", "/note.txt", "/zeta.pdf"], "clicking Name again restores ascending");
+  sortButton("Type").handlers.click({ preventDefault() {} });
+  assert.deepEqual(fbRows(ctxHost).map((row) => row.attributes["data-path"]), ["/a", "/big", "/docs", "/zeta.pdf", "/note.txt"], "sorting by Type keeps folders first and orders files by type (PDF before TXT)");
+  sortButton("Name").handlers.click({ preventDefault() {} });
 
   // Right-click opens the menu; Escape closes it and returns focus to the row.
   fbRow(ctxHost, "/docs").handlers.contextmenu({ preventDefault() {}, clientX: 5, clientY: 6 });

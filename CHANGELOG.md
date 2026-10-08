@@ -43,6 +43,11 @@ than the product.
   an action; Up/Down move, Enter activates, and focus moves into the menu and
   returns to the row. The old `.fb-dirs` block and inline action buttons/kebab
   are removed.
+- The file explorer's right pane gained a **Type** column (folders show
+  "Folder"; common page types show "Markdown"/"HTML"; other files show their
+  upper-cased extension). Every column header is a sort toggle (Name, Type, Size,
+  Created, Modified) with an ▲/▼ marker and `aria-sort`; folders always stay at
+  the top and each group sorts independently.
 
 ### Changed
 

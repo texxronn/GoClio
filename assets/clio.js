@@ -1568,9 +1568,24 @@
         focusMenuItem(0);
       }
 
+      // entryType is a short human label for the Type column (folders, common
+      // page types, otherwise the upper-cased extension).
+      function entryType(entry) {
+        if (entry.child && entry.child.kind === "directory") return "Folder";
+        const name = String(entry.name || "");
+        const dot = name.lastIndexOf(".");
+        const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+        if (ext === "md" || ext === "markdown") return "Markdown";
+        if (ext === "html" || ext === "htm") return "HTML";
+        if (ext) return ext.toUpperCase();
+        const contentType = String((entry.child && entry.child.content_type) || "");
+        return contentType || "File";
+      }
+
       function entrySortValue(entry, column) {
         const child = entry.child || {};
         switch (column) {
+          case "type": return entryType(entry).toLowerCase();
           case "size": return Number(child.size) || 0;
           case "created": return String(child.created_at || "");
           case "modified": return String(child.updated_at || "");
@@ -1594,9 +1609,9 @@
       }
 
       // drawEntries renders one uniform table: folders first, then files, each
-      // group ordered by the active sort column. Columns are Name, Size, Created
-      // and Modified; row actions live in the right-click context menu.
-      const tableColumns = [["name", "Name"], ["size", "Size"], ["created", "Created"], ["modified", "Modified"]];
+      // group ordered by the active sort column. Columns are Type, Name, Size,
+      // Created and Modified; row actions live in the right-click context menu.
+      const tableColumns = [["name", "Name"], ["type", "Type"], ["size", "Size"], ["created", "Created"], ["modified", "Modified"]];
       function drawEntries(children) {
         list.replaceChildren();
         rowEntry = new Map();
@@ -1627,6 +1642,7 @@
           button.textContent = column[1] + (active ? (sortDirection === "asc" ? " ▲" : " ▼") : "");
           button.setAttribute("aria-label", `Sort by ${column[1]}`);
           if (active) button.setAttribute("aria-pressed", "true");
+          th.setAttribute("aria-sort", active ? (sortDirection === "asc" ? "ascending" : "descending") : "none");
           button.addEventListener("click", (event) => {
             if (event && event.preventDefault) event.preventDefault();
             if (sortColumn === column[0]) sortDirection = sortDirection === "asc" ? "desc" : "asc";
@@ -1656,6 +1672,7 @@
           });
           nameCell.appendChild(link);
           row.appendChild(nameCell);
+          row.appendChild(element("td", entryType(item), "fb-type-cell"));
           row.appendChild(element("td", isDir ? "–" : formatBytes(item.child.size), "fb-size-cell"));
           row.appendChild(element("td", formatStamp(item.child.created_at), "fb-date-cell"));
           row.appendChild(element("td", formatStamp(item.child.updated_at), "fb-date-cell"));
