@@ -1,11 +1,11 @@
 # Clio
 
-## Consolidated Specification v1.5 — Go implementation contract
+## Consolidated Specification v1.6 — Go implementation contract
 
 **Status: FROZEN**
 
 This specification is the implementation contract for Clio v1. It is a single
-consolidated document: sections 1–64 are the complete, equally normative contract.
+consolidated document: sections 1–65 are the complete, equally normative contract.
 The former v1.1 clarifications and addenda have been merged into the topical
 sections rather than appended, so there are no separate clarification or appendix
 parts. Where two statements appear to conflict, the conflict is a defect in this
@@ -71,6 +71,11 @@ Example payloads are illustrative unless a rule references them explicitly.
   reserved `/f` and `/dav` (section 32.3), added a files count to health
   (section 47), and removed the prohibition on renaming or moving published
   content (section 3.1).
+- **v1.6** — added namespaces as logical projects (section 65): projects scope
+  collection groups/tables and the content filesystem, with an implicit
+  `default` project that existing routes alias. Added the projects API and
+  project-scoped route prefixes, reserved `/p`, made content paths
+  project-relative, and scoped search, enrichment and WebDAV by project.
 
 ### Table of contents
 
@@ -195,6 +200,7 @@ Example payloads are illustrative unless a rule references them explicitly.
   - [62.1 v1 scope](#621-v1-scope)
 - [63. Final product boundary](#63-final-product-boundary)
 - [64. Content filesystem, attachments, search, and WebDAV](#64-content-filesystem-attachments-search-and-webdav)
+- [65. Namespaces (projects)](#65-namespaces-projects)
 <!-- /TOC -->
 
 ---
@@ -525,12 +531,13 @@ Clio has the following concepts:
 
 ```text
 Clio
-└── Collection Group
-    ├── Table
-    │   ├── Fields
-    │   └── Records
-    ├── Table
-    └── Table
+└── Project (namespace)
+    └── Collection Group
+        ├── Table
+        │   ├── Fields
+        │   └── Records
+        ├── Table
+        └── Table
 ```
 
 Separately:
@@ -579,7 +586,8 @@ description
 order
 ```
 
-There is exactly **one level of grouping**.
+There is exactly **one level of grouping**: projects contain groups, and groups
+contain tables (section 65).
 
 Groups cannot contain groups.
 
@@ -852,6 +860,9 @@ There is no automatic cascade deletion in v1.
 A nullable reference may be explicitly set to `null`.
 
 A required reference may not be null.
+
+A reference must target a table in the same project as the referring record
+(section 65.3).
 
 ---
 
@@ -1167,6 +1178,9 @@ A group's `name`, `label`, `description` and `order` are fixed at creation in
 v1. There is no group update endpoint and no group delete endpoint in v1.
 
 Nested groups are never supported.
+
+These routes address the `default` project; project-scoped group routes are
+defined in section 65.6.
 
 ---
 
@@ -2204,6 +2218,9 @@ Examples:
 /t/finance/electricity
 ```
 
+Project-scoped table views add the project as the first segment,
+`/t/{project}/{group}/{table}` (section 65.4).
+
 This namespace is exclusively for structured Clio tables.
 
 ## 32.3 Reserved root paths
@@ -2218,6 +2235,7 @@ The following root paths are reserved by Clio:
 /t
 /collections
 /files
+/p
 /f
 /dav
 /favicon.svg
@@ -2344,7 +2362,9 @@ frontend framework is required.
 
 # 36. Content tree
 
-The content tree is separate from structured-data groups and tables.
+The content tree is separate from structured-data groups and tables. The tree is
+partitioned into one subtree per project; a content path is interpreted within
+its project (section 65).
 
 It consists of:
 
@@ -3129,7 +3149,8 @@ Example:
   "records": 1842,
   "pages": 32,
   "directories": 11,
-  "files": 57
+  "files": 57,
+  "projects": 2
 }
 ```
 
@@ -3148,6 +3169,7 @@ Health should answer:
 * Number of pages?
 * Number of directories?
 * Number of files?
+* Number of projects?
 
 `database.status` is `ok` only when a SQLite integrity check (`PRAGMA
 quick_check`) returns `ok`; otherwise it is `error` and the top-level `status`
@@ -3226,9 +3248,16 @@ GET    /api/v1/search?q=...
 GET    /api/v1/files/extraction?path=/...
 PUT    /api/v1/files/extraction?path=/...
 DELETE /api/v1/files/extraction?path=/...
+
+GET    /api/v1/projects
+POST   /api/v1/projects
+GET    /api/v1/projects/{project}
+DELETE /api/v1/projects/{project}
 ```
 
-Client-side Markdown rendering is exposed as a static browser asset rather than a separate API service.
+Content, files, search, enrichment, directory and page resources also accept a
+`/api/v1/projects/{project}` scope; unscoped routes address the `default`
+project (section 65.6). Client-side Markdown rendering is exposed as a static browser asset rather than a separate API service.
 
 The optional ClioJS browser client is served at `/assets/clio.js` and `/assets/clio/v1/clio.js`; its contract is specified in section 43. The content filesystem explorer is served at `/files` and uses ClioJS (section 64.14); the collection data browser remains at `/collections` (section 35).
 
@@ -3659,6 +3688,7 @@ Test:
 * `attachment` field validation and delete integrity
 * WebDAV methods and the opt-in flag
 * the `/files` explorer and ClioJS file browser
+* project scoping, the `default` alias, and cross-project rejection
 
 ## HTTP/API
 
@@ -4050,6 +4080,7 @@ Clio v1 is complete when:
 * `attachment` fields link records to files
 * WebDAV can be enabled
 * the content filesystem is browsable at `/files`
+* projects scope tables and content, with existing routes addressing `default`
 * the implementation remains small and understandable
 
 ## 62.1 v1 scope
@@ -4141,8 +4172,8 @@ updated_at
 - `kind` is `page` or `file`. A path whose final segment ends in `.md` or
   `.html` is a `page`; every other regular file is a `file`. The extension
   determines the kind; Clio must not silently add or remove extensions.
-- `path` is the canonical content path (section 36.1). It is mutable through an
-  explicit rename or move.
+- `path` is the canonical content path (section 36.1), unique within its
+  project (section 65). It is mutable through an explicit rename or move.
 - `content_type` is the media type served for the entry. For pages it is
   determined by the extension (`text/markdown`, `text/html`); for files it is
   inferred from the extension or the upload's declared type.
@@ -4184,7 +4215,9 @@ The content filesystem is exposed as a REST API under `/api/v1/files`. It
 addresses filesystem nodes — directories, pages and files — and unifies the
 operations that the directory API (section 38) and page API (section 41) expose
 as compatibility facades. In this API, "files" names the filesystem resource;
-directories are nodes of it.
+directories are nodes of it. All routes also accept a project scope,
+`/api/v1/projects/{project}/files...`; the unscoped form addresses the
+`default` project (section 65.6).
 
 ```text
 GET    /api/v1/files                          # list entries (flat catalog)
@@ -4331,7 +4364,9 @@ GET /api/v1/search?q=<terms>
 ```
 
 Search covers pages and files in one result set, is paged (`limit`, `offset`;
-section 23), and orders results by relevance. A result is:
+section 23), and orders results by relevance. Search is scoped to a project:
+`/api/v1/search` searches `default` and `/api/v1/projects/{project}/search`
+searches that project (section 65.6). A result is:
 
 ```json
 {
@@ -4412,8 +4447,10 @@ hint; it does not replace validation.
 
 ## 64.10 WebDAV
 
-Clio may expose the content filesystem over WebDAV (RFC 4918) at `/dav`, mapping
-`/dav/<path>` to content `<path>`. `/dav` is a reserved root (section 32.3).
+Clio may expose the content filesystem over WebDAV (RFC 4918). The mount is
+project-first: `/dav` lists projects and `/dav/{project}/...` maps to content
+`<path>` within that project, with the default project spelled `default`
+(section 65.4). `/dav` is a reserved root (section 32.3).
 
 - WebDAV is optional and disabled by default. It is enabled with
   `CLIO_WEBDAV_ENABLED=true`. When enabled it is subject to the transport and
@@ -4467,7 +4504,8 @@ The content filesystem must be browsable in a browser through a dedicated
 explorer at `/files`, analogous to the collection data browser (section 35).
 `/files` is a reserved root (section 32.3) and cannot be shadowed by content.
 This is in addition to the directory pages served at content paths
-(section 37), which remain browsable.
+(section 37), which remain browsable. The explorer is project-first: `/files`
+lists projects and `/files/{project}/...` browses one (section 65.4).
 
 - The explorer is a server-served shell that loads `/assets/clio.js` and uses
   the ClioJS component `Clio.FileBrowser.mount(element)` over the files and
@@ -4494,4 +4532,151 @@ protected by the authentication policy of section 54. Cross-site request forgery
 protection is not part of v1; when authentication is enabled, deployments should
 rely on the same-origin policy and network controls and may front Clio with a
 proxy that enforces CSRF protection.
+
+---
+
+# 65. Namespaces (projects)
+
+## 65.1 Purpose and scope
+
+A namespace, called a **project**, is a logical scope for organization. It is
+not a security boundary (section 54). One Clio process, one SQLite database and
+one content root serve all projects. A project scopes:
+
+- collection groups and their tables, fields and records;
+- the content filesystem (directories, pages and files);
+- text extraction, search and enrichment;
+- the WebDAV mount and the file explorer.
+
+The implicit project named `default` always exists and owns all data created
+before namespaces. Existing `/api/v1` routes and root content URLs address
+`default`, so they keep working unchanged.
+
+## 65.2 Project model
+
+A project has:
+
+```text
+name
+label
+description
+order
+created_at
+```
+
+`name` follows the identifier rules of section 9.1 and is normalized to
+lowercase on creation. Names are unique. `default` is reserved and cannot be
+created, renamed or deleted. Projects do not nest. Names are immutable in v1,
+matching group semantics (section 17).
+
+## 65.3 Scoping rules
+
+- A group belongs to exactly one project; group names are unique within a
+  project. A table belongs to a group; table names are unique within a group.
+- The content filesystem is partitioned into one subtree per project. Content
+  paths are project-relative and obey section 36.1; a canonical content path
+  identifies one resource within its project. Uniqueness is `(project, path)`.
+- File IDs and record IDs remain globally unique across the instance
+  (sections 14 and 64.2) and are resolved without a project qualifier.
+- A `reference` field must target a table in the same project as the referring
+  record. An `attachment` field must reference a file in the same project.
+  Cross-project references are not supported.
+- Search, extraction, enrichment and rescan are scoped to a single project and
+  never cross project boundaries.
+
+## 65.4 URLs
+
+- Canonical content URLs are project-scoped: `/p/{project}/...`. The root
+  `/...` addresses the `default` project.
+- Table views: `/t/{project}/{group}/{table}` for a project, or
+  `/t/{group}/{table}` for `default`. Two segments are always the default
+  project's group/table and three are always project/group/table, so routing is
+  unambiguous.
+- Collection browser: `/collections/{project}/{group}/{table}`, with
+  `/collections/{group}/{table}` addressing `default`.
+- The file explorer and WebDAV are **project-first**: `/files` and `/dav` list
+  projects, and `/files/{project}/...` and `/dav/{project}/...` address one. The
+  default project is spelled `default`.
+- `/p` is a reserved root (section 32.3).
+
+## 65.5 Projects API
+
+```text
+GET    /api/v1/projects
+POST   /api/v1/projects
+GET    /api/v1/projects/{project}
+DELETE /api/v1/projects/{project}
+```
+
+- `POST` creates a project from `{"name", "label", "description", "order"}` and
+  returns `201 Created`. A duplicate name returns `409 Conflict`; the name
+  `default` returns `422 Unprocessable Entity`.
+- `GET` lists projects or reads one; a missing project returns `404 Not Found`.
+- `DELETE` removes an empty project — one with no groups or tables and an empty
+  content subtree — and returns `204 No Content`. A non-empty project returns
+  `409 Conflict`, and `default` cannot be deleted.
+- Projects are not updated or renamed in v1.
+
+A project representation is:
+
+```json
+{
+  "name": "bills",
+  "label": "Bills",
+  "description": "Household bills and documents",
+  "order": 0,
+  "created_at": "2026-09-27T12:00:00Z",
+  "url": "https://clio.example.com/p/bills",
+  "api_url": "https://clio.example.com/api/v1/projects/bills"
+}
+```
+
+## 65.6 Project-scoped API
+
+Existing v1 resources accept a project scope as a path prefix. `/api/v1/...`
+addresses `default`; `/api/v1/projects/{project}/...` addresses a project. This
+applies to metadata, groups, tables, records, directories, pages, files
+(including `/files/{id}/content`, `/files/move`, `/files/copy`, `/files/rescan`
+and `/files/extraction`) and search. For example:
+
+```text
+GET /api/v1/projects/bills/groups
+GET /api/v1/projects/bills/groups/utility/tables
+GET /api/v1/projects/bills/files?path=/2026-03.pdf
+GET /api/v1/projects/bills/search?q=invoice
+```
+
+The unscoped forms remain and behave exactly as before, addressing `default`.
+The `default` project may also be named explicitly as
+`/api/v1/projects/default/...`.
+
+## 65.7 Storage and migration
+
+- `groups_meta`, `tables_meta`, `fields_meta`, `records`, `content_entries` and
+  `content_search` gain a project scope. Uniqueness keys become project-scoped:
+  `(project, name)` for groups, `(project, group, table, name)` for fields,
+  `(project, path)` for content entries, and the analogous keys for tables and
+  records.
+- An existing database migrates by assigning every row to `default`; no stored
+  data is rewritten other than adding the scope.
+- The content root stores one subdirectory per project. The exact layout remains
+  an implementation detail (section 4.4).
+- The full-text index is scoped by project; search results never cross projects.
+
+## 65.8 Backup
+
+Unchanged: one database plus the content root, captured together
+(sections 57 and 64.11). Projects add a scope column and subdirectories, not a
+second backup unit.
+
+## 65.9 Not a security boundary
+
+Every project is visible to the single configured identity (section 54).
+Per-project authorization is not part of v1.
+
+## 65.10 Versioning
+
+Project scoping is additive: unscoped `/api/v1` routes continue to address
+`default` with unchanged semantics, and `/api/v1/projects` is new. An
+incompatible change would still require `/api/v2` (section 48).
 

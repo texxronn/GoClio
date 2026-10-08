@@ -1,9 +1,9 @@
-# Plan: a content filesystem (files, attachments, search, WebDAV)
+# Plan: content filesystem, namespaces, search, and WebDAV
 
-**Status: PLAN — spec revision drafted, implementation not started.** `SPEC.md`
-is now v1.5 and takes effect as a new section 64 (content filesystem,
-attachments, search, and WebDAV), with targeted edits to sections 3.1, 13, 14.1,
-32.3, 34, 36, 41, 46, 47, 49, 52, 55.1, 56, 57, 58 and 62, plus a
+**Status: PLAN — spec revisions drafted, implementation not started.** `SPEC.md`
+is now v1.6: section 64 defines the content filesystem (attachments, search,
+WebDAV, the file explorer) and section 65 defines namespaces as logical
+projects, with targeted edits across the affected earlier sections and a
 pending-coverage section in `SPEC-CONFORMANCE.md`. No application code has
 changed. This document remains the design rationale; `SPEC.md` is now the
 normative contract.
@@ -34,6 +34,8 @@ tree is mountable over WebDAV.
 | REST API | Unified filesystem REST API at `/api/v1/files` (directories, files, bytes, move, copy). |
 | WebDAV | Read/write including rename/move, via `golang.org/x/net/webdav`, opt-in. |
 | Browsing | ClioJS file explorer at `/files` with full light actions; path directory pages remain. |
+| Namespaces | Logical "projects" scoping groups/tables and the content filesystem; one database; `default` aliases existing URLs. |
+| Cross-project refs | Out of scope; references and attachments stay within a project. |
 | Backup | Database and content directory remain one backup unit; IDs and agent text make the database mandatory. |
 | Contract | Deliberate `SPEC.md` revision + full docs/conformance update. |
 
@@ -422,6 +424,8 @@ additive under `/api/v1/`. Sections to update:
 1. **Identity + catalog.** `content_entries` with IDs; migrate
    `content_page_times`; reconciliation; files read/delete by path and ID.
    Implement the existing Page API on this core so there is one storage path.
+   If namespaces are adopted, add the project scope here: `content_entries`
+   gains a project column and content paths become project-relative.
 2. **Uploads and serving.** Single-file create/replace, limits, atomic write,
    download/nosniff, `/f/{id}`, streaming/range.
 3. **Backup/restore.** Document stop-copy and rescan-on-restore; optionally add
@@ -488,7 +492,81 @@ and defer removal to a future `/api/v2` rather than breaking v1.
 - Multi-file `attachment` fields (single ID per field in this revision).
 - An online backup API beyond the optional `clio backup` convenience command.
 
-## 17. Open items
+## 17. Namespaces / projects (adopted in SPEC section 65)
+
+Decisions: namespaces are **logical scopes for organization, not security
+boundaries**. One process, one SQLite database, one content root. A project
+scopes collection groups/tables and the content filesystem. Existing `/api/v1`
+routes and root content URLs alias the implicit `default` project, so nothing
+existing breaks.
+
+### 17.1 Model
+
+- A project has `name` (identifier rules, §9.1), `label`, `description`, `order`
+  and `created_at`. Names are unique. `default` is implicit and always present;
+  existing data belongs to it.
+- Groups and tables belong to a project. Group names are unique within a
+  project, table names within a group. Projects are not nested.
+- The content filesystem has one subtree per project. Content paths are
+  project-relative. `content_entries` gains a `project` column; uniqueness
+  becomes `(project, path)`. File **IDs stay globally unique**, so
+  `/f/{id}` and attachment values remain unambiguous.
+- Search, extraction, enrichment and rescan are project-scoped.
+- A `reference` field must target a table in the same project, and an
+  `attachment` field must reference a file in the same project. Cross-project
+  references are out of scope.
+
+### 17.2 URLs
+
+- Canonical content: `/p/{project}/...`; the root `/...` aliases the `default`
+  project.
+- Tables: `/t/{project}/{group}/{table}`; `/t/{group}/{table}` aliases
+  `default`. Two segments is always the default project, three is always
+  project/group/table, so there is no ambiguity.
+- Collection browser: `/collections/{project}/{group}/{table}`, with the
+  default alias.
+- The explorer and WebDAV are **project-first**: `/files` and `/dav` list
+  projects; `/files/{project}/...` and `/dav/{project}/...` address one. The
+  default project is spelled `default`. Project-first avoids ambiguity between a
+  project name and a directory name, at the cost of default content being at
+  `/dav/default` rather than `/dav`.
+- API: `/api/v1/projects` (list/create/read/delete-when-empty) and
+  `/api/v1/projects/{project}/groups...`, `/projects/{project}/files...`,
+  `/projects/{project}/search...`. Existing `/api/v1/...` routes alias
+  `default`.
+
+### 17.3 Reserved names and lifecycle
+
+- Add `/p` and `/api/v1/projects` to the reserved/known routes. Project names
+  follow §9.1; `default` is reserved.
+- Within a project, content paths keep the §36.1 rules and reserved roots.
+- Create/read/list projects. Delete only when empty (no groups/tables and an
+  empty content subtree), otherwise `409 Conflict`. No rename in v1 (matching
+  group semantics); `default` cannot be deleted.
+
+### 17.4 Backup
+
+Unchanged and still one unit: one database and one content root. Projects are a
+column plus a subdirectory, so the backup story does not get harder, and
+per-project export is a possible future addition.
+
+### 17.5 Why not multi-tenant
+
+Projects are an organizational boundary. The single configured identity
+(§54) sees every project; per-project authorization is a separate, larger
+feature and stays out of scope.
+
+### 17.6 Decisions and remaining questions
+
+Adopted in SPEC section 65: the term `project`; canonical content URLs
+`/p/{project}/...` with the root aliasing `default`; project-first explorer and
+WebDAV; cross-project references disallowed; project deletion only when empty;
+`default` cannot be created, renamed or deleted.
+
+Still open: whether projects are ever renamed, and whether per-project export is
+added.
+
+## 18. Open items
 
 - Endpoint name for enrichment (`/files/extraction` proposed).
 - Indexed-text cap and per-file upload limit: constants vs optional settings.
