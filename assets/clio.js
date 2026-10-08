@@ -1385,6 +1385,16 @@
         else if (root.location && "href" in root.location) root.location.href = url;
       }
 
+      function entryURL(entry) {
+        return entry.child && entry.child.url ? String(entry.child.url) : `/${encodeURIComponent(project)}/files${encodeURI(entry.childPath)}`;
+      }
+
+      function openInNewTab(entry) {
+        const url = entryURL(entry);
+        if (typeof root.open === "function") root.open(url, "_blank");
+        else if (root.location && "href" in root.location) root.location.href = url;
+      }
+
       // selectEntry highlights one row without re-rendering, so an open context
       // menu keeps a valid anchor and the row keeps its focus.
       function selectEntry(path) {
@@ -1490,7 +1500,9 @@
         if (!entry) return;
         closeMenu(false);
         const isDir = entry.child && entry.child.kind === "directory";
-        const defs = [{ label: "Open", run: () => openEntry(entry.child, entry.childPath) }];
+        const defs = [];
+        if (isDir) defs.push({ label: "Open", run: () => openEntry(entry.child, entry.childPath) });
+        defs.push({ label: "Open in new tab", run: () => openInNewTab(entry) });
         if (!isDir && entry.id) defs.push({ label: "Download", run: () => downloadEntry(entry) });
         defs.push({
           label: "Rename",

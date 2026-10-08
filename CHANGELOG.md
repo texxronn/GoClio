@@ -33,10 +33,12 @@ than the product.
   (Google-Drive style) instead of inline Rename/Delete buttons: `menu`/`menuitem`
   roles, opened by right-clicking a row at the pointer or by **Shift+F10** / the
   **ContextMenu** key for the selected row. A
-  file menu offers Open, Download, Rename and Delete; a directory menu omits
-  Download, and Download is omitted when an entry has no stable ID. Open
-  navigates a directory or opens a file's URL, Download uses the stable ID URL
-  `/{project}/files/id/{id}`, and Rename/Delete reuse the existing prompt and
+  file menu offers **Open in new tab**, Download, Rename and Delete; a directory
+  menu offers Open, **Open in new tab**, Rename and Delete. Open navigates a
+  directory in place; **Open in new tab** opens the entry's canonical path URL in
+  a new tab (so pages render and other files serve without forcing a download);
+  Download (files only, omitted when there is no stable ID) uses the stable ID
+  URL `/{project}/files/id/{id}`; Rename/Delete reuse the existing prompt and
   confirmation. The menu closes on outside click, Escape, scroll, blur or after
   an action; Up/Down move, Enter activates, and focus moves into the menu and
   returns to the row. The old `.fb-dirs` block and inline action buttons/kebab
