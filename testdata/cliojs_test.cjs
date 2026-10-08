@@ -5,6 +5,7 @@ const vm = require("node:vm");
 const source = fs.readFileSync(process.argv[2], "utf8");
 const requests = [];
 const storage = new Map();
+const session = new Map();
 class Element {
   constructor(tagName) { this.tagName = tagName; this.children = []; this.attributes = {}; this.handlers = {}; this._text = ""; }
   set textContent(value) { this._text = String(value); this.children = []; }
@@ -44,6 +45,7 @@ const context = {
     documentElement: new Element("html")
   },
   localStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) },
+  sessionStorage: { getItem: (key) => session.get(key) || null, setItem: (key, value) => session.set(key, value) },
   ClioMarkdown: { render: (source) => `<p>${source}</p>` },
   fetch: async function (url, options = {}) {
     assert.ok(this.window && this.location && this.history, "fetch is called with the browser window as receiver");
@@ -91,8 +93,17 @@ const context = {
     } else if (parsed.pathname.endsWith("/files") && method === "DELETE" && parsed.searchParams.get("path") === "/protected.txt") {
       status = 409;
       body = { error: "conflict", message: "File is referenced by an attachment" };
+    } else if (parsed.pathname.endsWith("/files") && method === "PUT") {
+      const p = parsed.searchParams.get("path");
+      if (p === "/bad.txt") {
+        status = 500;
+        body = { error: "server_error", message: "Upload failed" };
+      } else {
+        body = { path: p, kind: "file", id: "uploaded", content_type: options.headers["Content-Type"] || "application/octet-stream" };
+      }
     } else if (parsed.pathname.endsWith("/files")) {
       const p = parsed.searchParams.get("path");
+      const offset = Number(parsed.searchParams.get("offset") || 0);
       if (p === "/reports/latest.md") {
         body = { id: "file-1", path: p, kind: "page", content_type: "text/markdown" };
       } else if (p === "/") {
@@ -100,18 +111,35 @@ const context = {
           path: "/", kind: "directory",
           children: [
             { path: "/docs", name: "docs", kind: "directory", url: "https://clio.example/default/files/docs" },
-            { path: "/note.txt", name: "note.txt", kind: "file", id: "file-2", content_type: "text/plain", size: 3, url: "https://clio.example/default/files/note.txt" }
-          ]
+            { path: "/note.txt", name: "note.txt", kind: "file", id: "file-2", content_type: "text/plain", size: 3, url: "https://clio.example/default/files/note.txt" },
+            { path: "/a", name: "a", kind: "directory", url: "https://clio.example/default/files/a" },
+            { path: "/big", name: "big", kind: "directory", url: "https://clio.example/default/files/big" }
+          ],
+          page: { limit: 100, offset: 0, count: 4, total: 4 }
         };
       } else if (p === "/docs") {
         body = {
           path: "/docs", kind: "directory",
           children: [
-            { path: "/docs/old.txt", name: "old.txt", kind: "file", id: "file-3", content_type: "text/plain", size: 1, url: "https://clio.example/default/files/docs/old.txt" }
-          ]
+            { path: "/docs/old.txt", name: "old.txt", kind: "file", id: "file-3", content_type: "text/plain", size: 1, url: "https://clio.example/default/files/docs/old.txt" },
+            { path: "/docs/nested", name: "nested", kind: "directory", url: "https://clio.example/default/files/docs/nested" }
+          ],
+          page: { limit: 100, offset: 0, count: 2, total: 2 }
         };
+      } else if (p === "/a") {
+        body = {
+          path: "/a", kind: "directory",
+          children: [
+            { path: "/a/b", name: "b", kind: "directory", url: "https://clio.example/default/files/a/b" }
+          ],
+          page: { limit: 100, offset: 0, count: 1, total: 1 }
+        };
+      } else if (p === "/big") {
+        body = offset === 0
+          ? { path: "/big", kind: "directory", children: [{ path: "/big/one", name: "one", kind: "directory", url: "https://clio.example/default/files/big/one" }], page: { limit: 1000, offset: 0, count: 1, total: 2 } }
+          : { path: "/big", kind: "directory", children: [{ path: "/big/two", name: "two", kind: "directory", url: "https://clio.example/default/files/big/two" }], page: { limit: 1000, offset: 1, count: 1, total: 2 } };
       } else {
-        body = { path: p, kind: "directory", children: [] };
+        body = { path: p, kind: "directory", children: [], page: { limit: 100, offset: 0, count: 0, total: 0 } };
       }
     } else if (parsed.pathname.endsWith("/content")) {
       body = "# Hi";
@@ -140,7 +168,7 @@ vm.runInNewContext(source, context, { filename: "clio.js" });
 
 async function main() {
   const Clio = context.Clio;
-  assert.equal(Clio.version, "1.2.0");
+  assert.equal(Clio.version, "1.3.0");
   assert.equal(Clio.apiVersion, "v1");
   assert.equal(typeof Clio.DataBrowser.mount, "function");
   assert.equal(typeof Clio.FileBrowser.mount, "function");
@@ -280,6 +308,203 @@ async function main() {
   assert.match(fileHost.textContent, /needle/);
   assert.equal(collectByTag(fileHost, "mark").length, 1, "the search snippet highlights the matched term");
   fileBrowser.destroy();
+
+  // --- FileBrowser redesign: lazy tree, staged upload, keyboard, no grid ---
+  async function settle() {
+    for (let i = 0; i < 200; i++) await Promise.resolve();
+  }
+  function nodeByPath(host, path) {
+    return collectByTag(host, "div").find((el) => el.attributes && el.attributes["data-path"] === path);
+  }
+  function focusedTreePath(host) {
+    const el = collectByTag(host, "div").find((node) => node.className && node.className.includes("fb-tree-item") && node.tabIndex === 0);
+    return el && el.attributes["data-path"];
+  }
+  function buttonByClass(host, className) {
+    return collectByTag(host, "button").find((button) => button.className === className);
+  }
+
+  session.clear();
+  location.pathname = "/default/files";
+  location.search = "";
+  const treeHost = new Element("div");
+  const treeBrowser = Clio.FileBrowser.mount(treeHost, { path: "/" });
+  await treeBrowser.ready;
+
+  const tree = collectByTag(treeHost, "div").find((el) => el.attributes.role === "tree");
+  assert.ok(tree, "the file browser renders a tree");
+  assert.equal(tree.attributes["aria-label"], "Folder tree");
+  assert.equal(nodeByPath(treeHost, "/").attributes.role, "treeitem");
+  assert.equal(nodeByPath(treeHost, "/").attributes["aria-level"], "1");
+  assert.equal(nodeByPath(treeHost, "/").attributes["aria-selected"], "true", "the current path is highlighted");
+  assert.ok(collectByTag(nodeByPath(treeHost, "/"), "button").some((button) => button.className === "fb-tree-label" && button.textContent === "default"));
+  assert.ok(!tree.textContent.includes("note.txt"), "files are not tree nodes");
+  assert.equal(collectByTag(treeHost, "div").filter((el) => el.className && el.className.includes("grid")).length, 0, "there is no grid view");
+  assert.doesNotMatch(treeHost.textContent, /grid view/i);
+
+  assert.equal(nodeByPath(treeHost, "/docs").attributes["aria-expanded"], "false");
+  const treeFetches = (path) => requests.filter((r) => r.url.includes(`path=${encodeURIComponent(path)}`) && r.url.includes("limit=1000")).length;
+  assert.equal(treeFetches("/docs"), 0, "collapsed nodes are not fetched");
+  buttonByClass(nodeByPath(treeHost, "/docs"), "fb-tree-toggle").handlers.click();
+  await settle();
+  assert.equal(treeFetches("/docs"), 1, "expanding fetches the node's children once");
+  assert.equal(nodeByPath(treeHost, "/docs").attributes["aria-expanded"], "true");
+  assert.ok(nodeByPath(treeHost, "/docs/nested"), "expanded children render");
+  buttonByClass(nodeByPath(treeHost, "/docs"), "fb-tree-toggle").handlers.click();
+  await settle();
+  assert.equal(nodeByPath(treeHost, "/docs/nested"), undefined, "collapsing hides children");
+  buttonByClass(nodeByPath(treeHost, "/docs"), "fb-tree-toggle").handlers.click();
+  await settle();
+  assert.equal(treeFetches("/docs"), 1, "re-expanding uses the cache");
+  assert.ok(nodeByPath(treeHost, "/docs/nested"));
+  buttonByClass(nodeByPath(treeHost, "/docs"), "fb-tree-toggle").handlers.click();
+  await settle();
+
+  // Keyboard: roving tabindex and arrows.
+  assert.equal(focusedTreePath(treeHost), "/");
+  tree.handlers.keydown({ key: "ArrowDown", preventDefault() {} });
+  assert.equal(focusedTreePath(treeHost), "/docs");
+  tree.handlers.keydown({ key: "ArrowDown", preventDefault() {} });
+  assert.equal(focusedTreePath(treeHost), "/a");
+  tree.handlers.keydown({ key: "ArrowDown", preventDefault() {} });
+  assert.equal(focusedTreePath(treeHost), "/big");
+  tree.handlers.keydown({ key: "ArrowUp", preventDefault() {} });
+  assert.equal(focusedTreePath(treeHost), "/a");
+  tree.handlers.keydown({ key: "ArrowLeft", preventDefault() {} });
+  assert.equal(focusedTreePath(treeHost), "/", "Left on a collapsed node moves to the parent");
+  tree.handlers.keydown({ key: "ArrowDown", preventDefault() {} });
+  tree.handlers.keydown({ key: "Enter", preventDefault() {} });
+  await settle();
+  assert.equal(treeBrowser.path, "/docs", "Enter opens the focused folder");
+  assert.equal(location.pathname, "/default/files/docs");
+  assert.match(treeHost.textContent, /old\.txt/);
+  assert.equal(nodeByPath(treeHost, "/docs").attributes["aria-selected"], "true", "selecting highlights the path");
+  treeBrowser.destroy();
+
+  // Ancestors auto-expand and highlight; "load more" pages a large folder.
+  session.clear();
+  location.pathname = "/default/files";
+  location.search = "";
+  const deepHost = new Element("div");
+  const deepBrowser = Clio.FileBrowser.mount(deepHost, { path: "/" });
+  await deepBrowser.ready;
+  await deepBrowser.navigate("/a/b");
+  await settle();
+  assert.equal(deepBrowser.path, "/a/b");
+  assert.equal(location.pathname, "/default/files/a/b");
+  assert.equal(nodeByPath(deepHost, "/").attributes["aria-expanded"], "true");
+  assert.equal(nodeByPath(deepHost, "/a").attributes["aria-expanded"], "true", "the ancestor is expanded");
+  assert.equal(nodeByPath(deepHost, "/a/b").attributes["aria-selected"], "true", "the current path is highlighted");
+  await deepBrowser.navigate("/");
+  await settle();
+  buttonByClass(nodeByPath(deepHost, "/big"), "fb-tree-toggle").handlers.click();
+  await settle();
+  const moreRow = collectByTag(deepHost, "div").find((el) => el.className && el.className.includes("fb-tree-more"));
+  assert.ok(moreRow, "a load more node appears when page.total exceeds the loaded children");
+  buttonByClass(moreRow, "fb-tree-more-button").handlers.click();
+  await settle();
+  assert.ok(nodeByPath(deepHost, "/big/one"), "the first page is loaded");
+  assert.ok(nodeByPath(deepHost, "/big/two"), "load more fetches the next page");
+  assert.equal(requests.filter((r) => r.url.includes("path=%2Fbig") && r.url.includes("offset=1")).length, 1, "load more requests the next offset");
+  deepBrowser.destroy();
+
+  // Staged upload: staging never uploads, sizes and validation are shown.
+  session.clear();
+  location.pathname = "/default/files";
+  location.search = "";
+  const stageHost = new Element("div");
+  const stageBrowser = Clio.FileBrowser.mount(stageHost, { path: "/" });
+  await stageBrowser.ready;
+  const stagingRow = (name) => collectByTag(stageHost, "div").find((el) => el.className === "fb-staging-row" && el.children.some((child) => child.className === "fb-staging-name" && child.textContent === name));
+  const putCount = () => requests.filter((r) => r.options.method === "PUT").length;
+  const before = putCount();
+  const stagedCount = stageBrowser.stage([
+    { name: "a.txt", size: 2048, type: "text/plain" },
+    { name: "big.bin", size: 16 * 1024 * 1024 + 1, type: "application/octet-stream" },
+    { name: "/evil/../ok.txt", size: 10, type: "text/plain" }
+  ]);
+  assert.equal(stagedCount, 2, "an oversized file is rejected");
+  assert.equal(putCount(), before, "staging never uploads");
+  assert.equal(stageBrowser.staged.length, 2);
+  assert.equal(stageBrowser.staged[0].target, "/a.txt");
+  assert.equal(stageBrowser.staged[1].name, "ok.txt", "path separators are stripped from names");
+  assert.match(stageHost.textContent, /2\.0 KB/, "the tray shows human-readable sizes");
+  assert.match(stageHost.textContent, /not staged/, "the rejection is explained");
+  assert.equal(buttonByClass(stageHost, "fb-staging-upload").textContent, "Upload 2 files");
+  buttonByClass(stagingRow("a.txt"), "fb-staging-remove").handlers.click();
+  assert.equal(stageBrowser.staged.length, 1, "remove drops a staged row");
+  assert.equal(stagingRow("a.txt"), undefined);
+  stageBrowser.stage([{ name: "b.txt", size: 1, type: "text/plain" }]);
+  buttonByClass(stageHost, "fb-staging-clear").handlers.click();
+  assert.equal(stageBrowser.staged.length, 0, "Clear empties the tray");
+  assert.equal(collectByTag(stageHost, "section").find((section) => section.className === "fb-staging").hidden, true, "the tray hides when empty");
+
+  // Upload sends one PUT per staged file, with its body and content type.
+  stageBrowser.clearStaging();
+  stageBrowser.stage([
+    { name: "one.txt", size: 3, type: "text/plain", body: "one" },
+    { name: "two.md", size: 5, type: "text/markdown", body: "# two" }
+  ]);
+  const listingBefore = requests.filter((r) => r.url.endsWith("/files?path=%2F") && (r.options.method || "GET") === "GET").length;
+  buttonByClass(stageHost, "fb-staging-upload").handlers.click();
+  await settle();
+  const uploadPuts = requests.filter((r) => r.options.method === "PUT" && (r.url.includes("path=%2Fone.txt") || r.url.includes("path=%2Ftwo.md")));
+  assert.equal(uploadPuts.length, 2, "one PUT per staged file");
+  assert.equal(uploadPuts[0].options.body.body, "one");
+  assert.equal(uploadPuts[0].options.headers["Content-Type"], "text/plain");
+  assert.equal(uploadPuts[1].options.body.body, "# two");
+  assert.equal(uploadPuts[1].options.headers["Content-Type"], "text/markdown");
+  assert.equal(stageBrowser.staged.length, 0, "successful rows are removed");
+  assert.ok(requests.filter((r) => r.url.endsWith("/files?path=%2F") && (r.options.method || "GET") === "GET").length > listingBefore, "the listing refreshes after upload");
+
+  // A per-file failure is shown and retained while the others succeed.
+  stageBrowser.clearStaging();
+  stageBrowser.stage([
+    { name: "good.txt", size: 4, type: "text/plain" },
+    { name: "bad.txt", size: 4, type: "text/plain" }
+  ]);
+  buttonByClass(stageHost, "fb-staging-upload").handlers.click();
+  await settle();
+  assert.equal(stageBrowser.staged.length, 1, "the failed row is retained");
+  assert.equal(stageBrowser.staged[0].name, "bad.txt");
+  assert.equal(stageBrowser.staged[0].status, "error");
+  assert.match(stageHost.textContent, /failed/, "the failure is surfaced");
+  assert.ok(requests.filter((r) => r.options.method === "PUT" && r.url.includes("path=%2Fgood.txt")).length > 0, "the good file still uploads");
+
+  // The overwrite confirm is invoked for an existing target and can abort.
+  stageBrowser.clearStaging();
+  await stageBrowser.refresh();
+  stageBrowser.stage([{ name: "note.txt", size: 3, type: "text/plain" }]);
+  assert.equal(stageBrowser.staged[0].replaces, true, "an existing name is marked will replace");
+  assert.match(stageHost.textContent, /will replace/);
+  const confirmMessages = [];
+  context.confirm = (message) => { confirmMessages.push(String(message)); return false; };
+  const putsBeforeDecline = putCount();
+  buttonByClass(stageHost, "fb-staging-upload").handlers.click();
+  await settle();
+  assert.equal(confirmMessages.length, 1, "the overwrite confirm is invoked");
+  assert.equal(putCount(), putsBeforeDecline, "declining aborts the upload");
+  assert.equal(stageBrowser.staged.length, 1, "the staged row survives a decline");
+  context.confirm = (message) => { confirmMessages.push(String(message)); return true; };
+  buttonByClass(stageHost, "fb-staging-upload").handlers.click();
+  await settle();
+  assert.ok(putCount() > putsBeforeDecline, "confirming uploads the replacement");
+  delete context.confirm;
+  stageBrowser.destroy();
+
+  // Expansion state is persisted per project in sessionStorage.
+  session.clear();
+  location.pathname = "/default/files";
+  location.search = "";
+  const persistHost = new Element("div");
+  const persistBrowser = Clio.FileBrowser.mount(persistHost, { path: "/" });
+  await persistBrowser.ready;
+  buttonByClass(nodeByPath(persistHost, "/docs"), "fb-tree-toggle").handlers.click();
+  await settle();
+  const saved = JSON.parse(session.get("clio-filebrowser-tree:default") || "[]");
+  assert.ok(saved.includes("/docs"), "expansion state is persisted in sessionStorage");
+  persistBrowser.destroy();
+  session.clear();
 
   // Projects manager over the instance-level projects API.
   location.pathname = "/default/";

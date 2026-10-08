@@ -17,7 +17,7 @@ func TestClioJSAssetsAndHelp(t *testing.T) {
 		if got := response.Header().Get("Content-Type"); got != "text/javascript; charset=utf-8" {
 			t.Errorf("GET %s content type=%q", route, got)
 		}
-		for _, want := range []string{"root.Clio = Clio", "async function* iterateRecords", "ClioError", "DataBrowser", "FileBrowser", "Projects", "libraryVersion = \"1.2.0\"", "apiVersion = \"v1\""} {
+		for _, want := range []string{"root.Clio = Clio", "async function* iterateRecords", "ClioError", "DataBrowser", "FileBrowser", "Projects", "libraryVersion = \"1.3.0\"", "apiVersion = \"v1\""} {
 			if !strings.Contains(response.Body.String(), want) {
 				t.Errorf("GET %s missing %q", route, want)
 			}
@@ -27,7 +27,7 @@ func TestClioJSAssetsAndHelp(t *testing.T) {
 		t.Errorf("POST /assets/clio.js status=%d, want 405", response.Code)
 	}
 	help := testRequest(t, a, http.MethodGet, "/api/v1/help", nil, "")
-	for _, want := range []string{"/assets/clio.js", "/assets/clio/v1/clio.js", "new Clio()", "Clio.Markdown.render", "Clio.DataBrowser.mount", "Clio.FileBrowser.mount", "Clio.Projects.mount", "project switcher", "1.2.0"} {
+	for _, want := range []string{"/assets/clio.js", "/assets/clio/v1/clio.js", "new Clio()", "Clio.Markdown.render", "Clio.DataBrowser.mount", "Clio.FileBrowser.mount", "Clio.Projects.mount", "project switcher", "1.3.0"} {
 		if !strings.Contains(help.Body.String(), want) {
 			t.Errorf("API help missing %q", want)
 		}

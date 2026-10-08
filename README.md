@@ -22,7 +22,7 @@ Feature summary:
 - `attachment` fields that link records to files by stable ID.
 - Optional WebDAV, an opt-in one-command backup/restore path, an interactive
   data browser, file explorer and project manager, and a dependency-free
-  browser client (ClioJS 1.2.0).
+  browser client (ClioJS 1.3.0).
 
 ## Build and run
 
@@ -156,7 +156,7 @@ non-empty project returns `409`. Without JavaScript the overview server-renders
 the project list with project-scoped links. There is deliberately no human
 `/projects` route (section 66.3): the manager lives inside the existing
 project-scoped pages, and every URL it generates is `/{name}/`. The browser
-client exposes it as `Clio.Projects.mount(element)` (ClioJS 1.2.0).
+client exposes it as `Clio.Projects.mount(element)` (ClioJS 1.3.0).
 
 Only the default project exposes cross-project navigation. While you are in any
 other project the single cross-project affordance is a **Home** link to bare `/`
@@ -179,6 +179,18 @@ Each project is divided into two partitions:
   `/{project}/files`, rendered pages and downloads are at their path URLs, and
   `/{project}/files/id/{id}` is the stable ID link. A human search page is at
   `/{project}/search`.
+
+The file explorer at `/{project}/files` is a classic file browser built on
+ClioJS 1.3.0: a **lazy-loading folder tree** on the left (chevrons expand a
+directory the first time, ancestors of the current path auto-expand, keyboard
+navigation uses a roving tabindex, and the expansion state is kept in
+`sessionStorage` per project) and a **compact detailed list** on the right
+(Name/Kind/Size/Actions, with single-click selection and double-click to open).
+Uploads are **staged, not immediate**: choosing files or dropping them on the
+listing adds them to a staging tray that shows each name, size, type, target path
+and status, rejects files over the 16 MiB limit, marks a name that already exists
+as "will replace", and only sends anything when **Upload** is chosen (asking for
+confirmation before replacing existing names). There is no icon or grid view.
 
 Structured tables therefore use
 `/api/v1/{project}/data/groups/{group}/tables/{table}` in the API and

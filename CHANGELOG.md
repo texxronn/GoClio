@@ -11,6 +11,24 @@ than the product.
 
 ## [Unreleased]
 
+### Added
+
+- The file explorer at `/{project}/files` is redesigned as a classic file
+  browser. The left pane is a **lazy-loading folder tree** (`role="tree"`, role
+  treeitems with `aria-expanded`/`aria-selected`/`aria-level`, chevrons to
+  expand and collapse, children fetched on first expand and cached, a "load
+  more" node that pages a large folder, ancestors of the current path
+  auto-expanded and highlighted, roving-tabindex keyboard navigation, and
+  expansion state persisted per project in `sessionStorage`). The right pane is
+  a **compact detailed list** with single-click selection and double-click to
+  open. Uploads are **staged, not immediate**: choosing files or dropping them
+  on the listing fills a staging tray (name, human-readable size, type, resolved
+  target path, status) that rejects files over the 16 MiB limit, sanitizes
+  path separators, marks an existing name "will replace", asks for confirmation
+  before replacing, uploads sequentially with a per-file status and error, and
+  refreshes the listing at the end. No API or route changed. There is no icon or
+  grid view. `Clio.version` is `1.3.0`.
+
 ### Changed
 
 - Only the default project exposes cross-project navigation (section 66.1). The
