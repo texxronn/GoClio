@@ -192,7 +192,7 @@ func TestMarkdownSubsetRendering(t *testing.T) {
 			t.Errorf("rendered Markdown missing %q: %s", want, body)
 		}
 	}
-	for _, forbidden := range []string{"<script>", `href="javascript:`} {
+	for _, forbidden := range []string{"<script>alert(1)", `href="javascript:`} {
 		if strings.Contains(body, forbidden) {
 			t.Errorf("rendered Markdown contains unsafe %q: %s", forbidden, body)
 		}

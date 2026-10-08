@@ -30,6 +30,7 @@ class Element {
   contains(node) { if (this === node) return true; return this.children.some((child) => child.contains && child.contains(node)); }
   setAttribute(name, value) { this.attributes[name] = String(value); }
   getAttribute(name) { return Object.prototype.hasOwnProperty.call(this.attributes, name) ? this.attributes[name] : null; }
+  removeAttribute(name) { delete this.attributes[name]; }
   addEventListener(name, handler) { this.handlers[name] = handler; }
   focus() { context.document.activeElement = this; }
   getBoundingClientRect() { return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0 }; }
@@ -195,6 +196,11 @@ async function main() {
   assert.equal(typeof Clio.DataBrowser.mount, "function");
   assert.equal(typeof Clio.FileBrowser.mount, "function");
   assert.equal(typeof Clio.Projects.mount, "function");
+  assert.equal(typeof Clio.Theme.mount, "function");
+  assert.equal(typeof Clio.Theme.toggle, "function");
+  assert.equal(typeof Clio.Theme.set, "function");
+  assert.equal(typeof Clio.Theme.current, "function");
+  assert.equal(typeof Clio.Theme.effective, "function");
   assert.equal(Clio.Markdown.render("Hello"), "<p>Hello</p>");
 
   const clio = new Clio();
@@ -273,7 +279,10 @@ async function main() {
   assert.equal(themeToggle.attributes["aria-label"], "Switch to dark theme");
   themeToggle.handlers.click();
   assert.equal(context.document.documentElement.attributes["data-theme"], "dark");
-  assert.equal(storage.get("clio-data-browser-theme"), "dark");
+  assert.equal(storage.get("clio-theme"), "dark", "the toggle writes the shared clio-theme key");
+  assert.equal(storage.has("clio-data-browser-theme"), false, "the old bespoke theme key is no longer used");
+  assert.equal(Clio.Theme.current(), "dark");
+  assert.equal(Clio.Theme.effective(), "dark");
   const browserRequest = requests.find((request) => request.url.includes("/records?") && new URL(request.url).searchParams.get("offset") === "2");
   assert.ok(browserRequest, "browser loads the selected page through ClioJS");
   assert.equal(location.pathname, "/default/data");
@@ -330,6 +339,24 @@ async function main() {
   assert.match(fileHost.textContent, /needle/);
   assert.equal(collectByTag(fileHost, "mark").length, 1, "the search snippet highlights the matched term");
   fileBrowser.destroy();
+
+  // Unified theme: one controller and one storage key shared by the
+  // DataBrowser and FileBrowser, with no per-page data-theme writes.
+  assert.equal(storage.get("clio-theme"), "dark", "the DataBrowser toggle persisted the shared key");
+  assert.equal(Clio.Theme.toggle(), "light");
+  assert.equal(context.document.documentElement.attributes["data-theme"], "light");
+  assert.equal(storage.get("clio-theme"), "light");
+  assert.equal(Clio.Theme.set("dark"), "dark");
+  assert.equal(context.document.documentElement.attributes["data-theme"], "dark");
+  const sharedThemeHost = new Element("div");
+  const sharedThemeButton = new Element("button");
+  sharedThemeHost.appendChild(sharedThemeButton);
+  const themeMount = Clio.Theme.mount(sharedThemeButton);
+  assert.equal(sharedThemeButton.attributes["aria-label"], "Switch to light theme");
+  sharedThemeButton.handlers.click();
+  assert.equal(context.document.documentElement.attributes["data-theme"], "light", "a mounted toggle flips the shared document theme");
+  assert.equal(Clio.Theme.current(), "light");
+  themeMount.destroy();
 
   // --- FileBrowser redesign: lazy tree, staged upload, keyboard, no grid ---
   async function settle() {
