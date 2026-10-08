@@ -11,9 +11,9 @@
 - **Spec:** `SPEC.md` v1.7 (sections 64, 65, 66 are new; earlier URL sections carry supersession notes)
 - **Plan:** `IMPLEMENTATION-PLAN.md`
 - **Code baseline:** Phase 6 implemented; native text extraction feeds a project-scoped SQLite FTS5 index. Text-like content (`text/*`, `.md`, `.txt`, `.csv`, `.json`, `.html`, and similar) and PDF text layers are indexed natively, HTML with markup stripped, capped at 1 MiB per entry, in `content_search` (`id`, `project`, `path`, `kind`, `source`, `title`, `body`). The index is written on create/replace (files API, pages, ZIP uploads, copy), re-homed on move, rebuilt by rescan (without clobbering agent rows), and dropped on delete. Builds and tests now need `-tags sqlite_fts5` (see Environment). Search API and enrichment remain Phase 7/8.
-- **Branch:** `phase-6-extraction-fts5`
-- **Last merged commit:** `8584d73` (Phase 5, PR #9)
-- **Current phase:** Phase 6 complete (pre-merge)
+- **Branch:** `master`
+- **Last merged commit:** `17cae13` (Phase 6, PR #10)
+- **Current phase:** Phase 6 complete (this commit)
 - **Next action:** Phase 7 — search API: `GET /api/v1/{project}/search?q=...` with paging, literal quoted terms AND-combined, optional prefix, results (`id`, `path`, `kind`, `content_type`, `source`, escaped `snippet`, `score`), project isolation.
 - **Blockers:** none
 
