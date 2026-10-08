@@ -37,6 +37,7 @@ through HTTP and use temporary SQLite databases and content directories.
 | §65.1–§65.2/§65.5/§65.7, §66.3–§66.4 projects model, API, storage scope and reserved names | `TestProjectCreateListReadDelete`, `TestProjectReservedNamesAndValidation`, `TestProjectDeleteRejectsNonEmpty`, `TestHealthReportsProjectCount`, `TestOpenDatabaseMigratesLegacyTablesToProjectScope` |
 | §64.2 content entries and identity | `TestContentEntryIdentityStableAcrossReplace`, `TestContentReconciliationAddsAndRemoves`, `TestContentEntriesMigrationFromPageTimes`, `TestContentLayoutMigrationMovesLegacyRoot`, `TestFilesCRUDByPathAndID`, `TestFilesMoveAndCopy` |
 | §64.4 filesystem REST API | `TestFilesCRUDByPathAndID`, `TestFilesDirectoryListingAndPageKind`, `TestFilesListFiltersAndPaging`, `TestFilesMoveAndCopy`, `TestFilesConflictsAndReservedSegment`, `TestFilesDeleteByPathRemovesSubtree`, `TestFilesUploadLimitAndTraversal`, `TestFilesRescanSummary`, `TestFilesProjectIsolation` |
+| §64.3/§64.5/§66.9 stable URLs and file serving | `TestFileContentDownloadHeadersAndRanges`, `TestStableHumanURLDownloadsRawPageBytes`, `TestPathURLNonPageDownloads`, `TestFileContentMissingIDReturnsNotFound`, `TestFileContentIsProjectScoped`, `TestStableHumanURLMissingAndMethodRestrictions` |
 | §65.3 project data scoping and isolation | `TestProjectDataIsolation`, `TestContentIsolationBetweenProjects` |
 | §66.1/§66.3/§66.5–§66.6 project-first routing, instance routes and the data partition | `TestBareRoutesRedirectToDefaultProject`, `TestUnknownProjectReturnsNotFound`, `TestProjectScopedHumanAndAPIRoutes` |
 
@@ -60,7 +61,6 @@ above as its tests land.
 
 | Spec area | Planned tests |
 | --- | --- |
-| §64.3/§64.5 stable URLs and serving | `/f/{id}` and `/f/{id}/{name}`; download disposition and nosniff; byte ranges |
 | §64.6 extraction and text index | text-like extraction; PDF text; size cap; rebuild by rescan |
 | §64.7 search API | ranking and snippets; literal-term safety; paging; empty/oversized query |
 | §64.8 agent enrichment | fingerprint match/mismatch; survives move; delete falls back to native |
@@ -69,4 +69,4 @@ above as its tests land.
 | §64.11 backup and restore | restored database plus content reproduces IDs, timestamps and agent text |
 | §64.14 web file explorer | `/files` shell and reserved route; ClioJS `Clio.FileBrowser`; breadcrumbs and URL state; upload/rename/delete actions; referenced-entry `409`; escaped search snippets |
 | §65 namespaces (projects) | remaining: search and enrichment scoped per project |
-| §66 project-scoped URL scheme and partitions | remaining: stable human file URLs (`/{project}/files/id/{id}`, Phase 5); WebDAV at both `/api/v1/{project}/files/dav` and `/{project}/files/dav`; Page and Directory APIs replaced |
+| §66 project-scoped URL scheme and partitions | remaining: WebDAV at both `/api/v1/{project}/files/dav` and `/{project}/files/dav`; Page and Directory APIs replaced |

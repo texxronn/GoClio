@@ -264,6 +264,58 @@ func (a *app) getFile(w http.ResponseWriter, r *http.Request, id string) {
 	writeJSON(w, 200, a.contentEntryRepresentation(entry))
 }
 
+// serveFileContent serves GET/HEAD /api/v1/{project}/files/{id}/content and,
+// through the human stable URL, /{project}/files/id/{id}: the raw stored bytes
+// of an entry with a download disposition (sections 64.4, 64.5 and 66.9). Pages
+// download here too; they render only at their path URL.
+func (a *app) serveFileContent(w http.ResponseWriter, r *http.Request, id string) {
+	entry, found, err := a.contentEntryByID(id)
+	if err != nil {
+		writeErr(w, errAPI(err))
+		return
+	}
+	if !found {
+		writeAPIError(w, missing("File"))
+		return
+	}
+	target, ae := a.contentPath(entry.Path)
+	if ae != nil {
+		writeErr(w, ae)
+		return
+	}
+	if ae = serveDownload(w, r, target, entry.ContentType); ae != nil {
+		writeErr(w, ae)
+	}
+}
+
+// serveDownload streams a regular file as an attachment (section 64.5). The
+// download disposition and nosniff are set before http.ServeContent, which
+// supplies HEAD support, byte ranges and conditional requests.
+func serveDownload(w http.ResponseWriter, r *http.Request, target, contentType string) *apiError {
+	f, err := os.Open(target)
+	if os.IsNotExist(err) {
+		return missing("File")
+	}
+	if err != nil {
+		return errAPI(err)
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return errAPI(err)
+	}
+	if !info.Mode().IsRegular() {
+		return missing("File")
+	}
+	w.Header().Set("Content-Disposition", "attachment")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
+	http.ServeContent(w, r, info.Name(), info.ModTime(), f)
+	return nil
+}
+
 // putFile serves PUT /api/v1/{project}/files?path=...: create or replace raw
 // bytes atomically, preserving the entry ID on replace (section 64.4).
 func (a *app) putFile(w http.ResponseWriter, r *http.Request) {

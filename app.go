@@ -292,6 +292,14 @@ func (a *app) filesAPI(w http.ResponseWriter, r *http.Request, s []string) {
 		}
 		a.rescanFiles(w, r)
 	default:
+		if len(s) == 2 && s[1] == "content" {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				writeAPIError(w, methodNotAllowed())
+				return
+			}
+			a.serveFileContent(w, r, s[0])
+			return
+		}
 		if len(s) != 1 {
 			writeAPIError(w, missing("Endpoint"))
 			return

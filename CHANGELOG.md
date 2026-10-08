@@ -68,6 +68,16 @@ than the product.
     removed and refreshed entries.
   - The path segment `id` is reserved directly under `files` so it cannot
     shadow the stable ID URL (spec v1.7 §66.5).
+- File serving and stable URLs (spec v1.7 §64.3/§64.5/§66.9):
+  - `GET /api/v1/{project}/files/{id}/content` and the human
+    `/{project}/files/id/{id}` stream an entry's current raw bytes, regardless of
+    its path and including pages. Both send `Content-Disposition: attachment` and
+    `X-Content-Type-Options: nosniff`, and use `http.ServeContent` so `HEAD`,
+    byte ranges and conditional requests work.
+  - Non-page files at their path URL now download with the same disposition and
+    nosniff headers instead of being served inline. Markdown pages still render
+    (sanitised) and HTML pages remain trusted executable content at their path
+    URLs. A missing ID returns `404`.
 
 ### Documentation
 
