@@ -37,6 +37,18 @@ than the product.
   and `/{project}/files/...`. These are the legacy directory and page operations
   under the files partition until the unified files API lands; storage is not yet
   partitioned per project. ClioJS is project-aware (`new Clio({ project })`).
+- Content identity (spec v1.5 §64.2): replaced `content_page_times` with
+  `content_entries` (`id`, `project`, `path`, `kind`, `content_type`, `size`,
+  `sha256`, `created_at`, `updated_at`; unique `(project, path)`). Entry IDs are
+  opaque and stable across replacement; creation preserves the ID and
+  `created_at` and refreshes the size, hash and `updated_at`. Legacy
+  `content_page_times` rows migrate to `default` entries with new IDs.
+- Project-scoped content storage: the content root now holds one subtree per
+  project under `content/{project}`. Content published before this change is
+  moved into `content/default` once on open. Every project's tree is reconciled
+  at startup (existing path keeps its ID, a new path gets a new ID, vanished
+  paths are removed; symbolic links are never followed). A project with content
+  is not empty and cannot be deleted.
 
 ### Documentation
 

@@ -35,7 +35,8 @@ through HTTP and use temporary SQLite databases and content directories.
 | §43 ClioJS browser client | `TestClioJSAssetsAndHelp`, `TestClioJSBehaviorWithNode` |
 | §35 collection data browser | `TestCollectionBrowserRoutes` |
 | §65.1–§65.2/§65.5/§65.7, §66.3–§66.4 projects model, API, storage scope and reserved names | `TestProjectCreateListReadDelete`, `TestProjectReservedNamesAndValidation`, `TestProjectDeleteRejectsNonEmpty`, `TestHealthReportsProjectCount`, `TestOpenDatabaseMigratesLegacyTablesToProjectScope` |
-| §65.3 project data scoping and isolation | `TestProjectDataIsolation` |
+| §64.2 content entries and identity | `TestContentEntryIdentityStableAcrossReplace`, `TestContentReconciliationAddsAndRemoves`, `TestContentEntriesMigrationFromPageTimes`, `TestContentLayoutMigrationMovesLegacyRoot` |
+| §65.3 project data scoping and isolation | `TestProjectDataIsolation`, `TestContentIsolationBetweenProjects` |
 | §66.1/§66.3/§66.5–§66.6 project-first routing, instance routes and the data partition | `TestBareRoutesRedirectToDefaultProject`, `TestUnknownProjectReturnsNotFound`, `TestProjectScopedHumanAndAPIRoutes` |
 
 ## Verification commands
@@ -59,7 +60,7 @@ spec v1.5.
 
 | Spec area | Planned tests |
 | --- | --- |
-| §64.2 file identity and reconciliation | stable IDs across replace, rename and move; rescan add/remove/refresh; an on-disk rename yields a new ID |
+| §64.2 file identity and reconciliation | remaining: files API `move` preserves the ID and `copy` gets a new ID; a rescan endpoint |
 | §64.3/§64.5 stable URLs and serving | `/f/{id}` and `/f/{id}/{name}`; download disposition and nosniff; byte ranges |
 | §64.4 filesystem REST API | list and directory listing; create/replace (`PUT`), directory create, delete, `move`, `copy`, `rescan`; content transfer and ranges; conflict rules; size limit |
 | §64.6 extraction and text index | text-like extraction; PDF text; size cap; rebuild by rescan |
@@ -69,5 +70,5 @@ spec v1.5.
 | §64.10 WebDAV | optional flag; method set including MOVE/COPY; ID preservation; auth enforcement |
 | §64.11 backup and restore | restored database plus content reproduces IDs, timestamps and agent text |
 | §64.14 web file explorer | `/files` shell and reserved route; ClioJS `Clio.FileBrowser`; breadcrumbs and URL state; upload/rename/delete actions; referenced-entry `409`; escaped search snippets |
-| §65 namespaces (projects) | remaining: project-scoped content/files; project-relative paths and `(project, path)` uniqueness; a per-project content subtree |
+| §65 namespaces (projects) | remaining: the unified files API, search and enrichment scoped per project |
 | §66 project-scoped URL scheme and partitions | remaining: the unified files partition (`PUT`/`DELETE`/`GET /files`, `/{project}/files/id/{id}`, WebDAV at both `/api/v1/{project}/files/dav` and `/{project}/files/dav`); Page and Directory APIs replaced |

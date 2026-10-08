@@ -10,11 +10,11 @@
 - **Last updated:** 2026-10-08
 - **Spec:** `SPEC.md` v1.7 (sections 64, 65, 66 are new; earlier URL sections carry supersession notes)
 - **Plan:** `IMPLEMENTATION-PLAN.md`
-- **Code baseline:** Phase 2 implemented; routing is project-first, data queries scoped by project, and the legacy page/directory operations are re-homed under the files partition (content storage is not yet partitioned per project)
+- **Code baseline:** Phase 3 implemented; content entries with stable opaque IDs, per-project content subtrees, and reconciliation at startup. The legacy page/directory operations remain under the files partition pending the unified files API.
 - **Branch:** `master`
 - **Last merged commit:** `5c6c5ad` (Phase 2, PR #6)
-- **Current phase:** Phase 2 complete (this commit)
-- **Next action:** Phase 3 — replace `content_page_times` with `content_entries` (`id`, `project`, `path`, `kind`, `content_type`, `size`, `sha256`, `created_at`, `updated_at`; unique `(project, path)`), migrate existing rows to `default` entries with new IDs, generate opaque IDs, reconcile the on-disk tree at startup and on rescan (keep an ID for an existing path, assign one to a new path, drop vanished rows), and partition the content root into one subtree per project.
+- **Current phase:** Phase 3 complete (this commit)
+- **Next action:** Phase 4 — the files REST API under `/api/v1/{project}/files`: `GET` list (paged, filters) and `?path=` (entry or directory listing), `GET /files/{id}`, `PUT /files?path=` (create/replace, atomic, 16 MiB, ID preserved), `POST .../files/directories`, `DELETE .../files?path=` and `.../files/{id}` (`409` when referenced), `POST .../files/move` (IDs preserved), `.../files/copy` (new IDs) and `.../files/rescan`; enforce `409` for file/dir vs page/dir conflicts and reserve the `id` segment. Tests: CRUD by path and ID, move/copy, limits, traversal, conflict rules, rescan.
 - **Blockers:** none
 
 ## Decision log (locked — do not relitigate)
@@ -39,7 +39,9 @@ Design decisions already fixed by `SPEC.md` v1.5–v1.7:
 - **No migration/compatibility layer** for the old unscoped routes; update tests instead.
 - **Routing (Phase 2):** `ServeHTTP` resolves the project before dispatch. Instance routes are `/health`, `/help`, `/api/v1/health`, `/api/v1/help`, `/api/v1/projects[/{project}]`, `/assets/...` and `/favicon.svg`. Bare `/` and `/api/v1` return `302` to `/{default}/` and `/api/v1/{default}`; `/{project}` returns `302` to `/{project}/data`. The data partition is `/api/v1/{project}/data/...` and `/{project}/data/...`; the collection browser is `/{project}/collections/...`.
 - **Per-request scope is a shallow `app` copy.** `app.contentMu` is a pointer so `withProject` can copy the handler safely; data functions read `a.project` instead of taking a project argument. Every group/table/field/record query and every managed index includes `project`.
-- **Temporary files-partition placement (until Phase 4/10):** the legacy directory and page operations are served at `/api/v1/{project}/files/directories` and `.../files/pages`, and the content UI at `/{project}/files/...`. Content storage is still one shared root; per-project subtrees arrive in Phase 3. ClioJS is project-aware and defaults to `default`.
+- **Temporary files-partition placement (until Phase 4/10):** the legacy directory and page operations are served at `/api/v1/{project}/files/directories` and `.../files/pages`, and the content UI at `/{project}/files/...`. ClioJS is project-aware and defaults to `default`.
+- **Content storage layout:** the content root holds one subtree per project at `content/{project}`. Legacy content at the root is moved once into `content/default` on open (`migrateContentLayout`), detected by the absence of `content/default` and of any top-level directory named after a project. The layout is an implementation detail (section 65.7).
+- **Content entries:** `content_entries` holds `id`, `project`, `path`, `kind`, `content_type`, `size`, `sha256`, `created_at`, `updated_at` with unique `(project, path)`. IDs are opaque (`newID`). Replacement preserves `id` and `created_at` and refreshes `size`, `sha256` and `updated_at`; reconciliation assigns new IDs to new paths, keeps existing IDs, drops vanished paths, and never follows symbolic links. `sha256` is populated on API writes and left empty on reconciled entries (section 64.2). A project is not empty — and cannot be deleted — when it has groups, tables or content entries, or a non-empty content subtree.
 - **Help, README and `examples/README.md` still describe the pre-Phase-2 routes.** Bringing them current is Phase 14; do not treat them as the routing contract in the meantime.
 
 ## Open questions (decide before the relevant phase)
@@ -55,7 +57,7 @@ Design decisions already fixed by `SPEC.md` v1.5–v1.7:
 - [x] **Phase 0** — scaffolding and baseline
 - [x] **Phase 1** — projects registry and instance routes
 - [x] **Phase 2** — project scope, routing, `data` partition
-- [ ] **Phase 3** — content entries and identity
+- [x] **Phase 3** — content entries and identity
 - [ ] **Phase 4** — files REST API
 - [ ] **Phase 5** — serving and stable URLs
 - [ ] **Phase 6** — native extraction and FTS5
@@ -101,3 +103,4 @@ Design decisions already fixed by `SPEC.md` v1.5–v1.7:
 - **2026-10-08** — Phase 0: baseline verified green (`go test -count=1 ./...` 1.7s, `go vet ./...`, `go build -buildvcs=false`). 79 tests, 67.1% coverage. Plan and context files committed. Next: Phase 1.
 - **2026-10-08** — Phase 1: added the `projects` table and seeded `default`; rebuilt `groups_meta`, `tables_meta`, `fields_meta` and `records` with project-scoped primary/foreign keys and migrated legacy databases on open (all rows assigned to `default`); added the projects API (`GET`/`POST /api/v1/projects`, `GET`/`DELETE /api/v1/projects/{project}`), reserved project names, and a `projects` health count. New tests: `projects_test.go` (5). All checks green. Next: Phase 2.
 - **2026-10-08** — Phase 2: made routing project-first (`ServeHTTP`/`api` resolve `{project}`; instance routes stay unscoped); bare `/` and `/api/v1` redirect to `default`; `/api/v1/{project}/data/...` and `/{project}/data/...` for metadata/groups/tables/records; the legacy directory/page operations re-homed under `/api/v1/{project}/files/{directories,pages}` and the content UI under `/{project}/files/...`; collection browser at `/{project}/collections/...`. Threaded project through every data query and managed index (added `managed_indexes.project`), and made ClioJS project-aware. Introduced per-request app scoping via `withProject` (pointer content mutex). Updated every test URL. New tests: `TestBareRoutesRedirectToDefaultProject`, `TestUnknownProjectReturnsNotFound`, `TestProjectDataIsolation`, `TestProjectScopedHumanAndAPIRoutes`. All checks green. Next: Phase 3.
+- **2026-10-08** — Phase 3: replaced `content_page_times` with `content_entries` (stable opaque IDs, `kind`/`content_type`/`size`/`sha256`/timestamps, unique `(project, path)`); migrated legacy rows to `default` with new IDs; partitioned the content root into `content/{project}` with a one-time move of legacy root content into `content/default`; added reconciliation (startup and a reusable method for rescan) that keeps existing IDs, adds new ones, removes vanished paths and skips symlinks; updated the page/directory/zip write paths to record entries; a project with content can no longer be deleted. New tests: `TestContentEntryIdentityStableAcrossReplace`, `TestContentReconciliationAddsAndRemoves`, `TestContentIsolationBetweenProjects`, `TestContentEntriesMigrationFromPageTimes`, `TestContentLayoutMigrationMovesLegacyRoot`. All checks green. Next: Phase 4.

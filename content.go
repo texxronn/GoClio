@@ -3,7 +3,6 @@ package main
 import (
 	"archive/zip"
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -70,24 +69,12 @@ func (a *app) directoriesAPI(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, errAPI(e))
 			return
 		}
-		tx, txErr := a.db.Begin()
-		if txErr != nil {
-			writeErr(w, errAPI(txErr))
-			return
-		}
-		prefix := clean + "/"
-		if _, txErr = tx.Exec(`DELETE FROM content_page_times WHERE path=? OR substr(path,1,length(?))=?`, clean, prefix, prefix); txErr != nil {
-			tx.Rollback()
-			writeErr(w, errAPI(txErr))
-			return
-		}
 		if e = os.RemoveAll(target); e != nil {
-			tx.Rollback()
 			writeErr(w, errAPI(e))
 			return
 		}
-		if txErr = tx.Commit(); txErr != nil {
-			writeErr(w, errAPI(txErr))
+		if e = a.deleteContentEntriesUnder(clean); e != nil {
+			writeErr(w, errAPI(e))
 			return
 		}
 		w.WriteHeader(204)
@@ -174,6 +161,13 @@ func (a *app) directory(raw string) (map[string]any, *apiError) {
 		return nil, ae
 	}
 	entries, e := os.ReadDir(target)
+	if os.IsNotExist(e) && canonical == "/" {
+		// Create the project's content subtree lazily so its root lists as empty.
+		if mkErr := os.MkdirAll(target, 0755); mkErr != nil {
+			return nil, errAPI(mkErr)
+		}
+		entries, e = os.ReadDir(target)
+	}
 	if os.IsNotExist(e) {
 		return nil, missing("Directory")
 	}
@@ -266,7 +260,7 @@ func (a *app) pagesAPI(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, errAPI(e))
 			return
 		}
-		if _, e = a.db.Exec(`DELETE FROM content_page_times WHERE path=?`, clean); e != nil {
+		if e = a.deleteContentEntry(clean); e != nil {
 			writeErr(w, errAPI(e))
 			return
 		}
@@ -327,19 +321,18 @@ func (a *app) pagesAPI(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		existed := false
-		now := formatUTC(time.Now())
-		createdAt := now
+		createdAt := ""
 		if info, e := os.Lstat(target); e == nil {
 			existed = true
-			var stored string
-			lookupErr := a.db.QueryRow(`SELECT created_at FROM content_page_times WHERE path=?`, clean).Scan(&stored)
-			if lookupErr == nil {
-				createdAt = stored
-			} else if lookupErr == sql.ErrNoRows {
-				createdAt = info.ModTime().UTC().Format(time.RFC3339Nano)
-			} else {
+			entry, found, lookupErr := a.contentEntryByPath(clean)
+			if lookupErr != nil {
 				writeErr(w, errAPI(lookupErr))
 				return
+			}
+			if found {
+				createdAt = entry.CreatedAt
+			} else {
+				createdAt = info.ModTime().UTC().Format(time.RFC3339Nano)
 			}
 		} else if !os.IsNotExist(e) {
 			writeErr(w, errAPI(e))
@@ -370,7 +363,7 @@ func (a *app) pagesAPI(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, errAPI(err))
 			return
 		}
-		if _, err = a.db.Exec(`INSERT INTO content_page_times(path,created_at,updated_at) VALUES(?,?,?) ON CONFLICT(path) DO UPDATE SET updated_at=excluded.updated_at`, clean, createdAt, now); err != nil {
+		if err = a.saveContentEntry(clean, []byte(content), createdAt); err != nil {
 			writeErr(w, errAPI(err))
 			return
 		}
@@ -418,8 +411,12 @@ func (a *app) page(raw string) (map[string]any, *apiError) {
 	}
 	stamp := info.ModTime().UTC().Format(time.RFC3339Nano)
 	created, updated := stamp, stamp
-	if e = a.db.QueryRow(`SELECT created_at,updated_at FROM content_page_times WHERE path=?`, clean).Scan(&created, &updated); e != nil && e != sql.ErrNoRows {
-		return nil, errAPI(e)
+	entry, found, lookupErr := a.contentEntryByPath(clean)
+	if lookupErr != nil {
+		return nil, errAPI(lookupErr)
+	}
+	if found {
+		created, updated = entry.CreatedAt, entry.UpdatedAt
 	}
 	return map[string]any{"path": clean, "url": a.contentURL(clean), "content_type": contentType, "content": string(data), "created_at": created, "updated_at": updated}, nil
 }
@@ -540,7 +537,7 @@ func (a *app) uploadZip(w http.ResponseWriter, r *http.Request, destination stri
 		}
 		relative := filepath.FromSlash(clean)
 		full := filepath.Join(destDir, relative)
-		if !within(a.content, full) {
+		if !within(a.contentRoot(), full) {
 			writeAPIError(w, invalid("Archive path escapes content directory"))
 			return
 		}
@@ -620,7 +617,7 @@ func (a *app) uploadZip(w http.ResponseWriter, r *http.Request, destination stri
 		}
 	}
 	uploadTime := formatUTC(time.Now())
-	pageCreated := map[string]string{}
+	createdTimes := map[string]string{}
 	for _, rel := range files {
 		target := filepath.Join(destDir, rel)
 		if ae := a.checkNoFileParent(filepath.Dir(target)); ae != nil {
@@ -640,20 +637,18 @@ func (a *app) uploadZip(w http.ResponseWriter, r *http.Request, destination stri
 			writeErr(w, errAPI(e))
 			return
 		}
-		if strings.HasSuffix(rel, ".md") || strings.HasSuffix(rel, ".html") {
-			created := uploadTime
-			var stored string
-			lookupErr := a.db.QueryRow(`SELECT created_at FROM content_page_times WHERE path=?`, uploadContentPath(dest, rel)).Scan(&stored)
-			if lookupErr == nil {
-				created = stored
-			} else if lookupErr == sql.ErrNoRows && e == nil {
-				created = info.ModTime().UTC().Format(time.RFC3339Nano)
-			} else if lookupErr != sql.ErrNoRows {
-				writeErr(w, errAPI(lookupErr))
-				return
-			}
-			pageCreated[rel] = created
+		entry, found, lookupErr := a.contentEntryByPath(uploadContentPath(dest, rel))
+		if lookupErr != nil {
+			writeErr(w, errAPI(lookupErr))
+			return
 		}
+		created := uploadTime
+		if found {
+			created = entry.CreatedAt
+		} else if e == nil {
+			created = info.ModTime().UTC().Format(time.RFC3339Nano)
+		}
+		createdTimes[rel] = created
 	}
 	createdDirs := []string{}
 	removeCreatedDirs := func() {
@@ -662,7 +657,7 @@ func (a *app) uploadZip(w http.ResponseWriter, r *http.Request, destination stri
 		}
 	}
 	for _, dir := range append([]string{destDir}, directoryTargets(destDir, dirs, files)...) {
-		if e = ensureContentDirectory(a.content, dir, &createdDirs); e != nil {
+		if e = ensureContentDirectory(a.contentRoot(), dir, &createdDirs); e != nil {
 			removeCreatedDirs()
 			writeErr(w, errAPI(e))
 			return
@@ -730,16 +725,22 @@ func (a *app) uploadZip(w http.ResponseWriter, r *http.Request, destination stri
 		child += "/" + filepath.ToSlash(rel)
 		urls = append(urls, a.contentURL(child))
 	}
-	if len(pageCreated) > 0 {
+	if len(createdTimes) > 0 {
 		tx, txErr := a.db.Begin()
 		if txErr != nil {
 			rollback()
 			writeErr(w, errAPI(txErr))
 			return
 		}
-		for rel, created := range pageCreated {
-			_, txErr = tx.Exec(`INSERT INTO content_page_times(path,created_at,updated_at) VALUES(?,?,?) ON CONFLICT(path) DO UPDATE SET updated_at=excluded.updated_at`, uploadContentPath(dest, rel), created, uploadTime)
-			if txErr != nil {
+		for rel, created := range createdTimes {
+			data, readErr := os.ReadFile(filepath.Join(destDir, rel))
+			if readErr != nil {
+				tx.Rollback()
+				rollback()
+				writeErr(w, errAPI(readErr))
+				return
+			}
+			if txErr = saveContentEntryExec(tx, a.project, uploadContentPath(dest, rel), data, created); txErr != nil {
 				tx.Rollback()
 				rollback()
 				writeErr(w, errAPI(txErr))
@@ -778,6 +779,9 @@ func ensureContentDirectory(root, target string, created *[]string) error {
 		return fmt.Errorf("directory escapes content root")
 	}
 	if filepath.Clean(target) == filepath.Clean(root) {
+		if _, err := os.Lstat(target); os.IsNotExist(err) {
+			return os.MkdirAll(target, 0755)
+		}
 		return nil
 	}
 	info, err := os.Lstat(target)
@@ -809,7 +813,7 @@ func firstError(a, b error) error {
 }
 
 func (a *app) checkNoFileParent(target string) *apiError {
-	for p := target; within(a.content, p); p = filepath.Dir(p) {
+	for p := target; within(a.contentRoot(), p); p = filepath.Dir(p) {
 		info, e := os.Stat(p)
 		if e == nil && !info.IsDir() {
 			return conflict("A file blocks content path: " + p)
@@ -820,7 +824,7 @@ func (a *app) checkNoFileParent(target string) *apiError {
 		if e != nil && !os.IsNotExist(e) {
 			return errAPI(e)
 		}
-		if filepath.Clean(p) == filepath.Clean(a.content) {
+		if filepath.Clean(p) == filepath.Clean(a.contentRoot()) {
 			break
 		}
 	}
@@ -860,11 +864,11 @@ func (a *app) contentPath(raw string) (string, *apiError) {
 		return "", e
 	}
 	rel := strings.TrimPrefix(clean, "/")
-	target := filepath.Join(a.content, filepath.FromSlash(rel))
-	if !within(a.content, target) {
+	target := filepath.Join(a.contentRoot(), filepath.FromSlash(rel))
+	if !within(a.contentRoot(), target) {
 		return "", invalid("Path escapes content directory")
 	}
-	for p := target; p != a.content; p = filepath.Dir(p) {
+	for p := target; p != a.contentRoot(); p = filepath.Dir(p) {
 		info, e := os.Lstat(p)
 		if e == nil && info.Mode()&os.ModeSymlink != 0 {
 			return "", invalid("Symbolic links are not permitted in content paths")
@@ -914,6 +918,11 @@ func (a *app) contentUI(w http.ResponseWriter, r *http.Request, s []string) {
 		return
 	}
 	info, err := os.Stat(target)
+	if os.IsNotExist(err) && clean == "/" {
+		// The project's content subtree is created lazily; an absent root is an
+		// empty directory.
+		info, err = nil, nil
+	}
 	if os.IsNotExist(err) {
 		writeAPIError(w, missing("Content"))
 		return
@@ -922,7 +931,7 @@ func (a *app) contentUI(w http.ResponseWriter, r *http.Request, s []string) {
 		writeErr(w, errAPI(err))
 		return
 	}
-	if info.IsDir() {
+	if info == nil || info.IsDir() {
 		if r.Method == "POST" {
 			r.Body = http.MaxBytesReader(w, r.Body, bodyLimit)
 			if err := r.ParseForm(); err != nil {
