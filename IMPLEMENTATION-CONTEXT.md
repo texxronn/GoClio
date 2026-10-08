@@ -11,9 +11,9 @@
 - **Spec:** `SPEC.md` v1.7 (sections 64, 65, 66 are new; earlier URL sections carry supersession notes)
 - **Plan:** `IMPLEMENTATION-PLAN.md`
 - **Code baseline:** Phase 12 implemented. WebDAV is opt-in (`CLIO_WEBDAV_ENABLED`, default off) and mounts the project content tree at `/api/v1/{project}/files/dav/...` and `/{project}/files/dav/...` (section 64.10/§66.8); the previous phases stand as described below. Phase 11: the human UI is re-scoped to the section 66.5 URLs: `/{project}/` is a project overview linking the data browser, file explorer and search; the read-only collection data browser is at `/{project}/data` (group/table/page in the query string) while the server table UI and forms remain at `/{project}/data/{group}/{table}`; the file explorer shell is at `/{project}/files` and mounts `Clio.FileBrowser.mount(element)` (directory gutter, breadcrumbs, URL state, new folder/upload/rename-move/delete and 409 surfacing); a server-rendered human search page is at `/{project}/search`; `Clio.version` is `1.1.0`. Phases 0–10 remain as described below.
-- **Branch:** `phase-12-webdav`
-- **Last merged commit:** `9ca383f` (Phase 11, PR #15)
-- **Current phase:** Phase 12 complete and verified; merging
+- **Branch:** `master`
+- **Last merged commit:** `2d3b768` (Phase 12, PR #16)
+- **Current phase:** Phase 12 complete and merged
 - **Next action:** Phase 13 — backup and restore (§57, §64.11)
 - **Blockers:** none
 
