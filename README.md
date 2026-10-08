@@ -1,7 +1,7 @@
 # GoClio
 
 GoClio is a Go implementation of the frozen Clio v1 contract in `SPEC.md`
-(specification revision 1.7; product version 2.1.0; API version v1). It uses Go's
+(specification revision 1.7; product version 2.1.1; API version v1). It uses Go's
 standard HTTP server, one SQLite database in WAL mode, and the filesystem for
 published content. `SPEC-CONFORMANCE.md` maps specification areas to automated
 tests.
@@ -44,7 +44,7 @@ CLIO_BASE_URL=http://localhost:8080 \
 `make`, build directly and pass the version yourself:
 
 ```sh
-CGO_ENABLED=1 go build -tags sqlite_fts5 -buildvcs=false -ldflags="-X main.version=2.1.0" -o clio .
+CGO_ENABLED=1 go build -tags sqlite_fts5 -buildvcs=false -ldflags="-X main.version=2.1.1" -o clio .
 ```
 
 The default listener is `0.0.0.0:8080`; the default data directory is
@@ -68,7 +68,7 @@ docker run --rm --name clio \
 ```
 
 For a Compose build, set `CLIO_VERSION` to select both the image tag and the
-injected version; it defaults to `local` / `2.1.0` when unset. The image runs as
+injected version; it defaults to `local` / `2.1.1` when unset. The image runs as
 an unprivileged `clio` user. The named volume stores both the
 SQLite database and published content under `/var/lib/clio`. The container
 listens on port 8080; open <http://localhost:8080/help> after startup. For a
@@ -222,13 +222,13 @@ GoClio tracks three independent identifiers, described in `SPEC.md`:
 | Identifier | Current | Where it appears |
 | --- | --- | --- |
 | Specification revision | `1.7` | `SPEC.md` header |
-| Product version | `2.1.0` (source default) | `version` in `/api/v1/health` |
+| Product version | `2.1.1` (source default) | `version` in `/api/v1/health` |
 | API version | `v1` | `/api/v1/` route prefix |
 
 Releases are tagged `v<MAJOR>.<MINOR>.<PATCH>` following Semantic Versioning.
 The product version reported by a binary is injected at build time from the
 nearest git tag (without the leading `v`), so a release build reports its actual
-tag. The literal `2.1.0` in `main.go` is only the default used when building
+tag. The literal `2.1.1` in `main.go` is only the default used when building
 without a tag, such as inside the Docker build context where `.git` is
 excluded. The specification header records the documented product version and is
 updated deliberately when the product version is bumped; at release time the tag

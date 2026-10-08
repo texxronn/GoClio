@@ -11,6 +11,16 @@ than the product.
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-10-08
+
+### Fixed
+
+- Test-only: scoped the `bills` enrichment fingerprint in
+  `TestEnrichmentIsProjectScoped` to its own project. The helper resolved paths
+  from the unscoped app, so it hashed the `default` project's file and passed
+  only when both writes landed in the same `size:mtime` second, making CI flaky.
+  No product behaviour changed.
+
 ## [2.1.0] - 2026-10-08
 
 ### Added
