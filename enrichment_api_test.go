@@ -326,7 +326,7 @@ func TestEnrichmentIsProjectScoped(t *testing.T) {
 	}
 	// A PUT in the other project does not disturb the first.
 	if w := putEnrichment(t, a, extractionByIDURL("bills", billsEntry["id"].(string)), map[string]any{
-		"fingerprint": diskFingerprint(t, a, "/scan.pdf"),
+		"fingerprint": diskFingerprint(t, a.withProject("bills"), "/scan.pdf"),
 		"text":        "billsonly marker",
 		"provider":    "ocr:other",
 	}); w.Code != http.StatusOK {
