@@ -11,9 +11,9 @@
 - **Spec:** `SPEC.md` v1.7 (sections 64, 65, 66 are new; earlier URL sections carry supersession notes)
 - **Plan:** `IMPLEMENTATION-PLAN.md`
 - **Code baseline:** Phase 10 implemented. The Page API and the legacy directory facade are removed (they return `404`): pages are `.md`/`.html` entries of the files partition, created/replaced with `PUT /api/v1/{project}/files?path=...`, read as raw bytes from `GET /api/v1/{project}/files/{id}/content` or `/{project}/files/id/{id}`, and deleted with `DELETE /api/v1/{project}/files?path=...` or `/files/{id}`. `POST /api/v1/{project}/files/directories` remains in the files API for JSON directory creation and `application/zip` directory-tree uploads. Markdown still renders (subset, sanitised) and HTML stays trusted executable content at path URLs; `markdownAsset`/`Clio.Markdown` are unchanged and the ClioJS file helpers now target the files partition. Phases 0–9 remain as described below.
-- **Branch:** `phase-10-fold-pages-into-files`
-- **Last merged commit:** `426250d` (Phase 9, PR #13)
-- **Current phase:** Phase 10 complete (pending merge)
+- **Branch:** `master`
+- **Last merged commit:** `b3193e5` (Phase 10, PR #14)
+- **Current phase:** Phase 10 complete and merged
 - **Next action:** Phase 11 — human UI: data browser and file explorer (§35, §64.14, §66.5): re-scope the collection browser to `/{project}/data/...` and build the file explorer at `/{project}/files` with a directory-browsing gutter, breadcrumbs, `Clio.FileBrowser.mount(element)` and light actions.
 - **Blockers:** none
 
