@@ -114,7 +114,7 @@ func TestHealthCountsAndVersion(t *testing.T) {
 	}
 	var health map[string]any
 	testJSON(t, response, &health)
-	if health["status"] != "ok" || health["version"] != "1.0.0" {
+	if health["status"] != "ok" || health["version"] != "2.0.0" {
 		t.Errorf("health status/version = %#v", health)
 	}
 	if db := health["database"].(map[string]any); db["status"] != "ok" {

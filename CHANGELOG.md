@@ -11,6 +11,8 @@ than the product.
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-08
+
 ### Added
 
 - Projects registry (spec v1.6–v1.7): the implicit `default` project and the

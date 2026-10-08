@@ -6,7 +6,7 @@
 # to the commit hash (with -dirty when applicable).
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null)
 ifeq ($(VERSION),)
-VERSION := 1.0.0
+VERSION := 2.0.0
 endif
 VERSION := $(patsubst v%,%,$(VERSION))
 
