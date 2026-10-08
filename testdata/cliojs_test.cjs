@@ -6,15 +6,33 @@ const source = fs.readFileSync(process.argv[2], "utf8");
 const requests = [];
 const storage = new Map();
 const session = new Map();
+const navigation = [];
+const opened = [];
+const docHandlers = {};
 class Element {
-  constructor(tagName) { this.tagName = tagName; this.children = []; this.attributes = {}; this.handlers = {}; this._text = ""; }
+  constructor(tagName) {
+    this.tagName = tagName;
+    this.children = [];
+    this.attributes = {};
+    this.handlers = {};
+    this._text = "";
+    this.style = {};
+    this.hidden = false;
+    this.parentNode = null;
+  }
   set textContent(value) { this._text = String(value); this.children = []; }
   get textContent() { return this._text + this.children.map((child) => child.textContent).join(""); }
-  appendChild(child) { this.children.push(child); return child; }
+  appendChild(child) { this.children.push(child); if (child) child.parentNode = this; return child; }
   append(...children) { children.forEach((child) => this.appendChild(child)); }
   replaceChildren(...children) { this.children = []; this._text = ""; children.forEach((child) => this.appendChild(child)); }
+  removeChild(child) { this.children = this.children.filter((node) => node !== child); if (child) child.parentNode = null; return child; }
+  remove() { if (this.parentNode) this.parentNode.removeChild(this); }
+  contains(node) { if (this === node) return true; return this.children.some((child) => child.contains && child.contains(node)); }
   setAttribute(name, value) { this.attributes[name] = String(value); }
+  getAttribute(name) { return Object.prototype.hasOwnProperty.call(this.attributes, name) ? this.attributes[name] : null; }
   addEventListener(name, handler) { this.handlers[name] = handler; }
+  focus() { context.document.activeElement = this; }
+  getBoundingClientRect() { return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0 }; }
 }
 function collectByTag(element, tag) {
   const found = [];
@@ -22,7 +40,6 @@ function collectByTag(element, tag) {
   for (const child of element.children || []) found.push(...collectByTag(child, tag));
   return found;
 }
-const navigation = [];
 const location = {
   origin: "https://clio.example",
   pathname: "/default/data",
@@ -42,8 +59,13 @@ const context = {
     createElement: (name) => new Element(name),
     createTextNode: (text) => { const node = new Element("#text"); node.textContent = String(text); return node; },
     querySelector: () => null,
-    documentElement: new Element("html")
+    documentElement: new Element("html"),
+    activeElement: null,
+    addEventListener(name, handler) { (docHandlers[name] = docHandlers[name] || []).push(handler); },
+    removeEventListener(name, handler) { docHandlers[name] = (docHandlers[name] || []).filter((entry) => entry !== handler); },
+    dispatchEvent(name, event) { for (const handler of (docHandlers[name] || []).slice()) handler(event); }
   },
+  open: (url) => { opened.push(String(url)); },
   localStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) },
   sessionStorage: { getItem: (key) => session.get(key) || null, setItem: (key, value) => session.set(key, value) },
   ClioMarkdown: { render: (source) => `<p>${source}</p>` },
@@ -168,7 +190,7 @@ vm.runInNewContext(source, context, { filename: "clio.js" });
 
 async function main() {
   const Clio = context.Clio;
-  assert.equal(Clio.version, "1.3.0");
+  assert.equal(Clio.version, "1.4.0");
   assert.equal(Clio.apiVersion, "v1");
   assert.equal(typeof Clio.DataBrowser.mount, "function");
   assert.equal(typeof Clio.FileBrowser.mount, "function");
@@ -505,6 +527,110 @@ async function main() {
   assert.ok(saved.includes("/docs"), "expansion state is persisted in sessionStorage");
   persistBrowser.destroy();
   session.clear();
+
+  // --- FileBrowser context menu: one uniform list, kebab + right-click menu ---
+  const fbTable = (host) => collectByTag(host, "table").find((table) => table.className === "fb-table");
+  const fbRows = (host) => {
+    const table = fbTable(host);
+    return table ? collectByTag(table, "tr").filter((row) => row.parentNode && row.parentNode.tagName === "tbody") : [];
+  };
+  const fbRow = (host, path) => fbRows(host).find((row) => row.attributes["data-path"] === path);
+  const fbIcon = (host, path) => collectByTag(fbRow(host, path), "span").find((span) => span.className === "fb-row-icon").textContent;
+  const menuOf = (host) => collectByTag(host, "div").find((el) => el.className === "fb-menu");
+  const menuLabels = (menu) => collectByTag(menu, "button").map((button) => button.textContent);
+  const menuItem = (menu, label) => collectByTag(menu, "button").find((button) => button.textContent === label);
+
+  location.pathname = "/default/files";
+  location.search = "";
+  const ctxHost = new Element("div");
+  const ctxBrowser = Clio.FileBrowser.mount(ctxHost, { path: "/" });
+  await ctxBrowser.ready;
+
+  // One uniform table: no separate .fb-dirs block, directories before files.
+  assert.ok(fbTable(ctxHost), "the right pane renders a single .fb-table");
+  assert.equal(collectByTag(ctxHost, "section").filter((section) => section.className === "fb-dirs").length, 0, "there is no separate .fb-dirs block");
+  assert.deepEqual(fbRows(ctxHost).map((row) => row.attributes["data-path"]), ["/a", "/big", "/docs", "/note.txt"], "directories come first, each group sorted by name");
+  assert.equal(fbIcon(ctxHost, "/docs"), "📁", "directories use the folder icon");
+  assert.equal(fbIcon(ctxHost, "/note.txt"), "📄", "files use the document icon");
+  assert.equal(fbRow(ctxHost, "/docs").children[1].textContent, "–", "directories show a dash size");
+  assert.equal(fbRow(ctxHost, "/note.txt").children[1].textContent, "3 B", "files show a human-readable size");
+  assert.equal(collectByTag(ctxHost, "button").filter((button) => button.className === "fb-danger" || button.textContent === "Rename" || button.textContent === "Delete").length, 0, "the old inline Rename/Delete buttons are gone");
+  assert.ok(buttonByClass(fbRow(ctxHost, "/note.txt"), "fb-row-menu"), "every row has a kebab button");
+
+  // Right-click a file row opens the full menu at the pointer.
+  fbRow(ctxHost, "/note.txt").handlers.contextmenu({ preventDefault() {}, clientX: 24, clientY: 30 });
+  let menu = menuOf(ctxHost);
+  assert.ok(menu, "right-click opens a context menu");
+  assert.equal(menu.attributes.role, "menu");
+  assert.deepEqual(menuLabels(menu), ["Open", "Download", "Rename", "Delete"], "the file menu has Open/Download/Rename/Delete");
+  assert.ok(collectByTag(menu, "button").every((button) => button.attributes.role === "menuitem"), "every menu entry is a menuitem");
+  assert.equal(buttonByClass(fbRow(ctxHost, "/note.txt"), "fb-row-menu").attributes["aria-haspopup"], "menu", "the kebab advertises a menu");
+  assert.equal(buttonByClass(fbRow(ctxHost, "/note.txt"), "fb-row-menu").attributes["aria-expanded"], "true", "the open menu sets aria-expanded");
+  assert.equal(menu.style.position, "fixed", "the menu floats");
+  assert.equal(menu.style.left, "24px");
+  assert.equal(menu.style.top, "30px");
+
+  // Download uses the stable ID URL and closes the menu.
+  const openedBefore = opened.length;
+  menuItem(menu, "Download").handlers.click({ preventDefault() {}, stopPropagation() {} });
+  assert.equal(opened.at(-1), "/default/files/id/file-2", "Download opens the stable ID URL");
+  assert.ok(opened.length > openedBefore, "Download opens a new tab/URL");
+  assert.equal(menuOf(ctxHost), undefined, "acting on an item closes the menu");
+
+  // Rename prompts and issues the move request.
+  context.prompt = () => "renamed.txt";
+  const movesBefore = requests.filter((request) => request.url.endsWith("/files/move")).length;
+  fbRow(ctxHost, "/note.txt").handlers.contextmenu({ preventDefault() {}, clientX: 0, clientY: 0 });
+  menuItem(menuOf(ctxHost), "Rename").handlers.click({ preventDefault() {}, stopPropagation() {} });
+  await settle();
+  const renameRequest = requests.filter((request) => request.url.endsWith("/files/move")).at(-1);
+  assert.ok(requests.filter((request) => request.url.endsWith("/files/move")).length > movesBefore, "Rename issues a move");
+  assert.deepEqual(JSON.parse(renameRequest.options.body), { from: "/note.txt", to: "/renamed.txt" });
+  delete context.prompt;
+
+  // Delete confirms and issues the delete request.
+  context.confirm = () => true;
+  const deletesBefore = requests.filter((request) => request.options.method === "DELETE").length;
+  fbRow(ctxHost, "/note.txt").handlers.contextmenu({ preventDefault() {}, clientX: 0, clientY: 0 });
+  menuItem(menuOf(ctxHost), "Delete").handlers.click({ preventDefault() {}, stopPropagation() {} });
+  await settle();
+  const contextDeleteRequest = requests.filter((request) => request.options.method === "DELETE").at(-1);
+  assert.ok(requests.filter((request) => request.options.method === "DELETE").length > deletesBefore, "Delete issues a delete");
+  assert.match(contextDeleteRequest.url, /\/files\?path=%2Fnote\.txt$/);
+  delete context.confirm;
+
+  // A directory menu omits Download.
+  fbRow(ctxHost, "/docs").handlers.contextmenu({ preventDefault() {}, clientX: 0, clientY: 0 });
+  assert.deepEqual(menuLabels(menuOf(ctxHost)), ["Open", "Rename", "Delete"], "the directory menu omits Download");
+  context.document.dispatchEvent("mousedown", { target: new Element("div") });
+  assert.equal(menuOf(ctxHost), undefined, "an outside mousedown closes the menu");
+  assert.equal(buttonByClass(fbRow(ctxHost, "/docs"), "fb-row-menu").attributes["aria-expanded"], "false", "closing resets aria-expanded");
+
+  // The kebab opens the same menu and Escape closes it, returning focus.
+  buttonByClass(fbRow(ctxHost, "/docs"), "fb-row-menu").handlers.click({ preventDefault() {}, stopPropagation() {} });
+  menu = menuOf(ctxHost);
+  assert.ok(menu, "the kebab opens the context menu");
+  assert.deepEqual(menuLabels(menu), ["Open", "Rename", "Delete"]);
+  assert.equal(context.document.activeElement, collectByTag(menu, "button")[0], "focus moves into the menu");
+  menu.handlers.keydown({ key: "ArrowDown", preventDefault() {} });
+  assert.equal(context.document.activeElement, collectByTag(menu, "button")[1], "ArrowDown moves to the next item");
+  menu.handlers.keydown({ key: "Escape", preventDefault() {}, stopPropagation() {} });
+  assert.equal(menuOf(ctxHost), undefined, "Escape closes the menu");
+  assert.equal(context.document.activeElement, fbRow(ctxHost, "/docs"), "focus returns to the row after closing");
+
+  // Keyboard open for the selected row: Shift+F10 then ContextMenu key.
+  fbRow(ctxHost, "/note.txt").handlers.click({});
+  const listEl = collectByTag(ctxHost, "div").find((el) => el.className === "fb-list");
+  listEl.handlers.keydown({ key: "F10", shiftKey: true, preventDefault() {} });
+  assert.deepEqual(menuLabels(menuOf(ctxHost)), ["Open", "Download", "Rename", "Delete"], "Shift+F10 opens the menu for the selected row");
+  context.document.dispatchEvent("keydown", { key: "Escape" });
+  assert.equal(menuOf(ctxHost), undefined, "document Escape closes the menu");
+  listEl.handlers.keydown({ key: "ContextMenu", shiftKey: false, preventDefault() {} });
+  assert.ok(menuOf(ctxHost), "the ContextMenu key opens the menu");
+  context.document.dispatchEvent("scroll", {});
+  assert.equal(menuOf(ctxHost), undefined, "scrolling closes the menu");
+
+  ctxBrowser.destroy();
 
   // Projects manager over the instance-level projects API.
   location.pathname = "/default/";
