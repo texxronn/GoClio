@@ -218,12 +218,16 @@ func TestBareRoutesRedirectToDefaultProject(t *testing.T) {
 	for _, test := range []struct{ path, location string }{
 		{"/", "/default/"},
 		{"/api/v1", "/api/v1/default"},
-		{"/default", "/default/data"},
 	} {
 		response := testRequest(t, a, http.MethodGet, test.path, nil, "")
 		if response.Code != http.StatusFound || response.Header().Get("Location") != test.location {
 			t.Errorf("GET %s = %d location=%q, want 302 %q", test.path, response.Code, response.Header().Get("Location"), test.location)
 		}
+	}
+	// /{project} is the project overview rather than a redirect (section 66.5).
+	overview := testRequest(t, a, http.MethodGet, "/default", nil, "")
+	if overview.Code != http.StatusOK || !strings.Contains(overview.Body.String(), "Open data browser") {
+		t.Errorf("GET /default = %d, want the project overview: %s", overview.Code, overview.Body.String())
 	}
 }
 

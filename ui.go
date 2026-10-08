@@ -16,22 +16,10 @@ func (a *app) tableUI(w http.ResponseWriter, r *http.Request, s []string) {
 		return
 	}
 	if len(s) == 0 {
-		if r.Method != "GET" {
-			writeAPIError(w, methodNotAllowed())
-			return
-		}
-		groups, e := a.listGroups()
-		if e != nil {
-			writeErr(w, e)
-			return
-		}
-		var b strings.Builder
-		b.WriteString("<h1>Data</h1><ul>")
-		for _, g := range groups {
-			b.WriteString("<li><a href=\"" + htmlAttr(a.dataURL(fmt.Sprint(g["name"]))) + "\">" + esc(g["label"]) + "</a></li>")
-		}
-		b.WriteString("</ul>")
-		writeHTML(w, 200, a.pageShell(b.String(), "Data"))
+		// /{project}/data is the client-side collection data browser (section
+		// 35, re-scoped to the data partition by section 66.5). Per-table routes
+		// below remain the server-rendered table UI and forms.
+		a.dataBrowserUI(w, r)
 		return
 	}
 	group, e := validIdentifier(s[0], "group")
@@ -175,7 +163,7 @@ func (a *app) tableHTML(group, table string, meta map[string]any, q url.Values) 
 	var b strings.Builder
 	b.WriteString(`<style>
 body{max-width:none;margin:0 auto;padding:0 1.4rem;background:#f4f7fb;color:#192a41}body>nav{display:flex;align-items:center;gap:.9rem;margin:0 calc(1.4rem * -1) 1.25rem;padding:.8rem 1.4rem;background:#fff;border-bottom:1px solid #e3e9f1;font-size:.9rem}body>nav a{color:#52647a}body>nav a:first-child{font-weight:750;color:#182f4b}main{max-width:none!important}.table-page{max-width:1180px;margin:1.2rem auto 4rem}.table-back{display:inline-block;margin:0 0 .75rem;color:#286a83;font-size:.84rem;font-weight:650;text-decoration:none}.table-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:1.2rem;margin-bottom:1rem;padding:1.3rem 1.4rem;border:1px solid #e3e9f1;border-radius:12px;background:#fff}.table-eyebrow{margin:0 0 .3rem;color:#8192a2;font-size:.68rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase}.table-heading h1{margin:0;color:#192a41;font-size:1.8rem;letter-spacing:-.04em}.table-heading p:last-child{margin:.4rem 0 0;color:#718394;font-size:.9rem}.table-actions{display:flex;align-items:center;gap:.55rem;flex:none}.table-actions a{padding:.58rem .78rem;border:1px solid #dce5eb;border-radius:7px;color:#315f75;font-size:.82rem;font-weight:650;text-decoration:none;white-space:nowrap}.table-actions a.button{border-color:#215f78;background:#215f78;color:#fff}.table-actions a:hover{filter:brightness(.97)}.table-query{margin:.75rem 0;padding:.85rem 1rem;border:1px solid #e3e9f1;border-radius:10px;background:#fff}.table-query summary{color:#315f75;font-size:.86rem;font-weight:650;cursor:pointer}.table-query fieldset{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,14rem),1fr));gap:.7rem;margin:1rem 0 0;padding:1rem 0 0;border:0;border-top:1px solid #edf0f4}.table-query legend{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}.table-query label{display:flex;flex-direction:column;gap:.35rem;margin:0;color:#52677b;font-size:.78rem;font-weight:600}.table-query input,.table-query select{box-sizing:border-box;width:100%;max-width:none;padding:.55rem .65rem;border:1px solid #d7e0e8;border-radius:6px;background:#fff;color:#192a41;font:inherit;font-weight:400}.table-query small{align-self:center;color:#718394;font-size:.78rem}.table-query button{padding:.55rem .8rem;border-radius:6px;background:#215f78;cursor:pointer}.table-query button+ a{align-self:center;color:#286a83;font-size:.82rem}.table-grid{overflow:auto;border:1px solid #e3e9f1;border-radius:10px;background:#fff}.table-grid table{min-width:100%;width:max-content;border-collapse:collapse}.table-grid th,.table-grid td{padding:.65rem .8rem;border:0;border-bottom:1px solid #e9eef2;text-align:left;font-size:.84rem}.table-grid th{background:#f7f9fb;color:#697d8e;font-size:.74rem;font-weight:650;white-space:nowrap}.table-grid th a{color:inherit;text-decoration:none}.table-grid tbody tr:hover{background:#f6fafb}.table-grid tbody tr:last-child td{border-bottom:0}.table-page>p{color:#718394;font-size:.83rem}.table-page>p a{margin-right:.5rem;color:#286a83}.table-page>p a.button{background:#215f78;color:#fff}.table-page>h1{margin:.6rem 0;font-size:1.4rem}.table-page>h1+p{max-width:60rem;color:#718394}.table-page>dl{padding:1rem;border:1px solid #e3e9f1;border-radius:9px;background:#fff}.table-page>dl dd{margin:.2rem 0 .8rem;color:#455b70}.table-page>form:not(.table-query form){display:inline}.table-page>form button{background:#a33c3c}.table-page>p:last-child{margin-top:.8rem}@media(max-width:760px){body{padding:0 .65rem}body>nav{margin:0 -.65rem .8rem;padding:.7rem .65rem;gap:.55rem;font-size:.82rem}.table-page{margin:.65rem auto 2rem}.table-heading{flex-direction:column;padding:1rem}.table-heading h1{font-size:1.5rem}.table-actions{flex-wrap:wrap}.table-query{padding:.75rem}.table-query fieldset{grid-template-columns:1fr}}
-</style><section class="table-page"><a class="table-back" href="` + a.projectPath("collections") + `">← Collections</a><header class="table-heading"><div><p class="table-eyebrow">` + esc(group) + ` · TABLE</p><h1>` + esc(meta["label"]) + `</h1><p>` + esc(meta["description"]) + `</p></div><div class="table-actions"><a href="` + a.projectPath("collections", group, table) + `">Collections view</a><a class="button" href="` + base + `/new">＋ New record</a></div></header><details class="table-query"><summary>Filter and analyze records</summary><form method="get"><fieldset><legend>Filters and query</legend>`)
+</style><section class="table-page"><a class="table-back" href="` + a.dataURL() + `">← Data browser</a><header class="table-heading"><div><p class="table-eyebrow">` + esc(group) + ` · TABLE</p><h1>` + esc(meta["label"]) + `</h1><p>` + esc(meta["description"]) + `</p></div><div class="table-actions"><a href="` + htmlAttr(a.dataBrowserURL(group, table)) + `">Data browser</a><a class="button" href="` + base + `/new">＋ New record</a></div></header><details class="table-query"><summary>Filter and analyze records</summary><form method="get"><fieldset><legend>Filters and query</legend>`)
 	writeTableControls(&b, meta, defs, q)
 	b.WriteString(`<button>Apply filters</button> <a href="` + base + `">Clear</a></fieldset></form></details><div class="table-grid"><table><thead><tr>`)
 	records, isRecordList := result["data"].([]map[string]any)
@@ -601,10 +589,46 @@ body{max-width:none;margin:0 auto;padding:0 1.4rem;background:#f4f7fb;color:#192
 
 func (a *app) pageShell(body, title string) string {
 	home := a.projectPath() + "/"
-	dataPath := a.projectPath("collections")
+	dataPath := a.projectPath("data")
+	filesPath := a.projectPath("files")
+	searchPath := a.projectPath("search")
 	helpPath := a.projectPath("help")
 	healthPath := a.projectPath("health")
-	return "<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><link rel=icon type='image/svg+xml' href='/favicon.svg'><title>" + esc(title) + " · Clio</title><style>body{font:16px system-ui,sans-serif;max-width:960px;margin:2rem auto;padding:0 1rem;color:#222}a{color:#165d9c}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:.5rem;text-align:left}label{display:block;margin:1rem 0}input,textarea,select{display:block;max-width:100%;width:28rem;padding:.5rem}textarea{height:8rem}button,.button{padding:.5rem .8rem;background:#165d9c;color:white;border:0;border-radius:3px}dt{font-weight:bold;margin-top:.7rem}pre{overflow:auto;background:#f5f5f5;padding:1rem}nav{border-bottom:1px solid #ddd;padding-bottom:1rem;margin-bottom:2rem}</style><nav><a href='" + home + "'>Clio</a> · <a href='" + dataPath + "'>Data Browser</a> · <a href='" + helpPath + "'>Help</a> · <a href='" + healthPath + "'>Health</a></nav><main>" + body + "</main></html>"
+	return "<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><link rel=icon type='image/svg+xml' href='/favicon.svg'><title>" + esc(title) + " · Clio</title><style>body{font:16px system-ui,sans-serif;max-width:960px;margin:2rem auto;padding:0 1rem;color:#222}a{color:#165d9c}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:.5rem;text-align:left}label{display:block;margin:1rem 0}input,textarea,select{display:block;max-width:100%;width:28rem;padding:.5rem}textarea{height:8rem}button,.button{padding:.5rem .8rem;background:#165d9c;color:white;border:0;border-radius:3px}dt{font-weight:bold;margin-top:.7rem}pre{overflow:auto;background:#f5f5f5;padding:1rem}nav{border-bottom:1px solid #ddd;padding-bottom:1rem;margin-bottom:2rem}</style><nav><a href='" + home + "'>Clio</a> · <a href='" + dataPath + "'>Data browser</a> · <a href='" + filesPath + "'>Files</a> · <a href='" + searchPath + "'>Search</a> · <a href='" + helpPath + "'>Help</a> · <a href='" + healthPath + "'>Health</a></nav><main>" + body + "</main></html>"
+}
+
+// dataBrowserURL builds the client data-browser location for a group and table:
+// /{project}/data?group=...&table=...
+func (a *app) dataBrowserURL(group, table string) string {
+	q := url.Values{}
+	if group != "" {
+		q.Set("group", group)
+	}
+	if table != "" {
+		q.Set("table", table)
+	}
+	u := a.dataURL()
+	if encoded := q.Encode(); encoded != "" {
+		u += "?" + encoded
+	}
+	return u
+}
+
+// projectOverview renders /{project}/: the project home that links the data
+// browser, the file explorer and search (sections 64.14 and 66.5). It replaces
+// the former redirect to /{project}/data.
+func (a *app) projectOverview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		writeAPIError(w, methodNotAllowed())
+		return
+	}
+	d, ae := a.directory("/")
+	if ae != nil {
+		writeErr(w, ae)
+		return
+	}
+	children, _ := d["children"].([]map[string]any)
+	writeHTML(w, http.StatusOK, a.homeHTML(children))
 }
 
 // projectName is the active project for URL building. The zero value (an

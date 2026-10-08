@@ -158,7 +158,7 @@ func (a *app) projectUI(w http.ResponseWriter, r *http.Request) {
 	scoped := a.withProject(project)
 	rest := segments[1:]
 	if len(rest) == 0 {
-		http.Redirect(w, r, scoped.dataHome(), http.StatusFound)
+		scoped.projectOverview(w, r)
 		return
 	}
 	switch rest[0] {
@@ -175,8 +175,8 @@ func (a *app) projectUI(w http.ResponseWriter, r *http.Request) {
 	case "data":
 		scoped.tableUI(w, r, rest[1:])
 		return
-	case "collections":
-		scoped.collectionBrowserUI(w, r, rest[1:])
+	case "search":
+		scoped.searchUI(w, r, rest[1:])
 		return
 	case "files":
 		scoped.contentUI(w, r, rest[1:])

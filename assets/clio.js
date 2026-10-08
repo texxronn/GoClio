@@ -2,7 +2,7 @@
   "use strict";
 
   const apiVersion = "v1";
-  const libraryVersion = "1.0.0";
+  const libraryVersion = "1.1.0";
 
   class ClioError extends Error {
     constructor(status, code, message, body) {
@@ -197,6 +197,48 @@
       const query = queryString({ path });
       return this._request(`${this.apiUrl}/files?${query}`, { method: "DELETE", signal: options && options.signal });
     }
+
+    // files lists the flat content catalog (section 64.4).
+    files(options) {
+      return this._get("/files", options);
+    }
+
+    // search queries the project text index (section 64.7). The result snippet is
+    // plain text with private sentinels; escape it before applying markup.
+    search(query, options) {
+      return this._get("/search", Object.assign({}, options, { q: query }));
+    }
+
+    // getFile reads one content entry by its stable ID (section 64.4).
+    getFile(id, options) {
+      return this._get(`/files/${encodeURIComponent(id)}`, options);
+    }
+
+    // moveFile renames or moves a page, file or directory, preserving IDs
+    // (section 64.4).
+    moveFile(from, to, options) {
+      return this._mutate("POST", "/files/move", { from, to }, options);
+    }
+
+    // copyFile copies an entry, assigning new IDs (section 64.4).
+    copyFile(from, to, options) {
+      return this._mutate("POST", "/files/copy", { from, to }, options);
+    }
+
+    // putFile creates or replaces raw bytes at a path (section 64.4), honoring an
+    // explicit content type. `body` may be a string, Blob or File.
+    putFile(path, body, options) {
+      options = options || {};
+      const query = queryString({ path });
+      const headers = Object.assign({}, options.headers || {});
+      if (options.contentType) headers["Content-Type"] = options.contentType;
+      return this._request(`${this.apiUrl}/files?${query}`, {
+        method: "PUT",
+        body,
+        headers,
+        signal: options.signal
+      });
+    }
   }
 
   async function* iterateRecords(client, recordsPath, options) {
@@ -236,12 +278,12 @@
   });
 
   // browserProject resolves the project a mounted DataBrowser belongs to. The
-  // collection browser lives at /{project}/collections/..., so the project is
-  // the first path segment.
+  // data browser lives at /{project}/data, so the project is the first path
+  // segment.
   function browserProject(options) {
     if (options && options.project) return String(options.project);
     const parts = ((root.location && root.location.pathname) || "").split("/").filter(Boolean);
-    if (parts.length > 1 && parts[1] === "collections") return parts[0];
+    if (parts.length > 1 && parts[1] === "data") return parts[0];
     return "default";
   }
 
@@ -328,11 +370,19 @@
         return Number.isFinite(value) && value > 0 ? Math.floor(value) : 1;
       }
 
+      function browserURL(group, table, page) {
+        const params = new URLSearchParams();
+        if (group) params.set("group", group);
+        if (table) params.set("table", table);
+        if (page > 1) params.set("page", String(page));
+        const query = params.toString();
+        return `/${encodeURIComponent(project)}/data${query ? `?${query}` : ""}`;
+      }
+
       function setURL(group, table, page, replace) {
-        const path = group ? `/${encodeURIComponent(project)}/collections/${encodeURIComponent(group)}${table ? `/${encodeURIComponent(table)}` : ""}` : `/${encodeURIComponent(project)}/collections`;
-        const query = page > 1 ? `?page=${page}` : "";
+        const url = browserURL(group, table, page);
         if (root.history && root.history[replace ? "replaceState" : "pushState"]) {
-          root.history[replace ? "replaceState" : "pushState"]({}, "", `${path}${query}`);
+          root.history[replace ? "replaceState" : "pushState"]({}, "", url);
         }
       }
 
@@ -352,7 +402,7 @@
         for (const table of tables) {
           const item = element("li");
           const link = element("a", table.label || table.name);
-          link.href = `/${encodeURIComponent(project)}/collections/${encodeURIComponent(currentGroup)}/${encodeURIComponent(table.name)}`;
+          link.href = browserURL(currentGroup, table.name, 1);
           if (table.name === currentTable) link.setAttribute("aria-current", "page");
           link.addEventListener("click", (event) => {
             event.preventDefault();
@@ -394,7 +444,7 @@
         const pages = Math.ceil(total / pageSize);
         const addPage = (number, label) => {
           const link = element("a", label || number);
-          link.href = number > 1 ? `?page=${number}` : root.location.pathname;
+          link.href = browserURL(currentGroup, currentTable, number);
           if (number === selected) link.setAttribute("aria-current", "page");
           link.addEventListener("click", (event) => {
             event.preventDefault();
@@ -486,14 +536,12 @@
       }
 
       collectionSelect.addEventListener("change", () => navigate(collectionSelect.value, currentTable, 1));
-      const initialParts = ((root.location && root.location.pathname) || "").split("/").filter(Boolean);
-      const initialCollections = initialParts[1] === "collections";
-      const initialGroup = initialCollections ? initialParts[2] || "" : "";
-      const initialTable = initialCollections ? initialParts[3] || "" : "";
+      const initialParams = new URLSearchParams((root.location && root.location.search) || "");
+      const initialGroup = initialParams.get("group") || "";
+      const initialTable = initialParams.get("table") || "";
       const popstate = () => {
-        const parts = (root.location.pathname || "").split("/").filter(Boolean);
-        const onCollections = parts[1] === "collections";
-        navigate(onCollections ? parts[2] || "" : "", onCollections ? parts[3] || "" : "", selectedPage(), true);
+        const params = new URLSearchParams((root.location && root.location.search) || "");
+        navigate(params.get("group") || "", params.get("table") || "", selectedPage(), true);
       };
       if (root.addEventListener) root.addEventListener("popstate", popstate);
       const ready = navigate(initialGroup, initialTable, selectedPage(), true);
@@ -512,7 +560,378 @@
     }
   };
 
+  // fileBrowserProject resolves the project a mounted FileBrowser belongs to.
+  // The explorer lives at /{project}/files, so the project is the first path
+  // segment.
+  function fileBrowserProject(options) {
+    if (options && options.project) return String(options.project);
+    const parts = ((root.location && root.location.pathname) || "").split("/").filter(Boolean);
+    if (parts.length > 1 && parts[1] === "files") return parts[0];
+    return "default";
+  }
+
+  function normalizeContentPath(value) {
+    let path = String(value == null ? "/" : value).trim();
+    if (path === "" || path === "/") return "/";
+    if (path[0] !== "/") path = "/" + path;
+    return path.replace(/\/+$/, "");
+  }
+
+  function joinContentPath(base, name) {
+    const parent = normalizeContentPath(base);
+    const leaf = String(name == null ? "" : name).replace(/^\/+/, "");
+    if (leaf === "") return parent;
+    return parent === "/" ? "/" + leaf : parent + "/" + leaf;
+  }
+
+  function parentContentPath(value) {
+    const path = normalizeContentPath(value);
+    const index = path.lastIndexOf("/");
+    return index <= 0 ? "/" : path.slice(0, index);
+  }
+
+  function initialFileBrowserPath() {
+    const parts = ((root.location && root.location.pathname) || "").split("/").filter(Boolean);
+    if (parts.length > 2 && parts[1] === "files") return "/" + parts.slice(2).join("/");
+    return "/";
+  }
+
+  function formatBytes(size) {
+    const value = Number(size);
+    if (!Number.isFinite(value) || value < 0) return "";
+    if (value < 1024) return `${value} B`;
+    if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+    return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  // appendHighlighted renders an untrusted search snippet as text, turning only
+  // Clio's private sentinels into <mark> elements. Escaping happens through
+  // textContent (or text nodes), so indexed content cannot inject markup.
+  function appendHighlighted(doc, parent, snippet) {
+    const parts = String(snippet == null ? "" : snippet).split(/(\u27e6|\u27e7)/);
+    let marking = false;
+    for (const part of parts) {
+      if (part === "\u27e6") { marking = true; continue; }
+      if (part === "\u27e7") { marking = false; continue; }
+      if (part === "") continue;
+      if (marking) {
+        const mark = doc.createElement("mark");
+        mark.textContent = part;
+        parent.appendChild(mark);
+      } else if (doc.createTextNode) {
+        parent.appendChild(doc.createTextNode(part));
+      } else {
+        const span = doc.createElement("span");
+        span.textContent = part;
+        parent.appendChild(span);
+      }
+    }
+  }
+
+  const FileBrowser = {
+    mount(target, options) {
+      options = options || {};
+      const doc = root.document;
+      if (!doc) throw new TypeError("Clio.FileBrowser.mount() requires a browser element");
+      const host = typeof target === "string" ? doc.querySelector(target) : target;
+      if (!host) throw new TypeError("Clio.FileBrowser.mount() requires a browser element");
+      const project = fileBrowserProject(options);
+      const client = options.client || new Clio(Object.assign({}, options, { project }));
+      let currentPath = normalizeContentPath(options.path || initialFileBrowserPath());
+      let requestNumber = 0;
+      let destroyed = false;
+
+      const element = (tag, text, className) => {
+        const value = doc.createElement(tag);
+        if (text != null) value.textContent = String(text);
+        if (className) value.className = className;
+        return value;
+      };
+      const ask = (message, value) => (typeof root.prompt === "function" ? root.prompt(message, value) : null);
+      const confirmDelete = (name) => (typeof root.confirm === "function" ? root.confirm(`Delete ${name}?`) : true);
+
+      const toolbar = element("div", null, "fb-toolbar");
+      const searchForm = element("form");
+      const searchInput = element("input");
+      searchInput.type = "search";
+      searchInput.setAttribute("placeholder", "Search pages and files");
+      searchInput.setAttribute("aria-label", "Search pages and files");
+      const searchButton = element("button", "Search");
+      searchButton.type = "submit";
+      searchForm.append(searchInput, searchButton);
+      const newFolderButton = element("button", "New folder");
+      newFolderButton.type = "button";
+      const uploadInput = element("input");
+      uploadInput.type = "file";
+      uploadInput.setAttribute("aria-label", "Upload file");
+      toolbar.append(searchForm, newFolderButton, uploadInput);
+
+      const breadcrumbs = element("nav", null, "fb-breadcrumbs");
+      breadcrumbs.setAttribute("aria-label", "Breadcrumb");
+      const status = element("p", "Loading…", "fb-status");
+      status.setAttribute("role", "status");
+      const layout = element("div", null, "fb-layout");
+      const gutter = element("aside", null, "fb-gutter");
+      gutter.appendChild(element("h2", "Folders"));
+      const gutterList = element("div");
+      gutter.appendChild(gutterList);
+      const contentArea = element("section", null, "fb-content");
+      contentArea.setAttribute("aria-label", "Folder contents");
+      const list = element("div", null, "fb-list");
+      contentArea.appendChild(list);
+      layout.append(gutter, contentArea);
+      host.replaceChildren(toolbar, breadcrumbs, status, layout);
+
+      function setURL(path, replace) {
+        const base = `/${encodeURIComponent(project)}/files`;
+        const url = path === "/" ? base : base + encodeURI(path);
+        const history = root.history;
+        if (history && history[replace ? "replaceState" : "pushState"]) {
+          history[replace ? "replaceState" : "pushState"]({}, "", url);
+        }
+      }
+
+      function drawBreadcrumbs() {
+        breadcrumbs.replaceChildren();
+        const rootLink = element("a", project);
+        rootLink.href = `/${encodeURIComponent(project)}/files`;
+        rootLink.addEventListener("click", (event) => {
+          event.preventDefault();
+          navigate("/", false);
+        });
+        breadcrumbs.appendChild(rootLink);
+        let accumulated = "";
+        for (const part of currentPath.split("/").filter(Boolean)) {
+          accumulated += "/" + part;
+          const target = accumulated;
+          breadcrumbs.appendChild(element("span", "/"));
+          const link = element("a", part);
+          link.href = `/${encodeURIComponent(project)}/files${encodeURI(target)}`;
+          link.addEventListener("click", (event) => {
+            event.preventDefault();
+            navigate(target, false);
+          });
+          breadcrumbs.appendChild(link);
+        }
+      }
+
+      function drawGutter(children) {
+        gutterList.replaceChildren();
+        const directories = children.filter((child) => child.kind === "directory");
+        if (!directories.length) {
+          gutterList.appendChild(element("p", "No subfolders.", "fb-empty"));
+          return;
+        }
+        const nav = element("nav");
+        for (const directory of directories) {
+          const childPath = String(directory.path || joinContentPath(currentPath, directory.name));
+          const link = element("a", directory.name || childPath);
+          link.href = `/${encodeURIComponent(project)}/files${encodeURI(childPath)}`;
+          link.addEventListener("click", (event) => {
+            event.preventDefault();
+            navigate(childPath, false);
+          });
+          nav.appendChild(link);
+        }
+        gutterList.appendChild(nav);
+      }
+
+      function drawEntries(children) {
+        list.replaceChildren();
+        if (!children.length) {
+          list.appendChild(element("p", "This folder is empty.", "fb-empty"));
+          return;
+        }
+        const table = element("table");
+        const head = element("thead");
+        const headingRow = element("tr");
+        for (const label of ["Name", "Kind", "Size", "Actions"]) headingRow.appendChild(element("th", label));
+        head.appendChild(headingRow);
+        table.appendChild(head);
+        const body = element("tbody");
+        for (const child of children) {
+          const name = String(child.name != null ? child.name : child.path || "");
+          const childPath = String(child.path || joinContentPath(currentPath, name));
+          const row = element("tr");
+          const nameCell = element("td");
+          const link = element("a", name);
+          link.href = child.url ? String(child.url) : `/${encodeURIComponent(project)}/files${encodeURI(childPath)}`;
+          if (child.kind === "directory") {
+            link.addEventListener("click", (event) => {
+              event.preventDefault();
+              navigate(childPath, false);
+            });
+          }
+          nameCell.appendChild(link);
+          if (child.id && child.kind !== "directory") {
+            const stable = element("a", "download");
+            stable.href = `/${encodeURIComponent(project)}/files/id/${encodeURIComponent(child.id)}`;
+            stable.setAttribute("aria-label", `Download ${name}`);
+            nameCell.appendChild(doc.createTextNode(" "));
+            nameCell.appendChild(stable);
+          }
+          row.appendChild(nameCell);
+          row.appendChild(element("td", child.kind === "directory" ? "directory" : String(child.kind || "file")));
+          row.appendChild(element("td", formatBytes(child.size)));
+          const actions = element("td");
+          const renameButton = element("button", "Rename");
+          renameButton.type = "button";
+          renameButton.addEventListener("click", () => {
+            const next = ask("New name", name);
+            if (next) renameEntry(childPath, joinContentPath(parentContentPath(childPath), next));
+          });
+          const deleteButton = element("button", "Delete", "fb-danger");
+          deleteButton.type = "button";
+          deleteButton.addEventListener("click", () => {
+            if (confirmDelete(name)) removeEntry(childPath);
+          });
+          actions.append(renameButton, deleteButton);
+          row.appendChild(actions);
+          body.appendChild(row);
+        }
+        table.appendChild(body);
+        list.appendChild(table);
+      }
+
+      function action(promise, failure) {
+        status.className = "fb-status";
+        status.textContent = "Working…";
+        return Promise.resolve(promise).then(
+          () => {
+            if (!destroyed) return navigate(currentPath, true);
+          },
+          (error) => {
+            if (destroyed) return;
+            status.className = "fb-status fb-error";
+            status.textContent = error && error.message ? error.message : (failure || "Request failed.");
+          }
+        );
+      }
+
+      function createFolder(name, parent) {
+        const value = String(name == null ? "" : name).trim();
+        if (!value) return Promise.resolve();
+        return action(client.createDirectory(joinContentPath(parent == null ? currentPath : parent, value)), "Could not create the folder.");
+      }
+
+      function upload(file, name, parent) {
+        if (!file) return Promise.resolve();
+        const fileName = String(name || file.name || "upload");
+        const target = joinContentPath(parent == null ? currentPath : parent, fileName);
+        return action(client.putFile(target, file, { contentType: file.type || "" }), "Could not upload the file.");
+      }
+
+      function renameEntry(from, to) {
+        if (!from || !to || from === to) return Promise.resolve();
+        return action(client.moveFile(from, to), "Could not rename the entry.");
+      }
+
+      function removeEntry(path) {
+        if (!path) return Promise.resolve();
+        return action(client.deleteFile(path), "Could not delete the entry.");
+      }
+
+      async function runSearch(query) {
+        const value = String(query == null ? searchInput.value : query).trim();
+        const request = ++requestNumber;
+        if (!value) return navigate(currentPath, true);
+        status.className = "fb-status";
+        status.textContent = "Searching…";
+        list.replaceChildren();
+        gutterList.replaceChildren();
+        try {
+          const result = await client.search(value);
+          if (destroyed || request !== requestNumber) return;
+          const items = result && Array.isArray(result.data) ? result.data : [];
+          status.textContent = `${items.length} result(s) for “${value}”`;
+          const container = element("div", null, "fb-search-results");
+          for (const item of items) {
+            const article = element("article", null, "fb-result");
+            const link = element("a", item.path);
+            link.href = `/${encodeURIComponent(project)}/files${encodeURI(String(item.path))}`;
+            article.appendChild(link);
+            article.appendChild(element("p", `${item.kind} · ${item.content_type} · ${item.source}`, "fb-result-meta"));
+            const snippet = element("p");
+            appendHighlighted(doc, snippet, item.snippet);
+            article.appendChild(snippet);
+            container.appendChild(article);
+          }
+          if (!items.length) container.appendChild(element("p", "No pages or files matched.", "fb-empty"));
+          list.appendChild(container);
+        } catch (error) {
+          if (destroyed || request !== requestNumber) return;
+          status.className = "fb-status fb-error";
+          status.textContent = error && error.message ? error.message : "Search failed.";
+        }
+      }
+
+      async function navigate(path, replaceURL) {
+        const target = normalizeContentPath(path == null ? "/" : path);
+        const request = ++requestNumber;
+        status.className = "fb-status";
+        status.textContent = "Loading…";
+        try {
+          const node = await client.directory(target);
+          if (destroyed || request !== requestNumber) return;
+          if (!node || node.kind !== "directory") {
+            const parent = parentContentPath(target);
+            if (parent !== target) return navigate(parent, replaceURL);
+            throw new TypeError("Path is not a directory");
+          }
+          currentPath = normalizeContentPath(node.path || target);
+          const children = Array.isArray(node.children) ? node.children : [];
+          drawBreadcrumbs();
+          drawGutter(children);
+          drawEntries(children);
+          status.textContent = `${children.length} item(s)`;
+          searchInput.value = "";
+          setURL(currentPath, replaceURL === true);
+        } catch (error) {
+          if (destroyed || request !== requestNumber) return;
+          status.className = "fb-status fb-error";
+          status.textContent = error && error.message ? error.message : "Unable to load this folder.";
+        }
+      }
+
+      searchForm.addEventListener("submit", (event) => {
+        if (event && event.preventDefault) event.preventDefault();
+        runSearch(searchInput.value);
+      });
+      newFolderButton.addEventListener("click", () => {
+        const name = ask("Folder name", "");
+        if (name) createFolder(name, currentPath);
+      });
+      uploadInput.addEventListener("change", () => {
+        const files = uploadInput.files ? Array.prototype.slice.call(uploadInput.files) : [];
+        let chain = Promise.resolve();
+        for (const file of files) chain = chain.then(() => upload(file, file.name, currentPath));
+        chain.then(() => navigate(currentPath, true));
+      });
+      const popstate = () => navigate(initialFileBrowserPath(), true);
+      if (root.addEventListener) root.addEventListener("popstate", popstate);
+
+      const ready = navigate(currentPath, true);
+      return {
+        ready,
+        get path() { return currentPath; },
+        refresh() { return navigate(currentPath, true); },
+        navigate(path) { return navigate(path, false); },
+        search(query) { return runSearch(query); },
+        createFolder(name, parent) { return createFolder(name, parent); },
+        upload(file, name, parent) { return upload(file, name, parent); },
+        rename(from, to) { return renameEntry(from, to); },
+        remove(path) { return removeEntry(path); },
+        destroy() {
+          destroyed = true;
+          if (root.removeEventListener) root.removeEventListener("popstate", popstate);
+          host.replaceChildren();
+        }
+      };
+    }
+  };
+
   Object.defineProperty(Clio, "DataBrowser", { value: DataBrowser, enumerable: true });
+  Object.defineProperty(Clio, "FileBrowser", { value: FileBrowser, enumerable: true });
 
   root.Clio = Clio;
 })(typeof window !== "undefined" ? window : globalThis);

@@ -132,8 +132,29 @@ than the product.
   offers a choose control listing the project's files, and the record view links
   the attachment through `/{project}/files/id/{id}`. The link survives rename
   and move because it stores the stable ID.
+- Human UI (spec v1.7 §35/§64.14/§66.5): the read-only collection data browser
+  moved from `/{project}/collections/...` to `/{project}/data`, carrying the
+  selected group, table and page in the URL query string, while the
+  server-rendered table UI and forms stay at `/{project}/data/{group}/{table}`.
+  A server-rendered file explorer shell at `/{project}/files` mounts
+  `Clio.FileBrowser.mount(element)` over the files and search APIs, with a
+  directory gutter, breadcrumbs, URL state and light actions (new folder,
+  upload, rename/move, delete); `409 Conflict` responses from referenced
+  entries are surfaced. `/{project}/` is now a project overview that links the
+  data browser, the file explorer and search instead of redirecting to
+  `/{project}/data`. A human search page at `/{project}/search` renders escaped
+  result snippets over the search API. Names, paths and snippets are rendered
+  as text; the search snippet is escaped before its private sentinels become
+  highlight markup. `Clio.version` is now `1.1.0`; the file helpers gain
+  `files`, `search`, `getFile`, `moveFile`, `copyFile` and `putFile`.
 
 ### Changed
+
+- **Route re-scope:** the collection data browser is now at `/{project}/data`
+  with query-string state rather than `/{project}/collections/...`, and
+  `/{project}/` serves the project overview rather than redirecting to
+  `/{project}/data`. The reserved content root `/collections` is unchanged
+  (section 32.3).
 
 - **Breaking route change:** the Page API and the directory facade are removed
   (spec v1.7 §66.2/§66.10). `POST /api/v1/{project}/files/pages`,
