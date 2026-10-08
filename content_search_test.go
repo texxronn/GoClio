@@ -109,10 +109,8 @@ func TestContentSearchIndexesWritesAndDrops(t *testing.T) {
 		t.Errorf("image-only PDF was indexed: %#v", row)
 	}
 
-	// A page created through the page API is indexed too.
-	page := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", map[string]any{
-		"path": "/docs/p.md", "content_type": "text/markdown", "content": "# Alpha heading",
-	}, "application/json")
+	// A page created through the files API is indexed too.
+	page := testRequest(t, a, http.MethodPut, filesURL("default", "/docs/p.md"), "# Alpha heading", "text/markdown")
 	if page.Code != http.StatusCreated {
 		t.Fatalf("create page: %d %s", page.Code, page.Body.String())
 	}

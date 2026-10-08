@@ -45,10 +45,13 @@ const context = {
       body = { error: "not_found", message: "Record not found" };
     } else if (method === "POST" || method === "PATCH") {
       body = JSON.parse(options.body);
-    } else if (parsed.pathname.endsWith("/pages")) {
-      body = { path: parsed.searchParams.get("path"), content: "# Hi", content_type: "text/markdown" };
-    } else if (parsed.pathname.endsWith("/directories")) {
-      body = { path: parsed.searchParams.get("path"), children: [] };
+    } else if (parsed.pathname.endsWith("/files")) {
+      const p = parsed.searchParams.get("path");
+      body = p === "/reports/latest.md"
+        ? { id: "file-1", path: p, kind: "page", content_type: "text/markdown" }
+        : { path: p, kind: "directory", children: [] };
+    } else if (parsed.pathname.endsWith("/content")) {
+      body = "# Hi";
     } else if (parsed.pathname.endsWith("/metadata")) {
       body = { api_version: "v1", groups: [] };
     } else if (parsed.pathname.endsWith("/groups/pool/tables/measurements")) {
@@ -122,6 +125,15 @@ async function main() {
 
   assert.equal((await clio.page("/reports/latest.md")).content, "# Hi");
   assert.equal((await clio.directory("/reports")).path, "/reports");
+
+  await clio.publishPage({ path: "/reports/new.md", content: "# New", content_type: "text/markdown" });
+  assert.equal(requests.at(-1).options.method, "PUT");
+  assert.match(requests.at(-1).url, /\/files\?path=%2Freports%2Fnew\.md$/);
+  assert.equal(requests.at(-1).options.body, "# New");
+  assert.equal(requests.at(-1).options.headers["Content-Type"], "text/markdown");
+  await clio.deletePage("/reports/new.md");
+  assert.equal(requests.at(-1).options.method, "DELETE");
+  assert.match(requests.at(-1).url, /\/files\?path=%2Freports%2Fnew\.md$/);
 
   const browserHost = new Element("div");
   const browser = Clio.DataBrowser.mount(browserHost, { pageSize: 2 });

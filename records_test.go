@@ -722,36 +722,37 @@ func TestTimeseriesNormalizesUTCAndBucketsWeeks(t *testing.T) {
 	}
 }
 
-func TestPageAPIRoundTripAndPathSafety(t *testing.T) {
+func TestFilePageRoundTripAndPathSafety(t *testing.T) {
 	a := newTestApp(t)
-	created := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", map[string]any{"path": "/reports/latest.md", "content_type": "text/markdown", "content": "# Report\n\n<script>alert(1)</script>"}, "application/json")
+	created := testRequest(t, a, http.MethodPut, filesURL("default", "/reports/latest.md"), "# Report\n\n<script>alert(1)</script>", "text/markdown")
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create page status = %d, want 201: %s", created.Code, created.Body.String())
 	}
-	read := testRequest(t, a, http.MethodGet, "/api/v1/default/files/pages?path="+url.QueryEscape("/reports/latest.md"), nil, "")
-	if read.Code != http.StatusOK {
-		t.Fatalf("read page status = %d, want 200", read.Code)
+	var entry map[string]any
+	testJSON(t, created, &entry)
+	id, _ := entry["id"].(string)
+	if entry["kind"] != "page" || entry["content_type"] != "text/markdown" {
+		t.Fatalf("page entry = %#v", entry)
 	}
-	var page map[string]any
-	testJSON(t, read, &page)
-	if page["content"] != "# Report\n\n<script>alert(1)</script>" || page["content_type"] != "text/markdown" {
-		t.Fatalf("page API did not return original source: %#v", page)
+	read := testRequest(t, a, http.MethodGet, "/api/v1/default/files/"+id+"/content", nil, "")
+	if read.Code != http.StatusOK || read.Body.String() != "# Report\n\n<script>alert(1)</script>" {
+		t.Fatalf("stored page source = %d %q", read.Code, read.Body.String())
 	}
 
 	rendered := testRequest(t, a, http.MethodGet, "/default/files/reports/latest.md", nil, "")
 	if rendered.Code != http.StatusOK || !strings.Contains(rendered.Body.String(), `class="published-markdown"`) || !strings.Contains(rendered.Body.String(), "&lt;script&gt;") || strings.Contains(rendered.Body.String(), "<script>alert(1)</script>") {
 		t.Fatalf("Markdown page was not safely rendered: status=%d body=%s", rendered.Code, rendered.Body.String())
 	}
-	traversal := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", map[string]any{"path": "/../escape.md", "content_type": "text/markdown", "content": "bad"}, "application/json")
+	traversal := testRequest(t, a, http.MethodPut, filesURL("default", "/../escape.md"), "bad", "text/markdown")
 	if traversal.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("page traversal status = %d, want 422", traversal.Code)
 	}
-	tooLarge := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", strings.Repeat("x", int(bodyLimit+1)), "application/json")
+	tooLarge := testRequest(t, a, http.MethodPut, filesURL("default", "/reports/large.md"), strings.Repeat("x", int(fileUploadLimit+1)), "text/markdown")
 	if tooLarge.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversized request status = %d, want 413", tooLarge.Code)
 	}
 
-	htmlPage := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", map[string]any{"path": "/reports/trusted.html", "content_type": "text/html", "content": "<h1>Trusted</h1><script>run()</script>"}, "application/json")
+	htmlPage := testRequest(t, a, http.MethodPut, filesURL("default", "/reports/trusted.html"), "<h1>Trusted</h1><script>run()</script>", "text/html")
 	if htmlPage.Code != http.StatusCreated {
 		t.Fatalf("create HTML page status = %d, want 201", htmlPage.Code)
 	}
@@ -834,27 +835,27 @@ func TestDirectoryZipUploadPreservesPathsAndRejectsTraversal(t *testing.T) {
 	}
 }
 
-func TestDirectoryAPIListAndDelete(t *testing.T) {
+func TestFilesDirectoryListAndDelete(t *testing.T) {
 	a := newTestApp(t)
 	createTestGroup(t, a, "pool")
 	if _, ae := a.createDirectory("/pool"); ae != nil {
 		t.Fatalf("create test directory: %v", ae)
 	}
-	created := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", map[string]any{"path": "/pool/note.md", "content_type": "text/markdown", "content": "note"}, "application/json")
+	created := testRequest(t, a, http.MethodPut, filesURL("default", "/pool/note.md"), "note", "text/markdown")
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create page status = %d, want 201", created.Code)
 	}
-	listing := testRequest(t, a, http.MethodGet, "/api/v1/default/files/directories?path=%2Fpool", nil, "")
+	listing := testRequest(t, a, http.MethodGet, filesURL("default", "/pool"), nil, "")
 	if listing.Code != http.StatusOK {
 		t.Fatalf("list directory status = %d, want 200", listing.Code)
 	}
 	var directory map[string]any
 	testJSON(t, listing, &directory)
 	children := directory["children"].([]any)
-	if len(children) != 1 || children[0].(map[string]any)["name"] != "note.md" {
+	if len(children) != 1 || children[0].(map[string]any)["path"] != "/pool/note.md" {
 		t.Fatalf("unexpected directory children: %#v", children)
 	}
-	deleted := testRequest(t, a, http.MethodDelete, "/api/v1/default/files/directories?path=%2Fpool", nil, "")
+	deleted := testRequest(t, a, http.MethodDelete, filesURL("default", "/pool"), nil, "")
 	if deleted.Code != http.StatusNoContent {
 		t.Fatalf("delete directory status = %d, want 204", deleted.Code)
 	}

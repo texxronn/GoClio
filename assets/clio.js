@@ -143,14 +143,26 @@
       return table;
     }
 
+    // directory returns the files-partition directory or entry node at a path.
     directory(path, options) {
-      options = Object.assign({}, options, { path });
-      return this._get("/files/directories", options);
+      return this._get("/files", Object.assign({}, options, { path }));
     }
 
-    page(path, options) {
-      options = Object.assign({}, options, { path });
-      return this._get("/files/pages", options);
+    // page returns a page's metadata and its original source bytes, composed
+    // from the files partition: the entry is resolved by path, then its stored
+    // bytes are read from the stable content URL (section 66.7).
+    async page(path, options) {
+      const entry = await this._get("/files", Object.assign({}, options, { path }));
+      if (entry && entry.id && entry.kind !== "directory") {
+        const content = await this.fileContent(entry.id, options);
+        return Object.assign({}, entry, { content });
+      }
+      return entry;
+    }
+
+    // fileContent returns the raw stored bytes (as text) of an entry by ID.
+    fileContent(id, options) {
+      return this._request(`${this.apiUrl}/files/${encodeURIComponent(id)}/content`, { signal: options && options.signal });
     }
 
     createDirectory(path, options) {
@@ -158,17 +170,32 @@
     }
 
     deleteDirectory(path, options) {
-      const query = queryString({ path });
-      return this._request(`${this.apiUrl}/files/directories?${query}`, { method: "DELETE", signal: options && options.signal });
+      return this.deleteFile(path, options);
     }
 
+    // publishPage creates or replaces a page with PUT /files?path=, sending the
+    // source as raw bytes (section 66.7).
     publishPage(value, options) {
-      return this._mutate("POST", "/files/pages", value, options);
+      value = value || {};
+      const path = value.path;
+      const contentType = value.content_type || (String(path).endsWith(".html") ? "text/html" : "text/markdown");
+      const query = queryString({ path });
+      return this._request(`${this.apiUrl}/files?${query}`, {
+        method: "PUT",
+        body: value.content == null ? "" : String(value.content),
+        headers: { "Content-Type": contentType },
+        signal: options && options.signal
+      });
     }
 
     deletePage(path, options) {
+      return this.deleteFile(path, options);
+    }
+
+    // deleteFile deletes a page, file or directory subtree by path.
+    deleteFile(path, options) {
       const query = queryString({ path });
-      return this._request(`${this.apiUrl}/files/pages?${query}`, { method: "DELETE", signal: options && options.signal });
+      return this._request(`${this.apiUrl}/files?${query}`, { method: "DELETE", signal: options && options.signal });
     }
   }
 

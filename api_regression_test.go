@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,51 +56,45 @@ func TestAPIRequestAndQueryErrors(t *testing.T) {
 	assertAPIError(t, testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups?bad=%zz", nil, ""), http.StatusBadRequest)
 }
 
-func TestPageAPIUpdateDeleteAndValidation(t *testing.T) {
+func TestFilesPageCreateReplaceDeleteAndValidation(t *testing.T) {
 	a := newTestApp(t)
-	create := func(path, contentType, content string) *httptest.ResponseRecorder {
-		return testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", map[string]any{"path": path, "content_type": contentType, "content": content}, "application/json")
-	}
-	for _, test := range []struct {
-		path, contentType string
-	}{
-		{"/note.txt", "text/plain"},
-		{"/note.md", "text/html"},
-		{"/api/note.md", "text/markdown"},
-	} {
-		assertAPIError(t, create(test.path, test.contentType, "invalid"), http.StatusUnprocessableEntity)
-	}
-	assertAPIError(t, testRequest(t, a, http.MethodGet, "/api/v1/default/files/pages", nil, ""), http.StatusUnprocessableEntity)
-	assertAPIError(t, testRequest(t, a, http.MethodGet, "/api/v1/default/files/pages?path=%2Fmissing.md", nil, ""), http.StatusNotFound)
+	assertAPIError(t, testRequest(t, a, http.MethodPut, filesURL("default", "/../escape.md"), "x", "text/markdown"), http.StatusUnprocessableEntity)
+	assertAPIError(t, testRequest(t, a, http.MethodPut, filesURL("default", "/api/note.md"), "x", "text/markdown"), http.StatusUnprocessableEntity)
+	assertAPIError(t, testRequest(t, a, http.MethodGet, filesURL("default", "/missing.md"), nil, ""), http.StatusNotFound)
 
-	created := create("/reports/current.md", "text/markdown", "first")
+	created := testRequest(t, a, http.MethodPut, filesURL("default", "/reports/current.md"), "first", "text/markdown")
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create page status = %d, want 201: %s", created.Code, created.Body.String())
 	}
 	var original map[string]any
 	testJSON(t, created, &original)
-	updated := create("/reports/current.md", "text/markdown", "second")
+	updated := testRequest(t, a, http.MethodPut, filesURL("default", "/reports/current.md"), "second", "text/markdown")
 	if updated.Code != http.StatusOK {
-		t.Fatalf("update page status = %d, want 200: %s", updated.Code, updated.Body.String())
+		t.Fatalf("replace page status = %d, want 200: %s", updated.Code, updated.Body.String())
 	}
 	var changed map[string]any
 	testJSON(t, updated, &changed)
-	if changed["content"] != "second" || changed["created_at"] != original["created_at"] || changed["updated_at"] == nil {
-		t.Fatalf("page update did not preserve creation metadata and update content: before=%#v after=%#v", original, changed)
+	if changed["id"] != original["id"] || changed["created_at"] != original["created_at"] || changed["updated_at"] == nil {
+		t.Fatalf("page replace did not preserve identity/timestamps: before=%#v after=%#v", original, changed)
 	}
-	remove := testRequest(t, a, http.MethodDelete, "/api/v1/default/files/pages?path="+url.QueryEscape("/reports/current.md"), nil, "")
+	// Replaced source is served as raw bytes from the stable content URL.
+	stored := testRequest(t, a, http.MethodGet, "/api/v1/default/files/"+changed["id"].(string)+"/content", nil, "")
+	if stored.Code != http.StatusOK || stored.Body.String() != "second" {
+		t.Fatalf("stored page content = %d %q, want 200 %q", stored.Code, stored.Body.String(), "second")
+	}
+	remove := testRequest(t, a, http.MethodDelete, filesURL("default", "/reports/current.md"), nil, "")
 	if remove.Code != http.StatusNoContent {
 		t.Fatalf("delete page status = %d, want 204: %s", remove.Code, remove.Body.String())
 	}
-	assertAPIError(t, testRequest(t, a, http.MethodGet, "/api/v1/default/files/pages?path=%2Freports%2Fcurrent.md", nil, ""), http.StatusNotFound)
-	assertAPIError(t, testRequest(t, a, http.MethodDelete, "/api/v1/default/files/pages", nil, ""), http.StatusUnprocessableEntity)
+	assertAPIError(t, testRequest(t, a, http.MethodGet, filesURL("default", "/reports/current.md"), nil, ""), http.StatusNotFound)
+	assertAPIError(t, testRequest(t, a, http.MethodDelete, "/api/v1/default/files", nil, ""), http.StatusUnprocessableEntity)
 }
 
-func TestDirectoryAPIPathAndRootGuards(t *testing.T) {
+func TestFilesPathAndRootGuards(t *testing.T) {
 	a := newTestApp(t)
-	assertAPIError(t, testRequest(t, a, http.MethodDelete, "/api/v1/default/files/directories?path=%2F", nil, ""), http.StatusUnprocessableEntity)
-	assertAPIError(t, testRequest(t, a, http.MethodDelete, "/api/v1/default/files/directories", nil, ""), http.StatusUnprocessableEntity)
-	assertAPIError(t, testRequest(t, a, http.MethodGet, "/api/v1/default/files/directories?path=%2Fmissing", nil, ""), http.StatusNotFound)
+	assertAPIError(t, testRequest(t, a, http.MethodDelete, filesURL("default", "/"), nil, ""), http.StatusConflict)
+	assertAPIError(t, testRequest(t, a, http.MethodDelete, "/api/v1/default/files", nil, ""), http.StatusUnprocessableEntity)
+	assertAPIError(t, testRequest(t, a, http.MethodGet, filesURL("default", "/missing"), nil, ""), http.StatusNotFound)
 	assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories", `{"path":"/reports/"}`, "application/json"), http.StatusUnprocessableEntity)
 	assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories", `{"path":"/api/private"}`, "application/json"), http.StatusUnprocessableEntity)
 	created := testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories", map[string]any{"path": "/reports"}, "application/json")
@@ -109,7 +102,7 @@ func TestDirectoryAPIPathAndRootGuards(t *testing.T) {
 		t.Fatalf("create directory status = %d, want 201", created.Code)
 	}
 	assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories", map[string]any{"path": "/reports"}, "application/json"), http.StatusConflict)
-	page := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", map[string]any{"path": "/block.md", "content_type": "text/markdown", "content": "blocked"}, "application/json")
+	page := testRequest(t, a, http.MethodPut, filesURL("default", "/block.md"), "blocked", "text/markdown")
 	if page.Code != http.StatusCreated {
 		t.Fatalf("create blocking page status = %d, want 201", page.Code)
 	}

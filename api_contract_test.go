@@ -104,7 +104,7 @@ func TestHealthCountsAndVersion(t *testing.T) {
 	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories", `{"path":"/reports"}`, "application/json"); w.Code != http.StatusCreated {
 		t.Fatalf("create directory: %d", w.Code)
 	}
-	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", `{"path":"/reports/summary.md","content_type":"text/markdown","content":"# S"}`, "application/json"); w.Code != http.StatusCreated {
+	if w := testRequest(t, a, http.MethodPut, filesURL("default", "/reports/summary.md"), "# S", "text/markdown"); w.Code != http.StatusCreated {
 		t.Fatalf("create page: %d", w.Code)
 	}
 

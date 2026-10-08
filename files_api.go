@@ -52,6 +52,50 @@ func (a *app) filesCollection(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, node)
 }
 
+// createDirectoryAPI serves POST /api/v1/{project}/files/directories: a JSON
+// directory create or, when the body is a ZIP archive, a directory-tree upload
+// (sections 38 and 44 folded into the files partition, sections 66.2 and 66.7).
+func (a *app) createDirectoryAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeAPIError(w, missing("Endpoint"))
+		return
+	}
+	if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/zip") {
+		a.uploadZip(w, r, r.URL.Query().Get("path"))
+		return
+	}
+	input, ae := readJSON(r, bodyLimit)
+	if ae != nil {
+		writeErr(w, ae)
+		return
+	}
+	raw, ok := input["path"].(string)
+	if !ok || raw == "" {
+		writeAPIError(w, invalid("path is required"))
+		return
+	}
+	clean, ae := canonicalContentPath(raw)
+	if ae != nil {
+		writeErr(w, ae)
+		return
+	}
+	if clean == "/" {
+		writeAPIError(w, conflict("Root directory already exists"))
+		return
+	}
+	created, ae := a.createDirectory(clean)
+	if ae != nil {
+		writeErr(w, ae)
+		return
+	}
+	v, ae := a.contentNode(created, 100, 0)
+	if ae != nil {
+		writeErr(w, ae)
+		return
+	}
+	writeJSON(w, http.StatusCreated, v)
+}
+
 // listFiles is the paged flat catalog with optional prefix, content_type and
 // kind filters (section 64.4).
 func (a *app) listFiles(w http.ResponseWriter, r *http.Request) {

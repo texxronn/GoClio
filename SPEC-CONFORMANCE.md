@@ -21,7 +21,7 @@ through HTTP and use temporary SQLite databases and content directories.
 | §14.1–§14.3 exact numeric values | `TestSQLQueriesPreserveExactNumericSemantics`, `TestQuerySQLCollationsPreserveTypedOrdering` |
 | §12/§29/§29.1–§29.3 time-series ranges and buckets | `TestTimeseriesNormalizesUTCAndBucketsWeeks`, `TestTimeseriesTableUITimeRangeAndBuckets` |
 | §32–§34 URL namespaces, table UI and forms | `TestTableUIRootGroupEditDeleteAndErrors`, `TestTableUIGroupingAggregationFilteringAndPaging`, `TestGenericTableFormsAndOperationalPages` |
-| §36–§41 content tree, directories, pages | `TestDirectoryAPICreationStillWorks`, `TestDirectoryAPIListAndDelete`, `TestPageAPIRoundTripAndPathSafety`, `TestPageAPIUpdateDeleteAndValidation`, `TestContentPathValidation`, `TestContentResourceIdentity`, `TestDirectoryChildrenAndContentUI` |
+| §36–§41 content tree, directories, pages | `TestFilesDirectoryCreation`, `TestFilesDirectoryListAndDelete`, `TestFilePageRoundTripAndPathSafety`, `TestFilesPageCreateReplaceDeleteAndValidation`, `TestContentPathValidation`, `TestContentResourceIdentity`, `TestDirectoryChildrenAndContentUI` |
 | §38/§38.1 directory creation from the browser | `TestDirectoryUIShowsCreateForm`, `TestDirectoryUIPostCreatesChildAndRedirects`, `TestDirectoryUIPostCreatesRootChild`, `TestDirectoryUIPostRejectsInvalidAndExistingNames` |
 | §44/§44.1–§44.3 directory-tree upload | `TestDirectoryZipUploadPreservesPathsAndRejectsTraversal`, `TestDirectoryZipRejectsCompressedAndEntryCountLimits`, `TestDirectoryZipRejectsTotalExpandedSize`, `TestDirectoryZipRejectsExpandedFileLimit`, `TestZipResponseBodyAndNoTopLevelStripping`, `TestZipEdgeRejections` |
 | §42/§55 Markdown subset, safety and UI escaping | `TestMarkdownSubsetRendering`, `TestMarkdownAssetContract`, `TestRecordValuesEscapedInUI`, `TestHiddenFieldsOmittedFromUI` |
@@ -36,7 +36,7 @@ through HTTP and use temporary SQLite databases and content directories.
 | §35 collection data browser | `TestCollectionBrowserRoutes` |
 | §65.1–§65.2/§65.5/§65.7, §66.3–§66.4 projects model, API, storage scope and reserved names | `TestProjectCreateListReadDelete`, `TestProjectReservedNamesAndValidation`, `TestProjectDeleteRejectsNonEmpty`, `TestHealthReportsProjectCount`, `TestOpenDatabaseMigratesLegacyTablesToProjectScope` |
 | §64.2 content entries and identity | `TestContentEntryIdentityStableAcrossReplace`, `TestContentReconciliationAddsAndRemoves`, `TestContentEntriesMigrationFromPageTimes`, `TestContentLayoutMigrationMovesLegacyRoot`, `TestFilesCRUDByPathAndID`, `TestFilesMoveAndCopy` |
-| §64.4 filesystem REST API | `TestFilesCRUDByPathAndID`, `TestFilesDirectoryListingAndPageKind`, `TestFilesListFiltersAndPaging`, `TestFilesMoveAndCopy`, `TestFilesConflictsAndReservedSegment`, `TestFilesDeleteByPathRemovesSubtree`, `TestFilesUploadLimitAndTraversal`, `TestFilesRescanSummary`, `TestFilesProjectIsolation` |
+| §64.4 filesystem REST API | `TestFilesCRUDByPathAndID`, `TestFilesDirectoryListingAndPageKind`, `TestFilesDirectoryCreation`, `TestFilesListFiltersAndPaging`, `TestFilesMoveAndCopy`, `TestFilesConflictsAndReservedSegment`, `TestFilesDeleteByPathRemovesSubtree`, `TestFilesUploadLimitAndTraversal`, `TestFilesRescanSummary`, `TestFilesProjectIsolation` |
 | §64.3/§64.5/§66.9 stable URLs and file serving | `TestFileContentDownloadHeadersAndRanges`, `TestStableHumanURLDownloadsRawPageBytes`, `TestPathURLNonPageDownloads`, `TestFileContentMissingIDReturnsNotFound`, `TestFileContentIsProjectScoped`, `TestStableHumanURLMissingAndMethodRestrictions` |
 | §64.6 native extraction and the text index | `TestNativeExtractionPerType`, `TestNativeExtractionCapsIndexedText`, `TestFTS5Available`, `TestContentSearchIndexesWritesAndDrops`, `TestContentSearchRebuiltByRescan`, `TestContentSearchMoveKeepsIDAndPath`, `TestContentSearchProjectScoped`, `TestFilesRepresentationReportsIndexedState` |
 | §64.7 search API | `TestSearchReturnsRankedResultsAndShape`, `TestSearchSnippetsArePlainTextWithSentinels`, `TestSearchPagingIsDeterministic`, `TestSearchRejectsEmptyAndOversizedAndBadPaging`, `TestSearchTreatsOperatorsAsLiterals`, `TestBuildMatchQueryQuotesAndPrefix`, `TestSearchIsProjectScoped`, `TestSearchReportsIndexSourceAndContentType` |
@@ -44,6 +44,7 @@ through HTTP and use temporary SQLite databases and content directories.
 | §64.9 attachment fields | `TestAttachmentFieldNormalizationAndMetadata`, `TestAttachmentValidationOnCreateUpdateAndDefault`, `TestAttachmentDefaultValidation`, `TestAttachmentRejectsCrossProjectEntries`, `TestAttachmentDeleteIntegrity`, `TestAttachmentDeleteIntegrityDirectorySubtree`, `TestAttachmentSurvivesRenameAndMove`, `TestAttachmentFilterSortAndDistinct`, `TestAttachmentFormAndRecordRendering` |
 | §65.3 project data scoping and isolation | `TestProjectDataIsolation`, `TestContentIsolationBetweenProjects` |
 | §66.1/§66.3/§66.5–§66.6 project-first routing, instance routes and the data partition | `TestBareRoutesRedirectToDefaultProject`, `TestUnknownProjectReturnsNotFound`, `TestProjectScopedHumanAndAPIRoutes` |
+| §66.2/§66.7 files partition replaces the Page and Directory APIs | `TestLegacyPageAndDirectoryRoutesRemoved`, `TestFilesPageCreateReplaceDeleteAndValidation`, `TestFilePageRoundTripAndPathSafety`, `TestFilesDirectoryCreation` |
 
 ## Verification commands
 
@@ -70,4 +71,4 @@ above as its tests land.
 | §64.10 WebDAV | optional flag; method set including MOVE/COPY; ID preservation; auth enforcement |
 | §64.11 backup and restore | restored database plus content reproduces IDs, timestamps and agent text |
 | §64.14 web file explorer | `/files` shell and reserved route; ClioJS `Clio.FileBrowser`; breadcrumbs and URL state; upload/rename/delete actions; referenced-entry `409`; escaped search snippets |
-| §66 project-scoped URL scheme and partitions | remaining: WebDAV at both `/api/v1/{project}/files/dav` and `/{project}/files/dav`; Page and Directory APIs replaced |
+| §66 project-scoped URL scheme and partitions | remaining: WebDAV at both `/api/v1/{project}/files/dav` and `/{project}/files/dav` |

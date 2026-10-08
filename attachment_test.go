@@ -199,8 +199,6 @@ func TestAttachmentDeleteIntegrity(t *testing.T) {
 
 	assertAPIError(t, testRequest(t, a, http.MethodDelete, "/api/v1/default/files/"+id, nil, ""), http.StatusConflict)
 	assertAPIError(t, testRequest(t, a, http.MethodDelete, "/api/v1/default/files?path=%2Fdocs%2Finvoice.pdf", nil, ""), http.StatusConflict)
-	// The legacy page facade enforces the same rule.
-	assertAPIError(t, testRequest(t, a, http.MethodDelete, "/api/v1/default/files/pages?path=%2Fdocs%2Finvoice.pdf", nil, ""), http.StatusConflict)
 	if w := testRequest(t, a, http.MethodGet, "/default/files/id/"+id, nil, ""); w.Code != http.StatusOK || w.Body.String() != "PDF" {
 		t.Fatalf("referenced file is not still served: status=%d body=%q", w.Code, w.Body.String())
 	}
@@ -233,7 +231,6 @@ func TestAttachmentDeleteIntegrityDirectorySubtree(t *testing.T) {
 	createTestRecord(t, a, "billing", "invoices", map[string]any{"invoice": child["id"].(string)})
 
 	assertAPIError(t, testRequest(t, a, http.MethodDelete, "/api/v1/default/files?path=%2Farchive", nil, ""), http.StatusConflict)
-	assertAPIError(t, testRequest(t, a, http.MethodDelete, "/api/v1/default/files/directories?path=%2Farchive", nil, ""), http.StatusConflict)
 
 	// An unreferenced sibling is still deletable while the directory is blocked.
 	if w := testRequest(t, a, http.MethodDelete, "/api/v1/default/files?path=%2Farchive%2Fnotes.txt", nil, ""); w.Code != http.StatusNoContent {
