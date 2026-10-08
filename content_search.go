@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"os"
+	"path"
 	"strings"
 )
 
@@ -92,7 +93,10 @@ func (a *app) indexContentFile(id, entryPath, kind, contentType, diskPath string
 
 // applyContentRename updates an entry's path and its index rows in one
 // transaction: a regular file by ID, or a directory subtree by path prefix
-// (section 64.2). Every descendant ID is preserved.
+// (section 64.2). Every descendant ID is preserved. A regular-file rename also
+// refreshes the index row's kind and title from the new path, and re-extracts
+// native text when the extension changes; an agent row survives unchanged bytes
+// (sections 64.6 and 64.8).
 func (a *app) applyContentRename(id, from, to, kind, contentType string, subtree bool) error {
 	tx, err := a.db.Begin()
 	if err != nil {
@@ -107,6 +111,8 @@ func (a *app) applyContentRename(id, from, to, kind, contentType string, subtree
 			tx.Rollback()
 			return err
 		}
+		// A directory move changes only the prefix, so a descendant's basename,
+		// kind and title are unchanged.
 		if _, err = tx.Exec(
 			`UPDATE content_search SET path=? || substr(path,?) WHERE project=? AND (path=? OR substr(path,1,?)=?)`,
 			to, shift, a.project, from, shift, from+"/",
@@ -122,10 +128,34 @@ func (a *app) applyContentRename(id, from, to, kind, contentType string, subtree
 			tx.Rollback()
 			return err
 		}
-		if _, err = tx.Exec(`UPDATE content_search SET path=? WHERE project=? AND path=?`, to, a.project, from); err != nil {
+		// Refresh the index row's path and its metadata from the new path so
+		// search never reports a page as a file or matches the old basename.
+		if _, err = tx.Exec(
+			`UPDATE content_search SET path=?,kind=?,title=? WHERE project=? AND path=?`,
+			to, kind, path.Base(to), a.project, from,
+		); err != nil {
 			tx.Rollback()
 			return err
 		}
 	}
-	return tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	// When a regular-file rename changes the extension, re-extract native text
+	// from the new path. indexNativeText leaves an existing agent row in place,
+	// so enrichment survives an unchanged-bytes rename (section 64.8).
+	if !subtree && !extensionEqual(from, to) {
+		if diskPath, ae := a.contentPath(to); ae == nil {
+			if err = a.indexContentFile(id, to, kind, contentType, diskPath); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// extensionEqual reports whether two content paths share a file extension,
+// case-insensitively.
+func extensionEqual(a, b string) bool {
+	return strings.EqualFold(path.Ext(a), path.Ext(b))
 }

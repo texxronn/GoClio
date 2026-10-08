@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"io"
 	"mime"
 	"os"
 	"path/filepath"
@@ -29,6 +30,50 @@ type contentEntry struct {
 // contentRoot is the filesystem subtree for the current project. The content
 // root stores one subdirectory per project (sections 65.3 and 65.7).
 func (a *app) contentRoot() string { return filepath.Join(a.content, a.projectName()) }
+
+// contentRootChecked returns the current project's content subtree after
+// verifying that neither the content directory nor the project subtree is a
+// symbolic link and that the project name cannot escape the content directory
+// (sections 64.2 and 65.2). Filesystem callers use it so a crafted project name
+// or a symlinked root cannot redirect reads, writes or deletes.
+func (a *app) contentRootChecked() (string, *apiError) {
+	root := a.contentRoot()
+	if !within(a.content, root) {
+		return "", invalid("Invalid project content root")
+	}
+	for _, p := range []string{a.content, root} {
+		info, err := os.Lstat(p)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return "", errAPI(err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", invalid("Symbolic links are not permitted in the content root")
+		}
+		if !info.IsDir() {
+			return "", conflict("The content root is not a directory")
+		}
+	}
+	return root, nil
+}
+
+// fileSHA256 returns the lowercase hex SHA-256 of a file's bytes (section
+// 64.2). It streams the file so a rescan can compare content without holding
+// the whole file in memory.
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err = io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
 
 func contentKind(path string) string {
 	if strings.HasSuffix(path, ".md") || strings.HasSuffix(path, ".html") {
@@ -185,13 +230,13 @@ func (a *app) reconcileContent() error {
 func (a *app) rescanContent() (contentRescan, error) {
 	summary := contentRescan{}
 	existing := map[string]contentEntry{}
-	rows, err := a.db.Query(`SELECT id,path,kind,content_type,size,created_at FROM content_entries WHERE project=?`, a.project)
+	rows, err := a.db.Query(`SELECT id,path,kind,content_type,size,sha256,created_at FROM content_entries WHERE project=?`, a.project)
 	if err != nil {
 		return summary, err
 	}
 	for rows.Next() {
 		var entry contentEntry
-		if err = rows.Scan(&entry.ID, &entry.Path, &entry.Kind, &entry.ContentType, &entry.Size, &entry.CreatedAt); err != nil {
+		if err = rows.Scan(&entry.ID, &entry.Path, &entry.Kind, &entry.ContentType, &entry.Size, &entry.SHA256, &entry.CreatedAt); err != nil {
 			rows.Close()
 			return summary, err
 		}
@@ -224,7 +269,10 @@ func (a *app) rescanContent() (contentRescan, error) {
 	}
 	indexRows.Close()
 
-	root := a.contentRoot()
+	root, rootErr := a.contentRootChecked()
+	if rootErr != nil {
+		return summary, errors.New(rootErr.Message)
+	}
 	seen := map[string]bool{}
 	walkErr := filepath.WalkDir(root, func(p string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -254,7 +302,30 @@ func (a *app) rescanContent() (contentRescan, error) {
 		seen[clean] = true
 		kind, contentType := contentKind(clean), contentMediaType(clean)
 		if entry, ok := existing[clean]; ok {
-			if entry.Size == info.Size() && entry.Kind == kind && entry.ContentType == contentType {
+			// Change detection is byte-based, not type-based: an upload may
+			// declare a custom content type, so the stored type must not be
+			// treated as a change signal. Compare size and kind; when those
+			// match, compare the content hash (backfilling it for entries that
+			// do not have one yet). Only genuinely changed bytes refresh
+			// content_type/size/sha256 and invalidate agent text; an unchanged
+			// path preserves its declared type and agent row (sections 64.2,
+			// 64.6 and 64.8).
+			changed := entry.Size != info.Size() || entry.Kind != kind
+			if !changed {
+				sum, hashErr := fileSHA256(p)
+				if hashErr != nil {
+					return hashErr
+				}
+				if entry.SHA256 == "" {
+					// Backfill the hash; this is not a content change.
+					if _, err = a.db.Exec(`UPDATE content_entries SET sha256=? WHERE id=?`, sum, entry.ID); err != nil {
+						return err
+					}
+					entry.SHA256 = sum
+				}
+				changed = entry.SHA256 != sum
+			}
+			if !changed {
 				// Unchanged: rebuild the derived text only when it is missing.
 				if !indexed[entry.ID] {
 					if err = a.indexContentFile(entry.ID, clean, kind, contentType, p); err != nil {
@@ -263,11 +334,14 @@ func (a *app) rescanContent() (contentRescan, error) {
 				}
 				return nil
 			}
-			_, err = a.db.Exec(
-				`UPDATE content_entries SET kind=?,content_type=?,size=?,sha256='',updated_at=? WHERE id=?`,
-				kind, contentType, info.Size(), formatUTC(time.Now()), entry.ID,
-			)
-			if err != nil {
+			sum, hashErr := fileSHA256(p)
+			if hashErr != nil {
+				return hashErr
+			}
+			if _, err = a.db.Exec(
+				`UPDATE content_entries SET kind=?,content_type=?,size=?,sha256=?,updated_at=? WHERE id=?`,
+				kind, contentType, info.Size(), sum, formatUTC(time.Now()), entry.ID,
+			); err != nil {
 				return err
 			}
 			// The bytes changed, so any agent extraction is stale and must not

@@ -32,7 +32,6 @@ func missing(what string) *apiError     { return &apiError{404, "not_found", wha
 func conflict(message string) *apiError { return &apiError{409, "conflict", message} }
 func methodNotAllowed() *apiError       { return &apiError{405, "method_not_allowed", "Method not allowed"} }
 
-var reservedRoot = map[string]bool{"api": true, "health": true, "help": true, "assets": true, "t": true, "collections": true, "favicon.svg": true}
 var identifierPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 var fieldTypes = map[string]bool{"string": true, "text": true, "integer": true, "decimal": true, "boolean": true, "date": true, "datetime": true, "enum": true, "url": true, "reference": true, "attachment": true}
 
@@ -149,10 +148,6 @@ func (a *app) projectUI(w http.ResponseWriter, r *http.Request) {
 	project := segments[0]
 	if e := a.requireProject(project); e != nil {
 		writeErr(w, e)
-		return
-	}
-	if reservedRoot[project] {
-		writeAPIError(w, missing("Resource"))
 		return
 	}
 	scoped := a.withProject(project)

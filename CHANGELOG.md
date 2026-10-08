@@ -178,8 +178,11 @@ than the product.
 - **Route re-scope:** the collection data browser is now at `/{project}/data`
   with query-string state rather than `/{project}/collections/...`, and
   `/{project}/` serves the project overview rather than redirecting to
-  `/{project}/data`. The reserved content root `/collections` is unchanged
-  (section 32.3).
+  `/{project}/data`. `t` and `collections` are no longer reserved project
+  names, and content paths no longer reject former root names such as `api`,
+  `health`, `help`, `assets`, `t`, `collections` or `favicon.svg`: content lives
+  under `/{project}/files/`, where only the `id` and `dav` segments are
+  reserved (spec v1.7 §66.4–§66.5).
 
 - **Breaking route change:** the Page API and the directory facade are removed
   (spec v1.7 §66.2/§66.10). `POST /api/v1/{project}/files/pages`,
@@ -198,6 +201,41 @@ than the product.
   ClioJS file helpers (`clio.page`, `clio.directory`, `clio.publishPage`,
   `clio.deletePage`, `clio.deleteDirectory`) now target the files partition and
   `Clio.Markdown` is unchanged.
+
+### Fixed
+
+- WebDAV `PUT` now bounds the request body before the handler buffers it: a body
+  over the 16 MiB limit returns `413 body_too_large` for both a declared
+  `Content-Length` and a chunked/unknown-length body, instead of buffering
+  unbounded or failing at commit with `500` (spec §64.10/§64.12).
+- Rescan detects change from the actual bytes, not the stored content type. A
+  file uploaded with a custom declared `Content-Type` no longer looks changed,
+  so a reconcile preserves its stored type and its agent enrichment; entries
+  without a hash gain one, and a same-size external edit is detected by hash,
+  refreshing the index and invalidating stale agent text (spec §64.2/§64.6/§64.8).
+- Project names are validated as safe identifiers by project routing and by
+  restore; the project content root is verified to stay inside the content
+  directory. A database whose project name is `..` (or otherwise unsafe) is
+  rejected and cannot escape the content root (spec §57/§65.2).
+- A symlinked content directory or project content subtree is rejected for reads
+  and writes rather than followed (spec §64.2).
+- Moving or renaming an entry refreshes the search index row's `kind` and
+  `title` from the new path and re-extracts native text when the extension
+  changes, so search no longer reports a page as a file or matches the old name;
+  a same-extension rename keeps agent enrichment (spec §64.6/§64.8).
+- `clio backup` rejects a destination inside the content tree, which would
+  otherwise copy its own output recursively (spec §57).
+- `clio restore` requires the manifest's `database`/`content` to be the expected
+  names and file types, stages the restored database and content in a temporary
+  directory, opens, validates and reconciles the staged database, and only then
+  swaps it into the target with rollback on failure. A malformed manifest can no
+  longer destroy an existing target with `--force` (spec §57).
+- Directory listings read and sort names first and stat/represent only the
+  requested page window, so a large directory no longer builds every child to
+  return one page (spec §23/§64.4).
+- WebDAV `GET`/`HEAD` now send `X-Content-Type-Options: nosniff` for every entry
+  and `Content-Disposition: attachment` for non-page content, matching the path
+  URL protections without changing page responses (spec §64.5).
 
 ### Documentation
 

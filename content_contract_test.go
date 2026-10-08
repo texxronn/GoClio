@@ -43,13 +43,8 @@ func TestContentPathValidation(t *testing.T) {
 		"/a\\b.md",
 		"/a\u0007b.md",
 		"/r/c.md/",
-		"/api/x.md",
-		"/health/x.md",
-		"/help/x.md",
-		"/assets/x.md",
-		"/t/x.md",
-		"/collections/x.md",
-		"/favicon.svg/x.md",
+		"/id/x.md",
+		"/dav/x.md",
 	} {
 		assertAPIError(t, testRequest(t, a, http.MethodPut, filesURL("default", path), "x", "text/markdown"), http.StatusUnprocessableEntity)
 	}
@@ -57,10 +52,35 @@ func TestContentPathValidation(t *testing.T) {
 		`{"path":"relative"}`,
 		`{"path":"/a//b"}`,
 		`{"path":"/a/"}`,
-		`{"path":"/api/private"}`,
-		`{"path":"/collections/private"}`,
+		`{"path":"/id/private"}`,
+		`{"path":"/dav/private"}`,
 	} {
 		assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories", body, "application/json"), http.StatusUnprocessableEntity)
+	}
+}
+
+func TestContentPathsUseFormerRootNames(t *testing.T) {
+	// Former site-root route names are ordinary content names now that content
+	// lives under /{project}/files/ (section 66.4); a project may also use the
+	// names `t` and `collections`, which are not reserved project names.
+	a := newTestApp(t)
+	for _, path := range []string{"/api/note.md", "/health/x.md", "/help/x.md", "/assets/x.md", "/t/x.md", "/collections/x.md", "/favicon.svg/x.md"} {
+		if w := testRequest(t, a, http.MethodPut, filesURL("default", path), "x", "text/markdown"); w.Code != http.StatusCreated {
+			t.Errorf("PUT %s status = %d, want 201: %s", path, w.Code, w.Body.String())
+		}
+	}
+	for _, name := range []string{"t", "collections"} {
+		if w := testRequest(t, a, http.MethodPost, "/api/v1/projects", map[string]any{"name": name}, "application/json"); w.Code != http.StatusCreated {
+			t.Fatalf("create project %q status = %d: %s", name, w.Code, w.Body.String())
+		}
+		// Human routing must serve the project overview rather than 404.
+		if w := testRequest(t, a, http.MethodGet, "/"+name+"/", nil, ""); w.Code != http.StatusOK {
+			t.Errorf("GET /%s/ status = %d, want 200: %s", name, w.Code, w.Body.String())
+		}
+		// Its files API works and a content path using the same name works.
+		if w := testRequest(t, a, http.MethodPut, filesURL(name, "/"+name+"/a.md"), "# A", "text/markdown"); w.Code != http.StatusCreated {
+			t.Errorf("PUT %s file status = %d, want 201: %s", name, w.Code, w.Body.String())
+		}
 	}
 }
 

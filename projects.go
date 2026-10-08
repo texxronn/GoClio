@@ -3,9 +3,11 @@ package main
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -34,6 +36,31 @@ func validProjectName(value string) (string, *apiError) {
 		return "", invalid("Project name is reserved: " + name)
 	}
 	return name, nil
+}
+
+// validProjectNameFormat reports whether a project name is a safe identifier
+// that cannot escape the content root (section 65.2). Unlike validProjectName
+// it does not lowercase or apply the reserved-name rule, so routing can reject
+// a bad segment before it is looked up while still requiring an exact match.
+func validProjectNameFormat(value string) bool {
+	return value != "" && identifierPattern.MatchString(value) && !strings.Contains(value, ".")
+}
+
+// validateProjectNames rejects a database that holds a project name which is
+// not a safe identifier. Restore uses it to refuse a database that could
+// escape the content root before the target data is touched (sections 65.2 and
+// 57).
+func (a *app) validateProjectNames() error {
+	names, err := a.projectNames()
+	if err != nil {
+		return err
+	}
+	for name := range names {
+		if !validProjectNameFormat(name) {
+			return fmt.Errorf("invalid project name %q", name)
+		}
+	}
+	return nil
 }
 
 func (a *app) projectsAPI(w http.ResponseWriter, r *http.Request, s []string) {
@@ -65,6 +92,10 @@ func (a *app) projectsAPI(w http.ResponseWriter, r *http.Request, s []string) {
 	}
 	if len(s) == 2 {
 		name := s[1]
+		if !validProjectNameFormat(name) {
+			writeAPIError(w, missing("Project"))
+			return
+		}
 		switch r.Method {
 		case http.MethodGet:
 			item, e := a.projectInfo(name)
@@ -197,8 +228,12 @@ func (a *app) deleteProject(name string) *apiError {
 }
 
 // requireProject returns 404 when the project does not exist. It is used by
-// project-scoped routing.
+// project-scoped routing. It first rejects a name that is not a safe identifier
+// so a crafted path segment can never be used as a content-root component.
 func (a *app) requireProject(name string) *apiError {
+	if !validProjectNameFormat(name) {
+		return missing("Project")
+	}
 	var one int
 	e := a.db.QueryRow(`SELECT 1 FROM projects WHERE name=?`, name).Scan(&one)
 	if errors.Is(e, sql.ErrNoRows) {

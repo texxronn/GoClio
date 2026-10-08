@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -147,6 +148,47 @@ func TestFilesDirectoryListingAndPageKind(t *testing.T) {
 
 	// A missing node returns 404.
 	assertAPIError(t, testRequest(t, a, http.MethodGet, filesURL("default", "/reports/missing.md"), nil, ""), http.StatusNotFound)
+}
+
+// TestFilesDirectoryListingPaging verifies that directory listing returns the
+// requested page window with correct names and totals (sections 23 and 64.4).
+func TestFilesDirectoryListingPaging(t *testing.T) {
+	a := newTestApp(t)
+	for _, name := range []string{"a", "b", "c", "d", "e"} {
+		putFile(t, a, "default", "/page/"+name+".txt", name, "text/plain")
+	}
+	type listing struct {
+		Children []map[string]any `json:"children"`
+		Page     map[string]any   `json:"page"`
+	}
+	read := func(limit, offset int) listing {
+		t.Helper()
+		w := testRequest(t, a, http.MethodGet, filesURL("default", "/page")+"&limit="+strconv.Itoa(limit)+"&offset="+strconv.Itoa(offset), nil, "")
+		if w.Code != http.StatusOK {
+			t.Fatalf("listing limit=%d offset=%d status = %d: %s", limit, offset, w.Code, w.Body.String())
+		}
+		var got listing
+		testJSON(t, w, &got)
+		return got
+	}
+
+	first := read(2, 0)
+	if len(first.Children) != 2 || first.Page["total"] != float64(5) || first.Page["count"] != float64(2) {
+		t.Fatalf("first page children=%#v page=%#v", first.Children, first.Page)
+	}
+	if first.Children[0]["path"] != "/page/a.txt" || first.Children[1]["path"] != "/page/b.txt" {
+		t.Errorf("first page paths = %v, %v", first.Children[0]["path"], first.Children[1]["path"])
+	}
+
+	last := read(2, 4)
+	if len(last.Children) != 1 || last.Children[0]["path"] != "/page/e.txt" {
+		t.Errorf("last page children = %#v", last.Children)
+	}
+
+	empty := read(2, 10)
+	if len(empty.Children) != 0 || empty.Page["count"] != float64(0) || empty.Page["total"] != float64(5) {
+		t.Errorf("empty page children=%#v page=%#v", empty.Children, empty.Page)
+	}
 }
 
 func TestFilesListFiltersAndPaging(t *testing.T) {

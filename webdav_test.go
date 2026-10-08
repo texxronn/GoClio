@@ -51,6 +51,89 @@ const davPropfindBody = `<?xml version="1.0" encoding="utf-8"?>
 const davProppatchBody = `<?xml version="1.0" encoding="utf-8"?>
 <D:propertyupdate xmlns:D="DAV:" xmlns:Z="urn:clio:test"><D:set><D:prop><Z:author>clio</Z:author></D:prop></D:set></D:propertyupdate>`
 
+// endlessReader yields an unbounded stream so a request can present an
+// unknown-length (chunked-style) body to the WebDAV mount.
+type endlessReader struct{}
+
+func (endlessReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 'x'
+	}
+	return len(p), nil
+}
+
+// TestWebDAVPutUploadLimit verifies that a PUT body is bounded before the
+// handler buffers it: a declared over-limit Content-Length and an
+// unknown-length body that exceeds the limit both return 413, and a valid PUT
+// still works (section 64.12).
+func TestWebDAVPutUploadLimit(t *testing.T) {
+	a := newTestApp(t)
+	a.webdavEnabled = true
+	const mount = "/api/v1/default/files/dav"
+
+	declared := httptest.NewRequest(http.MethodPut, mount+"/big.bin", strings.NewReader("tiny"))
+	declared.ContentLength = fileUploadLimit + 1
+	declaredRecorder := httptest.NewRecorder()
+	a.ServeHTTP(declaredRecorder, declared)
+	if declaredRecorder.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("declared over-limit PUT status = %d, want 413: %s", declaredRecorder.Code, declaredRecorder.Body.String())
+	}
+
+	chunked := httptest.NewRequest(http.MethodPut, mount+"/big.bin", endlessReader{})
+	if chunked.ContentLength != -1 {
+		t.Fatalf("test reader ContentLength = %d, want -1", chunked.ContentLength)
+	}
+	chunkedRecorder := httptest.NewRecorder()
+	a.ServeHTTP(chunkedRecorder, chunked)
+	if chunkedRecorder.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("unknown-length over-limit PUT status = %d, want 413: %s", chunkedRecorder.Code, chunkedRecorder.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(a.content, "default", "big.bin")); !os.IsNotExist(err) {
+		t.Errorf("over-limit PUT wrote a file: %v", err)
+	}
+
+	if w := davRequest(t, a, http.MethodPut, mount+"/small.txt", "hello", nil); w.Code != http.StatusCreated {
+		t.Fatalf("valid PUT status = %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestWebDAVGetAppliesDownloadProtections verifies that a WebDAV GET carries
+// nosniff for every entry and an attachment disposition for non-page content
+// (section 64.5).
+func TestWebDAVGetAppliesDownloadProtections(t *testing.T) {
+	a := newTestApp(t)
+	a.webdavEnabled = true
+	const mount = "/api/v1/default/files/dav"
+	if w := davRequest(t, a, http.MethodPut, mount+"/docs/a.html", "<b>x</b>", nil); w.Code != http.StatusCreated {
+		t.Fatalf("put page status = %d: %s", w.Code, w.Body.String())
+	}
+	if w := davRequest(t, a, http.MethodPut, mount+"/docs/a.bin", "\x00\x01", nil); w.Code != http.StatusCreated {
+		t.Fatalf("put file status = %d: %s", w.Code, w.Body.String())
+	}
+
+	file := davRequest(t, a, http.MethodGet, mount+"/docs/a.bin", "", nil)
+	if file.Code != http.StatusOK {
+		t.Fatalf("GET file status = %d", file.Code)
+	}
+	if got := file.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("file nosniff = %q, want nosniff", got)
+	}
+	if got := file.Header().Get("Content-Disposition"); got != "attachment" {
+		t.Errorf("file disposition = %q, want attachment", got)
+	}
+
+	page := davRequest(t, a, http.MethodGet, mount+"/docs/a.html", "", nil)
+	if page.Code != http.StatusOK {
+		t.Fatalf("GET page status = %d", page.Code)
+	}
+	if got := page.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("page nosniff = %q, want nosniff", got)
+	}
+	if got := page.Header().Get("Content-Disposition"); got != "" {
+		t.Errorf("page disposition = %q, want none", got)
+	}
+}
+
 // TestWebDAVDisabledByDefault verifies the opt-in gate (section 64.10):
 // without CLIO_WEBDAV_ENABLED the mount does not exist at either URL.
 func TestWebDAVDisabledByDefault(t *testing.T) {

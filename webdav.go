@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"path"
@@ -38,11 +39,27 @@ func (a *app) webdavMount(w http.ResponseWriter, r *http.Request, prefix string)
 		writeAPIError(w, missing("Endpoint"))
 		return
 	}
-	// Advertise the 16 MiB upload limit as 413 for a declared body (section
-	// 64.12); chunked bodies are capped when the buffered write is committed.
-	if r.Method == http.MethodPut && r.ContentLength > fileUploadLimit {
-		writeAPIError(w, &apiError{http.StatusRequestEntityTooLarge, "body_too_large", "Request body is too large"})
-		return
+	// Bound a PUT body to the 16 MiB upload limit before the handler buffers
+	// it (section 64.12). A declared Content-Length over the limit is rejected
+	// immediately; a chunked or unknown-length body is read at most
+	// limit+1 bytes so an over-limit body still returns 413 rather than
+	// buffering unbounded memory (or surfacing as a 500 on Close).
+	if r.Method == http.MethodPut {
+		if r.ContentLength > fileUploadLimit {
+			writeAPIError(w, &apiError{http.StatusRequestEntityTooLarge, "body_too_large", "Request body is too large"})
+			return
+		}
+		body, readErr := io.ReadAll(io.LimitReader(r.Body, fileUploadLimit+1))
+		if readErr != nil {
+			writeAPIError(w, invalid("Malformed request body"))
+			return
+		}
+		if int64(len(body)) > fileUploadLimit {
+			writeAPIError(w, &apiError{http.StatusRequestEntityTooLarge, "body_too_large", "Request body is too large"})
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		r.ContentLength = int64(len(body))
 	}
 	// A DELETE that would break an attachment reference returns 409 before the
 	// WebDAV handler runs; its RemoveAll error cannot carry a custom status
@@ -51,6 +68,16 @@ func (a *app) webdavMount(w http.ResponseWriter, r *http.Request, prefix string)
 		if conflictErr := a.webdavDeleteConflict(r.URL.Path, prefix); conflictErr != nil {
 			writeErr(w, conflictErr)
 			return
+		}
+	}
+	// A WebDAV GET/HEAD streams stored bytes directly. Apply the same download
+	// protections as a path URL: nosniff on every response and an attachment
+	// disposition for non-page content, so a file cannot execute in Clio's
+	// origin. Pages keep their raw type without an attachment (section 64.5).
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		if contentKind(davCleanName(strings.TrimPrefix(r.URL.Path, prefix))) != "page" {
+			w.Header().Set("Content-Disposition", "attachment")
 		}
 	}
 	handler := &webdav.Handler{
@@ -253,7 +280,14 @@ func (f *davWriteFile) Seek(int64, int) (int64, error) {
 func (f *davWriteFile) Readdir(int) ([]os.FileInfo, error) {
 	return nil, errors.New("webdav: not a directory")
 }
-func (f *davWriteFile) Write(p []byte) (int, error) { return f.buf.Write(p) }
+func (f *davWriteFile) Write(p []byte) (int, error) {
+	// Defensive bound: webdavMount caps the request body before delegation,
+	// but this write path must never buffer unbounded either (section 64.12).
+	if int64(f.buf.Len())+int64(len(p)) > fileUploadLimit {
+		return 0, errors.New("webdav: upload exceeds the content limit")
+	}
+	return f.buf.Write(p)
+}
 
 // Stat reports the buffered size so the WebDAV handler can compute an ETag
 // before the write is committed.
