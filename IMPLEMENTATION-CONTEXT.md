@@ -11,9 +11,9 @@
 - **Spec:** `SPEC.md` v1.7 (sections 64, 65, 66 are new; earlier URL sections carry supersession notes)
 - **Plan:** `IMPLEMENTATION-PLAN.md`
 - **Code baseline:** Phase 8 implemented. The files partition now exposes the agent enrichment API at `GET`/`PUT`/`DELETE /api/v1/{project}/files/extraction`, addressing an entry by `?path=`, `?id=`, or the files-style `/api/v1/{project}/files/{id}/extraction`. `PUT` accepts `{"fingerprint","text","provider","title"}`, validates the provider (`agent:<provider>`), requires the fingerprint to match the current on-disk bytes (`size:mtime` or the entry `sha256` when known; mismatch `409`, missing/invalid fields `422`), and stores the text in `content_search` with `source = agent:<provider>` so it is searchable through `GET /api/v1/{project}/search`. `GET` returns the current extraction (agent or native), its `source`, and the current fingerprint; `DELETE` drops the agent row and rebuilds native text so the entry falls back to native. Enrichment is keyed by entry ID and survives move. Rewriting or rescan-refreshing an entry drops its stale agent text. Phases 0–7 (search API included) remain as described above.
-- **Branch:** `phase-8-enrichment`
-- **Last merged commit:** `558d4f3` (Phase 7, PR #11)
-- **Current phase:** Phase 8 implemented; branch `phase-8-enrichment` pending merge
+- **Branch:** `master`
+- **Last merged commit:** `bc377db` (Phase 8, PR #12)
+- **Current phase:** Phase 8 complete and merged
 - **Next action:** Phase 9 — `attachment` field type (§64.9): accept `type: "attachment"` (optional `accept` hint); validate that the file ID exists in the same project on create/update/default (`422` otherwise); delete integrity (`409` when a referenced entry or a directory containing one is deleted); generic form control and record display via `/{project}/files/id/{id}`.
 - **Blockers:** none
 
