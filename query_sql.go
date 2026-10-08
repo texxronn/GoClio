@@ -270,7 +270,7 @@ func sqlValue(value any, def map[string]any) any {
 		if text, ok := sqliteText(value); ok {
 			return json.Number(text)
 		}
-	case "decimal", "string", "text", "url", "enum", "reference", "date", "datetime":
+	case "decimal", "string", "text", "url", "enum", "reference", "attachment", "date", "datetime":
 		if text, ok := sqliteText(value); ok {
 			return text
 		}

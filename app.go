@@ -34,7 +34,7 @@ func methodNotAllowed() *apiError       { return &apiError{405, "method_not_allo
 
 var reservedRoot = map[string]bool{"api": true, "health": true, "help": true, "assets": true, "t": true, "collections": true, "favicon.svg": true}
 var identifierPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
-var fieldTypes = map[string]bool{"string": true, "text": true, "integer": true, "decimal": true, "boolean": true, "date": true, "datetime": true, "enum": true, "url": true, "reference": true}
+var fieldTypes = map[string]bool{"string": true, "text": true, "integer": true, "decimal": true, "boolean": true, "date": true, "datetime": true, "enum": true, "url": true, "reference": true, "attachment": true}
 
 func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	tracked := &responseStatusWriter{ResponseWriter: w}
@@ -709,6 +709,13 @@ func (a *app) createTable(group string, input map[string]any) (map[string]any, *
 				}
 			}
 		}
+		if f["type"] == "attachment" {
+			if value, ok := f["default"]; ok && value != nil {
+				if x := a.validateAttachment(f, value); x != nil {
+					return nil, x
+				}
+			}
+		}
 	}
 	if principalTimestamps > 1 {
 		return nil, invalid("A table may have only one principal timestamp field")
@@ -832,6 +839,15 @@ func normalizeFields(raw any) ([]map[string]any, *apiError) {
 			}
 			f["group"] = g
 			f["table"] = t
+		}
+		if typ == "attachment" {
+			if raw, ok := f["accept"]; ok && raw != nil {
+				accept, ae := normalizeAccept(raw, name)
+				if ae != nil {
+					return nil, ae
+				}
+				f["accept"] = accept
+			}
 		}
 		if p, ok := f["pattern"]; ok {
 			pattern, ok := p.(string)
@@ -1102,15 +1118,22 @@ func (a *app) updateTable(group, table string, patch map[string]any) (map[string
 		}
 		effectiveFields = requested
 		for _, f := range requested {
-			if f["type"] != "reference" {
-				continue
-			}
-			if _, x := a.table(f["group"].(string), f["table"].(string)); x != nil {
-				return nil, x
-			}
-			if value, ok := f["default"]; ok && value != nil {
-				if x := a.validateReference(f, value); x != nil {
+			if f["type"] == "reference" {
+				if _, x := a.table(f["group"].(string), f["table"].(string)); x != nil {
 					return nil, x
+				}
+			}
+			if f["type"] == "reference" || f["type"] == "attachment" {
+				if value, ok := f["default"]; ok && value != nil {
+					var x *apiError
+					if f["type"] == "reference" {
+						x = a.validateReference(f, value)
+					} else {
+						x = a.validateAttachment(f, value)
+					}
+					if x != nil {
+						return nil, x
+					}
 				}
 			}
 		}

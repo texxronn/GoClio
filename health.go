@@ -104,11 +104,12 @@ API root: /api/v1
 ## Groups, tables, fields, records
 Create a group with POST /api/v1/groups and {"name":"pool","label":"Pool"}. Read it at GET /api/v1/groups/pool; list its tables at GET /api/v1/groups/pool/tables.
 Create a table with POST /api/v1/groups/pool/tables and name, label, kind, fields, and timestamp_field for timeseries. GET and PATCH /api/v1/groups/pool/tables/{table} read and update metadata; DELETE removes an empty, unreferenced table. A metadata PATCH merges fields by name: a partial fields list adds or updates only the named fields and never drops the others. Remove fields explicitly with {"remove_fields":["name"]} when they have no stored values.
-Field types: string, text, integer, decimal, boolean, date, datetime, enum, url, reference.
+Field types: string, text, integer, decimal, boolean, date, datetime, enum, url, reference, attachment.
 Fields support required, default, description, order, readonly, hidden, validation min/max, min_length/max_length and pattern.
 Records support GET list/item, POST create, PATCH update, DELETE at /api/v1/groups/{group}/tables/{table}/records[/{id}]. PATCH omitted fields remain unchanged; explicit null clears nullable fields. Defaults apply on create; omitted nullable values are returned as null. Required, unknown and readonly fields are validated.
 Decimal values are JSON strings by default; integer values are JSON integers; datetimes are RFC 3339 and normalized to UTC. Record reads accept decimal_format=number to return decimal fields as JSON numbers (canonical decimal text preserved) for consumers that require numeric JSON; decimal_format=string is the default.
 References contain target record IDs and prevent deletion of referenced records/tables.
+Attachments contain content-entry IDs from the same project and prevent deletion of a referenced file (or a directory containing one) until the value is cleared.
 HTML views use /t/{group}/{table}, /new, /{id}, and /{id}/edit. Forms are metadata-driven. The read-only Data Browser is at /collections/{group}/{table}; /collections opens the browser and selects the first available table.
 
 Example: POST /api/v1/groups/pool/tables with {"name":"readings","kind":"timeseries","timestamp_field":"timestamp","fields":[{"name":"timestamp","type":"datetime","required":true},{"name":"temperature","type":"decimal"}]}; then POST /api/v1/groups/pool/tables/readings/records with {"timestamp":"2026-09-27T12:00:00+10:00","temperature":"20.43"}. A record response contains the generated id, created_at, updated_at, and every defined field.

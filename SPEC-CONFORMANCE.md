@@ -41,6 +41,7 @@ through HTTP and use temporary SQLite databases and content directories.
 | §64.6 native extraction and the text index | `TestNativeExtractionPerType`, `TestNativeExtractionCapsIndexedText`, `TestFTS5Available`, `TestContentSearchIndexesWritesAndDrops`, `TestContentSearchRebuiltByRescan`, `TestContentSearchMoveKeepsIDAndPath`, `TestContentSearchProjectScoped`, `TestFilesRepresentationReportsIndexedState` |
 | §64.7 search API | `TestSearchReturnsRankedResultsAndShape`, `TestSearchSnippetsArePlainTextWithSentinels`, `TestSearchPagingIsDeterministic`, `TestSearchRejectsEmptyAndOversizedAndBadPaging`, `TestSearchTreatsOperatorsAsLiterals`, `TestBuildMatchQueryQuotesAndPrefix`, `TestSearchIsProjectScoped`, `TestSearchReportsIndexSourceAndContentType` |
 | §64.8 agent enrichment API | `TestEnrichmentRequiresMatchingFingerprint`, `TestEnrichmentAcceptsSha256Fingerprint`, `TestEnrichmentByIDPathSegment`, `TestEnrichmentValidatesRequestShape`, `TestEnrichmentDeleteFallsBackToNative`, `TestEnrichmentSurvivesMove`, `TestEnrichmentIsProjectScoped`, `TestEnrichmentEditedFileInvalidatesAgentText` |
+| §64.9 attachment fields | `TestAttachmentFieldNormalizationAndMetadata`, `TestAttachmentValidationOnCreateUpdateAndDefault`, `TestAttachmentDefaultValidation`, `TestAttachmentRejectsCrossProjectEntries`, `TestAttachmentDeleteIntegrity`, `TestAttachmentDeleteIntegrityDirectorySubtree`, `TestAttachmentSurvivesRenameAndMove`, `TestAttachmentFilterSortAndDistinct`, `TestAttachmentFormAndRecordRendering` |
 | §65.3 project data scoping and isolation | `TestProjectDataIsolation`, `TestContentIsolationBetweenProjects` |
 | §66.1/§66.3/§66.5–§66.6 project-first routing, instance routes and the data partition | `TestBareRoutesRedirectToDefaultProject`, `TestUnknownProjectReturnsNotFound`, `TestProjectScopedHumanAndAPIRoutes` |
 
@@ -66,7 +67,6 @@ above as its tests land.
 
 | Spec area | Planned tests |
 | --- | --- |
-| §64.9 attachment fields | validation on create/update/default; delete-integrity `409`; record representation |
 | §64.10 WebDAV | optional flag; method set including MOVE/COPY; ID preservation; auth enforcement |
 | §64.11 backup and restore | restored database plus content reproduces IDs, timestamps and agent text |
 | §64.14 web file explorer | `/files` shell and reserved route; ClioJS `Clio.FileBrowser`; breadcrumbs and URL state; upload/rename/delete actions; referenced-entry `409`; escaped search snippets |

@@ -178,6 +178,11 @@ func (a *app) validateValues(input map[string]any, defs []map[string]any, existi
 					return nil, e
 				}
 			}
+			if f["type"] == "attachment" {
+				if e = a.validateAttachment(f, v); e != nil {
+					return nil, e
+				}
+			}
 			value = v
 		}
 		out[name] = value
@@ -1157,7 +1162,7 @@ func coerce(f map[string]any, value any) (any, *apiError) {
 	typ := fmt.Sprint(f["type"])
 	name := fmt.Sprint(f["name"])
 	switch typ {
-	case "string", "text", "url", "enum", "reference":
+	case "string", "text", "url", "enum", "reference", "attachment":
 		s, ok := value.(string)
 		if !ok {
 			return nil, invalid("Invalid " + typ + " value for " + name)

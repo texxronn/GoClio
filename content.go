@@ -68,6 +68,15 @@ func (a *app) directoriesAPI(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, errAPI(e))
 			return
 		}
+		ids, lookupErr := a.contentEntryIDsUnder(clean)
+		if lookupErr != nil {
+			writeErr(w, errAPI(lookupErr))
+			return
+		}
+		if x := a.attachmentDeleteConflict(ids); x != nil {
+			writeErr(w, x)
+			return
+		}
 		if e = os.RemoveAll(target); e != nil {
 			writeErr(w, errAPI(e))
 			return
@@ -254,6 +263,17 @@ func (a *app) pagesAPI(w http.ResponseWriter, r *http.Request) {
 		if e != nil {
 			writeErr(w, errAPI(e))
 			return
+		}
+		entry, found, lookupErr := a.contentEntryByPath(clean)
+		if lookupErr != nil {
+			writeErr(w, errAPI(lookupErr))
+			return
+		}
+		if found {
+			if x := a.attachmentDeleteConflict([]string{entry.ID}); x != nil {
+				writeErr(w, x)
+				return
+			}
 		}
 		if e = os.Remove(target); e != nil {
 			writeErr(w, errAPI(e))
