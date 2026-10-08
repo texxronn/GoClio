@@ -121,18 +121,18 @@ Distinct values: ?distinct=type. Aggregates: ?aggregate=count,cost:sum,cost:avg.
 Time-series records additionally accept RFC 3339 from (inclusive) and to (exclusive), and bucket=hour|day|week|month. Time comparisons and buckets use UTC; weeks start Monday; empty buckets are omitted.
 
 ## Content tree and publishing
-Content paths occupy the root namespace (/); table views use /t. Create/read/delete directories with GET /api/v1/directories?path=/reports, POST /api/v1/directories with {"path":"/reports"}, and DELETE /api/v1/directories?path=/reports.
-Create/update a page with POST /api/v1/pages and {"path":"/reports/latest.md","content_type":"text/markdown","content":"# Report"}. Read original source with GET /api/v1/pages?path=/reports/latest.md; delete with DELETE and the path query. Markdown paths end .md; HTML paths end .html. HTML is trusted executable content.
-Directory trees upload as application/zip to POST /api/v1/directories?path=/reports. Limits: 32 MiB compressed, 256 MiB expanded, 10,000 entries, 16 MiB per file, depth 32. Overwrite requires overwrite=true.
+The content filesystem lives in the files partition: pages and files are entries under /api/v1/{project}/files. List the catalog with GET /api/v1/{project}/files, read an entry or directory listing with GET /api/v1/{project}/files?path=/reports, and read a single entry by ID with GET /api/v1/{project}/files/{id}. Create a directory with POST /api/v1/{project}/files/directories and {"path":"/reports"}; upload a directory tree as application/zip to the same route with ?path=/reports.
+Create or replace a page with PUT /api/v1/{project}/files?path=/reports/latest.md and the Markdown source as the request body. Markdown paths end .md and render as HTML when viewed; HTML paths end .html and are trusted executable content. Download an entry's stored bytes from /{project}/files/id/{id} or GET /api/v1/{project}/files/{id}/content. Delete a page, file or directory with DELETE /api/v1/{project}/files?path=... or DELETE /api/v1/{project}/files/{id}.
+ZIP upload limits: 32 MiB compressed, 256 MiB expanded, 10,000 entries, 16 MiB per file, depth 32. Overwrite requires overwrite=true.
 The asset /assets/clio-markdown.js exposes ClioMarkdown.render(source) for client-side Markdown display.
 
 ## Browser JavaScript client
 - Load /assets/clio.js for the optional, dependency-free ClioJS v1 client (also available at /assets/clio/v1/clio.js). It uses same-origin fetch() by default and HTTP Basic Authentication supported by the browser.
 - Example: const clio = new Clio(); const table = clio.table("pool", "measurements"); const recent = await table.query({limit: 20, sort: "timestamp", order: "desc"});
-- ClioJS supports metadata, groups/tables, records, query paging/async iteration, directories and page source. Clio.DataBrowser.mount(element) powers the built-in read-only /collections/{group}/{table} browser. Decimal values remain strings; errors expose status, code, and message.
+- ClioJS supports metadata, groups/tables, records, query paging/async iteration, files and directory listing. Clio.DataBrowser.mount(element) powers the built-in read-only /collections/{group}/{table} browser. Decimal values remain strings; errors expose status, code, and message.
 - Load /assets/clio-markdown.js separately to use Clio.Markdown.render(page.content).
 
-Content paths are canonical, case-sensitive UTF-8 paths. They reject traversal, empty segments, backslashes, control characters and the reserved root names api, health, help, assets, t and collections. The page read API returns source text in JSON.content; it does not return rendered HTML.
+Content paths are canonical, case-sensitive UTF-8 paths. They reject traversal, empty segments, backslashes, control characters and the reserved root names api, health, help, assets, t and collections. The files endpoints return entry metadata; the stored source is served as raw bytes from the stable ID URL, and pages render at their path URL.
 
 ## Safety and examples
 Group/table identifiers contain lowercase ASCII letters, digits, underscore and hyphen. Content paths reject traversal, backslashes, control characters and reserved root paths including /collections. API errors use {"error":"validation_error","message":"..."}. SQL values are parameterized; arbitrary SQL is unavailable.

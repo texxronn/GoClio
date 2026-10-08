@@ -29,7 +29,7 @@ func TestCollectionBrowserRoutes(t *testing.T) {
 	if response := testRequest(t, a, http.MethodPost, "/default/collections/vehicle/service", nil, ""); response.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST /default/collections status=%d, want 405", response.Code)
 	}
-	response := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", map[string]any{"path": "/collections/page.md", "content_type": "text/markdown", "content": "blocked"}, "application/json")
+	response := testRequest(t, a, http.MethodPut, filesURL("default", "/collections/page.md"), "blocked", "text/markdown")
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Errorf("publishing under /default/collections status=%d, want 422", response.Code)
 	}

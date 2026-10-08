@@ -127,11 +127,31 @@ than the product.
   validates that the ID names an entry in the **same project**, otherwise the
   request fails with `422`. A record that references an entry prevents deletion
   of that entry — or of a directory containing it — with `409 Conflict` through
-  the files API and the legacy directory/page facades, until the referencing
-  values are cleared; there is no cascade deletion. The generated record form
+  the files API, until the referencing values are cleared; there is no cascade
+  deletion. The generated record form
   offers a choose control listing the project's files, and the record view links
   the attachment through `/{project}/files/id/{id}`. The link survives rename
   and move because it stores the stable ID.
+
+### Changed
+
+- **Breaking route change:** the Page API and the directory facade are removed
+  (spec v1.7 §66.2/§66.10). `POST /api/v1/{project}/files/pages`,
+  `GET`/`DELETE /api/v1/{project}/files/pages`, and
+  `GET`/`DELETE /api/v1/{project}/files/directories` no longer exist and return
+  `404`; pages are `.md`/`.html` entries of the files partition. Replacements:
+  create/replace a page with `PUT /api/v1/{project}/files?path=...` (raw bytes);
+  read the stored source from `GET /api/v1/{project}/files/{id}/content` or
+  `/{project}/files/id/{id}`; delete with `DELETE /api/v1/{project}/files?path=...`
+  or `DELETE /api/v1/{project}/files/{id}`; list a directory with
+  `GET /api/v1/{project}/files?path=...`. `POST
+  /api/v1/{project}/files/directories` remains for JSON directory creation and
+  for `application/zip` directory-tree uploads (spec §44), now served by the
+  files API rather than the legacy directory handler. Pages render at their path
+  URL (Markdown subset, sanitised) and HTML remains trusted executable content.
+  ClioJS file helpers (`clio.page`, `clio.directory`, `clio.publishPage`,
+  `clio.deletePage`, `clio.deleteDirectory`) now target the files partition and
+  `Clio.Markdown` is unchanged.
 
 ### Documentation
 

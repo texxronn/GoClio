@@ -61,9 +61,7 @@ func TestMarkdownAndClientRenderingExamplesPublish(t *testing.T) {
 		{"/examples/report.md", "text/markdown", "report.md"},
 		{"/examples/client-rendering.html", "text/html", "client-rendering.html"},
 	} {
-		created := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", map[string]any{
-			"path": example.path, "content_type": example.contentType, "content": string(readExample(t, example.file)),
-		}, "application/json")
+		created := testRequest(t, a, http.MethodPut, filesURL("default", example.path), string(readExample(t, example.file)), example.contentType)
 		if created.Code != http.StatusCreated {
 			t.Fatalf("publish %s status = %d: %s", example.file, created.Code, created.Body.String())
 		}
@@ -75,7 +73,7 @@ func TestMarkdownAndClientRenderingExamplesPublish(t *testing.T) {
 		}
 	}
 	clientPage := testRequest(t, a, http.MethodGet, "/default/files/examples/client-rendering.html", nil, "")
-	for _, want := range []string{"/assets/clio-markdown.js", "/api/v1/default/files/pages?path=%2Fexamples%2Freport.md", "ClioMarkdown.render(page.content)"} {
+	for _, want := range []string{"/assets/clio-markdown.js", "/api/v1/default/files?path=%2Fexamples%2Freport.md", "ClioMarkdown.render(source)"} {
 		if clientPage.Code != http.StatusOK || !strings.Contains(clientPage.Body.String(), want) {
 			t.Errorf("client-rendering example missing %q: status=%d body=%s", want, clientPage.Code, clientPage.Body.String())
 		}

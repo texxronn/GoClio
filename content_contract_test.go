@@ -36,9 +36,6 @@ func buildZip(t *testing.T, entries []zipEntry) []byte {
 
 func TestContentPathValidation(t *testing.T) {
 	a := newTestApp(t)
-	pageBody := func(path string) string {
-		return `{"path":"` + path + `","content_type":"text/markdown","content":"x"}`
-	}
 	for _, path := range []string{
 		"/a//b.md",
 		"/a/./b.md",
@@ -54,7 +51,7 @@ func TestContentPathValidation(t *testing.T) {
 		"/collections/x.md",
 		"/favicon.svg/x.md",
 	} {
-		assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", pageBody(path), "application/json"), http.StatusUnprocessableEntity)
+		assertAPIError(t, testRequest(t, a, http.MethodPut, filesURL("default", path), "x", "text/markdown"), http.StatusUnprocessableEntity)
 	}
 	for _, body := range []string{
 		`{"path":"relative"}`,
@@ -73,9 +70,9 @@ func TestContentResourceIdentity(t *testing.T) {
 		t.Fatalf("create directory named like a page: %d %s", w.Code, w.Body.String())
 	}
 	// A page cannot take the canonical path of an existing directory.
-	assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", `{"path":"/shared.md","content_type":"text/markdown","content":"x"}`, "application/json"), http.StatusConflict)
+	assertAPIError(t, testRequest(t, a, http.MethodPut, filesURL("default", "/shared.md"), "x", "text/markdown"), http.StatusConflict)
 	// A directory cannot take the canonical path of an existing page.
-	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", `{"path":"/doc.md","content_type":"text/markdown","content":"x"}`, "application/json"); w.Code != http.StatusCreated {
+	if w := testRequest(t, a, http.MethodPut, filesURL("default", "/doc.md"), "x", "text/markdown"); w.Code != http.StatusCreated {
 		t.Fatalf("create page: %d %s", w.Code, w.Body.String())
 	}
 	assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories", `{"path":"/doc.md"}`, "application/json"), http.StatusConflict)
@@ -152,7 +149,7 @@ func TestMarkdownSubsetRendering(t *testing.T) {
 		"`inline` **bold** *italic* [link](https://example.com/x)",
 		"[bad](javascript:alert(1))",
 	}, "\n")
-	create := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", map[string]any{"path": "/md/subset.md", "content_type": "text/markdown", "content": source}, "application/json")
+	create := testRequest(t, a, http.MethodPut, filesURL("default", "/md/subset.md"), source, "text/markdown")
 	if create.Code != http.StatusCreated {
 		t.Fatalf("create Markdown page: %d %s", create.Code, create.Body.String())
 	}
@@ -251,34 +248,34 @@ func TestDirectoryChildrenAndContentUI(t *testing.T) {
 	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories", `{"path":"/pool"}`, "application/json"); w.Code != http.StatusCreated {
 		t.Fatalf("create directory: %d %s", w.Code, w.Body.String())
 	}
-	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", `{"path":"/pool/readme.md","content_type":"text/markdown","content":"# Pool"}`, "application/json"); w.Code != http.StatusCreated {
+	if w := testRequest(t, a, http.MethodPut, filesURL("default", "/pool/readme.md"), "# Pool", "text/markdown"); w.Code != http.StatusCreated {
 		t.Fatalf("create markdown page: %d %s", w.Code, w.Body.String())
 	}
-	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", `{"path":"/pool/report.html","content_type":"text/html","content":"<h1>Report</h1>"}`, "application/json"); w.Code != http.StatusCreated {
+	if w := testRequest(t, a, http.MethodPut, filesURL("default", "/pool/report.html"), "<h1>Report</h1>", "text/html"); w.Code != http.StatusCreated {
 		t.Fatalf("create html page: %d %s", w.Code, w.Body.String())
 	}
 	if err := os.WriteFile(filepath.Join(a.content, "default", "pool", "data.csv"), []byte("a,b\n1,2\n"), 0644); err != nil {
 		t.Fatalf("write raw file: %v", err)
 	}
 
-	listing := testRequest(t, a, http.MethodGet, "/api/v1/default/files/directories?path=%2Fpool", nil, "")
+	listing := testRequest(t, a, http.MethodGet, filesURL("default", "/pool"), nil, "")
 	var directory map[string]any
 	testJSON(t, listing, &directory)
 	children := directory["children"].([]any)
 	if len(children) != 3 {
 		t.Fatalf("directory children = %#v, want 3", children)
 	}
-	wantTypes := map[string]string{"data.csv": "file", "readme.md": "page", "report.html": "page"}
+	wantKinds := map[string]string{"/pool/data.csv": "file", "/pool/readme.md": "page", "/pool/report.html": "page"}
 	for i, child := range children {
 		entry := child.(map[string]any)
-		name := entry["name"].(string)
-		if i > 0 && children[i-1].(map[string]any)["name"].(string) > name {
+		path := entry["path"].(string)
+		if i > 0 && children[i-1].(map[string]any)["path"].(string) > path {
 			t.Errorf("directory children not sorted: %#v", children)
 		}
-		if entry["type"] != wantTypes[name] {
-			t.Errorf("child %q type = %v, want %v", name, entry["type"], wantTypes[name])
+		if entry["kind"] != wantKinds[path] {
+			t.Errorf("child %q kind = %v, want %v", path, entry["kind"], wantKinds[path])
 		}
-		if name == "readme.md" && entry["content_type"] != "text/markdown" {
+		if path == "/pool/readme.md" && entry["content_type"] != "text/markdown" {
 			t.Errorf("markdown content_type = %v", entry["content_type"])
 		}
 	}
@@ -295,4 +292,35 @@ func TestDirectoryChildrenAndContentUI(t *testing.T) {
 		}
 	}
 	assertAPIError(t, testRequest(t, a, http.MethodGet, "/default/files/pool/missing.md", nil, ""), http.StatusNotFound)
+}
+
+// TestLegacyPageAndDirectoryRoutesRemoved asserts the Page API (section 41) and
+// the legacy directory facade (section 38) are gone: only POST
+// /files/directories remains, for the files directory create and ZIP upload
+// (sections 66.2 and 66.7).
+func TestLegacyPageAndDirectoryRoutesRemoved(t *testing.T) {
+	a := newTestApp(t)
+	for _, test := range []struct {
+		method, target string
+	}{
+		{http.MethodGet, "/api/v1/default/files/pages"},
+		{http.MethodPost, "/api/v1/default/files/pages"},
+		{http.MethodDelete, "/api/v1/default/files/pages?path=%2Fdocs%2Fa.md"},
+		{http.MethodGet, "/api/v1/default/files/directories"},
+		{http.MethodGet, "/api/v1/default/files/directories?path=%2Fpool"},
+		{http.MethodDelete, "/api/v1/default/files/directories?path=%2Fpool"},
+	} {
+		response := testRequest(t, a, test.method, test.target, nil, "")
+		if response.Code != http.StatusNotFound {
+			t.Errorf("%s %s status = %d, want 404", test.method, test.target, response.Code)
+		}
+	}
+	// POST /files/directories still serves both create forms.
+	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories", map[string]any{"path": "/kept"}, "application/json"); w.Code != http.StatusCreated {
+		t.Fatalf("POST /files/directories status = %d, want 201: %s", w.Code, w.Body.String())
+	}
+	archive := buildZip(t, []zipEntry{{name: "weekly.md", body: "# Weekly"}})
+	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories?path=%2Fzipped", archive, "application/zip"); w.Code != http.StatusCreated {
+		t.Fatalf("ZIP POST /files/directories status = %d, want 201: %s", w.Code, w.Body.String())
+	}
 }

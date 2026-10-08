@@ -54,21 +54,18 @@ views and their query controls.
 
 ## Publish the Markdown and browser example
 
-Publish the Markdown source and HTML client example as pages. This uses `jq` to
-JSON-encode the file contents:
+Publish the Markdown source and HTML client example as files. The page is
+created or replaced with `PUT /files?path=` and the raw file as the body:
 
 ```sh
-jq -n --rawfile content examples/report.md \
-  '{path:"/examples/report.md",content_type:"text/markdown",content:$content}' |
-  curl -X POST http://localhost:8080/api/v1/pages \
-    -H 'Content-Type: application/json' --data-binary @-
+curl -X PUT 'http://localhost:8080/api/v1/default/files?path=%2Fexamples%2Freport.md' \
+  -H 'Content-Type: text/markdown' --data-binary @examples/report.md
 
-jq -n --rawfile content examples/client-rendering.html \
-  '{path:"/examples/client-rendering.html",content_type:"text/html",content:$content}' |
-  curl -X POST http://localhost:8080/api/v1/pages \
-    -H 'Content-Type: application/json' --data-binary @-
+curl -X PUT 'http://localhost:8080/api/v1/default/files?path=%2Fexamples%2Fclient-rendering.html' \
+  -H 'Content-Type: text/html' --data-binary @examples/client-rendering.html
 ```
 
-Visit `/examples/client-rendering.html`. It fetches the Markdown source through
-the page API and renders it with `/assets/clio-markdown.js`. Published HTML is
-trusted executable content, so only publish HTML you control.
+Visit `/examples/client-rendering.html`. It resolves the Markdown entry through
+the files API, fetches its stored source from the stable content URL, and renders
+it with `/assets/clio-markdown.js`. Published HTML is trusted executable content,
+so only publish HTML you control.

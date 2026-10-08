@@ -22,9 +22,7 @@ func contentEntryRow(t *testing.T, a *app, project, path string) (contentEntry, 
 
 func TestContentEntryIdentityStableAcrossReplace(t *testing.T) {
 	a := newTestApp(t)
-	create := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", map[string]any{
-		"path": "/docs/a.md", "content_type": "text/markdown", "content": "version one",
-	}, "application/json")
+	create := testRequest(t, a, http.MethodPut, filesURL("default", "/docs/a.md"), "version one", "text/markdown")
 	if create.Code != http.StatusCreated {
 		t.Fatalf("create page: %d %s", create.Code, create.Body.String())
 	}
@@ -43,9 +41,7 @@ func TestContentEntryIdentityStableAcrossReplace(t *testing.T) {
 		t.Errorf("entry size = %d, want %d", first.Size, len("version one"))
 	}
 
-	replace := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", map[string]any{
-		"path": "/docs/a.md", "content_type": "text/markdown", "content": "version two, longer",
-	}, "application/json")
+	replace := testRequest(t, a, http.MethodPut, filesURL("default", "/docs/a.md"), "version two, longer", "text/markdown")
 	if replace.Code != http.StatusOK {
 		t.Fatalf("replace page: %d %s", replace.Code, replace.Body.String())
 	}
@@ -63,12 +59,12 @@ func TestContentEntryIdentityStableAcrossReplace(t *testing.T) {
 		t.Errorf("entry bytes were not refreshed: first=%+v second=%+v", first, second)
 	}
 
-	// The page reads back the preserved timestamps.
-	read := testRequest(t, a, http.MethodGet, "/api/v1/default/files/pages?path=%2Fdocs%2Fa.md", nil, "")
+	// The entry representation reads back the preserved timestamps.
+	read := testRequest(t, a, http.MethodGet, filesURL("default", "/docs/a.md"), nil, "")
 	var page map[string]any
 	testJSON(t, read, &page)
 	if page["created_at"] != first.CreatedAt || page["updated_at"] != second.UpdatedAt {
-		t.Errorf("page timestamps = %v/%v, want %v/%v", page["created_at"], page["updated_at"], first.CreatedAt, second.UpdatedAt)
+		t.Errorf("entry timestamps = %v/%v, want %v/%v", page["created_at"], page["updated_at"], first.CreatedAt, second.UpdatedAt)
 	}
 }
 
@@ -134,9 +130,7 @@ func TestContentIsolationBetweenProjects(t *testing.T) {
 		t.Fatalf("create project: %d %s", w.Code, w.Body.String())
 	}
 	for project, content := range map[string]string{"default": "# Default", "bills": "# Bills"} {
-		w := testRequest(t, a, http.MethodPost, "/api/v1/"+project+"/files/pages", map[string]any{
-			"path": "/shared.md", "content_type": "text/markdown", "content": content,
-		}, "application/json")
+		w := testRequest(t, a, http.MethodPut, filesURL(project, "/shared.md"), content, "text/markdown")
 		if w.Code != http.StatusCreated {
 			t.Fatalf("create page in %s: %d %s", project, w.Code, w.Body.String())
 		}
@@ -155,11 +149,13 @@ func TestContentIsolationBetweenProjects(t *testing.T) {
 		}
 	}
 	// The page source does not cross projects.
-	read := testRequest(t, a, http.MethodGet, "/api/v1/bills/files/pages?path=%2Fshared.md", nil, "")
-	var page map[string]any
-	testJSON(t, read, &page)
-	if page["content"] != "# Bills" {
-		t.Errorf("bills page content = %v", page["content"])
+	billsEntry, found := contentEntryRow(t, a, "bills", "/shared.md")
+	if !found {
+		t.Fatal("bills page entry missing")
+	}
+	read := testRequest(t, a, http.MethodGet, "/api/v1/bills/files/"+billsEntry.ID+"/content", nil, "")
+	if read.Code != http.StatusOK || read.Body.String() != "# Bills" {
+		t.Errorf("bills page content = %d %q", read.Code, read.Body.String())
 	}
 	// A project with content is not empty and cannot be deleted.
 	assertAPIError(t, testRequest(t, a, http.MethodDelete, "/api/v1/projects/bills", nil, ""), http.StatusConflict)

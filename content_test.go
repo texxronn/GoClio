@@ -171,7 +171,7 @@ func TestDirectoryUIPostRejectsInvalidAndExistingNames(t *testing.T) {
 	}
 }
 
-func TestDirectoryAPICreationStillWorks(t *testing.T) {
+func TestFilesDirectoryCreation(t *testing.T) {
 	a := newTestApp(t)
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/default/files/directories", strings.NewReader(`{"path":"/from-api"}`))
 	r.Header.Set("Content-Type", "application/json")

@@ -257,9 +257,10 @@ func (a *app) dataAPI(w http.ResponseWriter, r *http.Request, s []string) {
 	}
 }
 
-// filesAPI serves the project files partition (sections 64.4 and 66.7). The
-// directory and page operations remain under /directories and /pages as
-// compatibility facades (sections 38 and 41) until Phase 10 removes them.
+// filesAPI serves the project files partition (sections 64.4 and 66.7). It is
+// the only API for directories, pages and files: the Page API (section 41) and
+// the Directory API (section 38) were folded into this partition (section 66.2).
+// POST /files/directories keeps the directory-create and ZIP-upload behaviour.
 func (a *app) filesAPI(w http.ResponseWriter, r *http.Request, s []string) {
 	if len(s) == 0 {
 		switch r.Method {
@@ -276,9 +277,11 @@ func (a *app) filesAPI(w http.ResponseWriter, r *http.Request, s []string) {
 	}
 	switch s[0] {
 	case "directories":
-		a.directoriesAPI(w, r)
+		a.createDirectoryAPI(w, r)
 	case "pages":
-		a.pagesAPI(w, r)
+		// The Page API is replaced by the files partition; pages are `.md`/`.html`
+		// entries created and replaced with PUT /files?path= (section 66.2).
+		writeAPIError(w, missing("Endpoint"))
 	case "move":
 		if r.Method != http.MethodPost {
 			writeAPIError(w, methodNotAllowed())
