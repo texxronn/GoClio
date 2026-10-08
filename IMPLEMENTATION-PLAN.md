@@ -29,11 +29,13 @@ carry everything needed to continue. Never rely on chat history.
   routes change (section 66). Update the tests; do not add unscoped aliases.
 - **Verification after every change:**
   ```sh
-  go test ./...
-  go vet ./...
-  go build -buildvcs=false -o /tmp/gocl-clio-check .
+  go test -tags sqlite_fts5 ./...
+  go vet -tags sqlite_fts5 ./...
+  go build -tags sqlite_fts5 -buildvcs=false -o /tmp/gocl-clio-check .
   ```
-  (`make check` runs the same sequence with the git-derived version.)
+  (`make check` runs the same sequence with the git-derived version. The
+  `sqlite_fts5` tag is required from Phase 6 on: the FTS5 index will not open
+  without it.)
 - **Tests exercise behaviour through HTTP** with temporary SQLite databases and
   content directories; no external services.
 - **Never log** request bodies, credentials, query strings, or published content.
@@ -259,7 +261,7 @@ carry everything needed to continue. Never rely on chat history.
 - [ ] Move `SPEC-CONFORMANCE.md` rows out of *Pending* as phases land; keep the mapping current throughout.
 - [ ] Update examples under `examples/`.
 - [ ] Run the section 59 acceptance walkthrough end to end.
-- [ ] Final `go test ./...`, `go vet ./...`, `go build -buildvcs=false -o /tmp/gocl-clio-check .`.
+- [ ] Final `go test -tags sqlite_fts5 ./...`, `go vet -tags sqlite_fts5 ./...`, `go build -tags sqlite_fts5 -buildvcs=false -o /tmp/gocl-clio-check .`.
 
 **Done when:** spec v1.7 conformance is claimed only where tests exist.
 
@@ -277,7 +279,7 @@ carry everything needed to continue. Never rely on chat history.
 
 - [ ] Behaviour matches the cited spec sections.
 - [ ] New/changed behaviour covered by HTTP tests with temp DB/content.
-- [ ] `go test ./...`, `go vet ./...`, `go build -buildvcs=false` pass.
+- [ ] `go test -tags sqlite_fts5 ./...`, `go vet -tags sqlite_fts5 ./...`, `go build -tags sqlite_fts5 -buildvcs=false` pass.
 - [ ] `SPEC-CONFORMANCE.md` updated.
 - [ ] `CHANGELOG.md` updated for user-visible change.
 - [ ] `IMPLEMENTATION-CONTEXT.md` updated.

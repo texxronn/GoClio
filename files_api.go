@@ -669,7 +669,7 @@ func (a *app) moveRegularFile(from, to, src, dst string) *apiError {
 	if filepath.Ext(from) != filepath.Ext(to) {
 		contentType = contentMediaType(to)
 	}
-	if _, err = a.db.Exec(`UPDATE content_entries SET path=?,kind=?,content_type=? WHERE project=? AND id=?`, to, contentKind(to), contentType, a.project, entry.ID); err != nil {
+	if err = a.applyContentRename(entry.ID, from, to, contentKind(to), contentType, false); err != nil {
 		_ = os.Rename(dst, src)
 		return errAPI(err)
 	}
@@ -682,11 +682,7 @@ func (a *app) moveDirectory(from, to, src, dst string) *apiError {
 	if err := os.Rename(src, dst); err != nil {
 		return errAPI(err)
 	}
-	shift := len(from) + 1
-	if _, err := a.db.Exec(
-		`UPDATE content_entries SET path=? || substr(path,?) WHERE project=? AND (path=? OR substr(path,1,?)=?)`,
-		to, shift, a.project, from, shift, from+"/",
-	); err != nil {
+	if err := a.applyContentRename("", from, to, "", "", true); err != nil {
 		_ = os.Rename(dst, src)
 		return errAPI(err)
 	}

@@ -230,6 +230,7 @@ func migrateSchema(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS fields_meta (project TEXT NOT NULL DEFAULT 'default', group_name TEXT NOT NULL, table_name TEXT NOT NULL, name TEXT NOT NULL, position INTEGER NOT NULL, definition TEXT NOT NULL, PRIMARY KEY(project,group_name,table_name,name), FOREIGN KEY(project,group_name,table_name) REFERENCES tables_meta(project,group_name,name) ON DELETE CASCADE)`,
 		`CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, project TEXT NOT NULL DEFAULT 'default', group_name TEXT NOT NULL, table_name TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, data TEXT NOT NULL, timestamp_value TEXT, FOREIGN KEY(project,group_name,table_name) REFERENCES tables_meta(project,group_name,name) ON DELETE CASCADE)`,
 		`CREATE TABLE IF NOT EXISTS content_entries (id TEXT PRIMARY KEY, project TEXT NOT NULL DEFAULT 'default', path TEXT NOT NULL, kind TEXT NOT NULL, content_type TEXT NOT NULL, size INTEGER NOT NULL DEFAULT 0, sha256 TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(project,path), FOREIGN KEY(project) REFERENCES projects(name) ON DELETE CASCADE)`,
+		`CREATE VIRTUAL TABLE IF NOT EXISTS content_search USING fts5(id UNINDEXED, project UNINDEXED, path UNINDEXED, kind UNINDEXED, source UNINDEXED, title, body, tokenize='unicode61')`,
 		`CREATE TABLE IF NOT EXISTS managed_indexes (name TEXT PRIMARY KEY, project TEXT NOT NULL DEFAULT 'default', group_name TEXT NOT NULL, table_name TEXT NOT NULL)`,
 	}
 	for _, statement := range statements {

@@ -38,19 +38,22 @@ through HTTP and use temporary SQLite databases and content directories.
 | §64.2 content entries and identity | `TestContentEntryIdentityStableAcrossReplace`, `TestContentReconciliationAddsAndRemoves`, `TestContentEntriesMigrationFromPageTimes`, `TestContentLayoutMigrationMovesLegacyRoot`, `TestFilesCRUDByPathAndID`, `TestFilesMoveAndCopy` |
 | §64.4 filesystem REST API | `TestFilesCRUDByPathAndID`, `TestFilesDirectoryListingAndPageKind`, `TestFilesListFiltersAndPaging`, `TestFilesMoveAndCopy`, `TestFilesConflictsAndReservedSegment`, `TestFilesDeleteByPathRemovesSubtree`, `TestFilesUploadLimitAndTraversal`, `TestFilesRescanSummary`, `TestFilesProjectIsolation` |
 | §64.3/§64.5/§66.9 stable URLs and file serving | `TestFileContentDownloadHeadersAndRanges`, `TestStableHumanURLDownloadsRawPageBytes`, `TestPathURLNonPageDownloads`, `TestFileContentMissingIDReturnsNotFound`, `TestFileContentIsProjectScoped`, `TestStableHumanURLMissingAndMethodRestrictions` |
+| §64.6 native extraction and the text index | `TestNativeExtractionPerType`, `TestNativeExtractionCapsIndexedText`, `TestFTS5Available`, `TestContentSearchIndexesWritesAndDrops`, `TestContentSearchRebuiltByRescan`, `TestContentSearchMoveKeepsIDAndPath`, `TestContentSearchProjectScoped` |
 | §65.3 project data scoping and isolation | `TestProjectDataIsolation`, `TestContentIsolationBetweenProjects` |
 | §66.1/§66.3/§66.5–§66.6 project-first routing, instance routes and the data partition | `TestBareRoutesRedirectToDefaultProject`, `TestUnknownProjectReturnsNotFound`, `TestProjectScopedHumanAndAPIRoutes` |
 
 ## Verification commands
 
 ```sh
-go test ./...
-go vet ./...
-go build -buildvcs=false -o /tmp/gocl-clio-check .
+go test -tags sqlite_fts5 ./...
+go vet -tags sqlite_fts5 ./...
+go build -tags sqlite_fts5 -buildvcs=false -o /tmp/gocl-clio-check .
 ```
 
 Building requires Go 1.25 and a C toolchain for the cgo SQLite driver. The
-ClioJS behaviour test additionally runs Node.js when it is available and skips
+`sqlite_fts5` tag is mandatory: the full-text index uses SQLite FTS5
+(section 64.6), which the driver only compiles in under that tag. The ClioJS
+behaviour test additionally runs Node.js when it is available and skips
 otherwise.
 
 ## Pending conformance
@@ -61,7 +64,6 @@ above as its tests land.
 
 | Spec area | Planned tests |
 | --- | --- |
-| §64.6 extraction and text index | text-like extraction; PDF text; size cap; rebuild by rescan |
 | §64.7 search API | ranking and snippets; literal-term safety; paging; empty/oversized query |
 | §64.8 agent enrichment | fingerprint match/mismatch; survives move; delete falls back to native |
 | §64.9 attachment fields | validation on create/update/default; delete-integrity `409`; record representation |
