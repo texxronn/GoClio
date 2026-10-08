@@ -598,7 +598,7 @@ async function main() {
   let menu = menuOf(ctxHost);
   assert.ok(menu, "right-click opens a context menu");
   assert.equal(menu.attributes.role, "menu");
-  assert.deepEqual(menuLabels(menu), ["Open", "Download", "Rename", "Delete"], "the file menu has Open/Download/Rename/Delete");
+  assert.deepEqual(menuLabels(menu), ["Open in new tab", "Download", "Rename", "Delete"], "the file menu has Open in new tab/Download/Rename/Delete");
   assert.ok(collectByTag(menu, "button").every((button) => button.attributes.role === "menuitem"), "every menu entry is a menuitem");
   assert.equal(menu.style.position, "fixed", "the menu floats");
   assert.equal(menu.style.left, "24px");
@@ -610,6 +610,13 @@ async function main() {
   assert.equal(opened.at(-1), "/default/files/id/file-2", "Download opens the stable ID URL");
   assert.ok(opened.length > openedBefore, "Download opens a new tab/URL");
   assert.equal(menuOf(ctxHost), undefined, "acting on an item closes the menu");
+
+  // Open in new tab opens the entry's canonical path URL.
+  fbRow(ctxHost, "/note.txt").handlers.contextmenu({ preventDefault() {}, clientX: 0, clientY: 0 });
+  const openedTabs = opened.length;
+  menuItem(menuOf(ctxHost), "Open in new tab").handlers.click({ preventDefault() {}, stopPropagation() {} });
+  assert.equal(opened.at(-1), "https://clio.example/default/files/note.txt", "Open in new tab uses the path URL");
+  assert.ok(opened.length > openedTabs, "Open in new tab opens a new tab/URL");
 
   // Rename prompts and issues the move request.
   context.prompt = () => "renamed.txt";
@@ -635,7 +642,7 @@ async function main() {
 
   // A directory menu omits Download.
   fbRow(ctxHost, "/docs").handlers.contextmenu({ preventDefault() {}, clientX: 0, clientY: 0 });
-  assert.deepEqual(menuLabels(menuOf(ctxHost)), ["Open", "Rename", "Delete"], "the directory menu omits Download");
+  assert.deepEqual(menuLabels(menuOf(ctxHost)), ["Open", "Open in new tab", "Rename", "Delete"], "the directory menu omits Download");
   context.document.dispatchEvent("mousedown", { target: new Element("div") });
   assert.equal(menuOf(ctxHost), undefined, "an outside mousedown closes the menu");
 
@@ -649,7 +656,7 @@ async function main() {
   fbRow(ctxHost, "/docs").handlers.contextmenu({ preventDefault() {}, clientX: 5, clientY: 6 });
   menu = menuOf(ctxHost);
   assert.ok(menu, "right-click opens the context menu for a directory");
-  assert.deepEqual(menuLabels(menu), ["Open", "Rename", "Delete"]);
+  assert.deepEqual(menuLabels(menu), ["Open", "Open in new tab", "Rename", "Delete"]);
   assert.equal(context.document.activeElement, collectByTag(menu, "button")[0], "focus moves into the menu");
   menu.handlers.keydown({ key: "ArrowDown", preventDefault() {} });
   assert.equal(context.document.activeElement, collectByTag(menu, "button")[1], "ArrowDown moves to the next item");
@@ -661,7 +668,7 @@ async function main() {
   fbRow(ctxHost, "/note.txt").handlers.click({});
   const listEl = collectByTag(ctxHost, "div").find((el) => el.className === "fb-list");
   listEl.handlers.keydown({ key: "F10", shiftKey: true, preventDefault() {} });
-  assert.deepEqual(menuLabels(menuOf(ctxHost)), ["Open", "Download", "Rename", "Delete"], "Shift+F10 opens the menu for the selected row");
+  assert.deepEqual(menuLabels(menuOf(ctxHost)), ["Open in new tab", "Download", "Rename", "Delete"], "Shift+F10 opens the menu for the selected row");
   context.document.dispatchEvent("keydown", { key: "Escape" });
   assert.equal(menuOf(ctxHost), undefined, "document Escape closes the menu");
   listEl.handlers.keydown({ key: "ContextMenu", shiftKey: false, preventDefault() {} });
