@@ -338,6 +338,46 @@ async function main() {
   assert.equal(navigation.at(-1), "/bills/files/docs", "the switcher keeps the file sub-path");
   fileSwitchBrowser.destroy();
 
+  // A non-default project exposes no cross-project switcher in either browser;
+  // the only affordance is a single Home link to bare "/". The project name is
+  // still resolvable from the URL, so the mount targets bills.
+  location.pathname = "/bills/data";
+  location.search = "?group=pool&table=measurements";
+  const nonDefaultDataHost = new Element("div");
+  const nonDefaultData = Clio.DataBrowser.mount(nonDefaultDataHost, { pageSize: 2 });
+  await nonDefaultData.ready;
+  const nonDefaultDataSelects = collectByTag(nonDefaultDataHost, "select").filter((select) => select.attributes["aria-label"] === "Project");
+  assert.equal(nonDefaultDataSelects.length, 0, "a non-default data browser has no project switcher");
+  const nonDefaultDataHome = collectByTag(nonDefaultDataHost, "a").find((link) => link.className === "project-home");
+  assert.ok(nonDefaultDataHome, "a non-default data browser offers a Home link");
+  assert.equal(nonDefaultDataHome.href, "/", "the Home link points at bare /");
+  nonDefaultData.destroy();
+
+  location.pathname = "/bills/files";
+  location.search = "";
+  const nonDefaultFileHost = new Element("div");
+  const nonDefaultFile = Clio.FileBrowser.mount(nonDefaultFileHost, { path: "/" });
+  await nonDefaultFile.ready;
+  await nonDefaultFile.navigate("/docs");
+  const nonDefaultFileSelects = collectByTag(nonDefaultFileHost, "select").filter((select) => select.attributes["aria-label"] === "Project");
+  assert.equal(nonDefaultFileSelects.length, 0, "a non-default file browser has no project switcher");
+  const nonDefaultFileHome = collectByTag(nonDefaultFileHost, "a").find((link) => link.className === "project-home");
+  assert.ok(nonDefaultFileHome, "a non-default file browser offers a Home link");
+  assert.equal(nonDefaultFileHome.href, "/", "the Home link points at bare /");
+  nonDefaultFile.destroy();
+
+  // Clio.Projects.mount is robust outside the default project: it offers only a
+  // Home link to "/" and never lists or links to another project.
+  location.pathname = "/bills/";
+  location.search = "";
+  const nonDefaultManagerHost = new Element("div");
+  const nonDefaultManager = Clio.Projects.mount(nonDefaultManagerHost, { client: new Clio() });
+  await nonDefaultManager.ready;
+  assert.deepEqual(collectByTag(nonDefaultManagerHost, "a").map((link) => link.href), ["/"], "a non-default projects mount links only to bare /");
+  assert.match(nonDefaultManagerHost.textContent, /Home/);
+  assert.equal(collectByTag(nonDefaultManagerHost, "select").length, 0, "a non-default projects mount has no project list or form controls");
+  nonDefaultManager.destroy();
+
   let error;
   try {
     await table.get("missing");

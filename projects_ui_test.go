@@ -92,11 +92,56 @@ func TestProjectOverviewPanelOnNonDefaultProject(t *testing.T) {
 		t.Fatalf("GET /bills/ status=%d: %s", response.Code, response.Body.String())
 	}
 	body := response.Body.String()
-	noscript := noscriptSection(t, body)
-	// Both projects are listed and each links to its own project-scoped URL.
-	for _, want := range []string{`href="/default/"`, `href="/bills/"`} {
-		if !strings.Contains(noscript, want) {
-			t.Errorf("non-default overview fallback missing %q: %s", want, noscript)
+
+	// A non-default overview offers no project manager: no mount point, no
+	// ClioJS manager script and no server-rendered list of projects.
+	for _, forbidden := range []string{`id="clio-projects"`, "Clio.Projects.mount", `<noscript>`, `href="/default/"`, ">Default<"} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("non-default overview must not contain %q: %s", forbidden, body)
 		}
+	}
+	// The only cross-project affordance is a Home link to bare "/".
+	if !strings.Contains(body, `href="/">`) || !strings.Contains(body, "Home") {
+		t.Errorf("non-default overview missing the Home link to /: %s", body)
+	}
+}
+
+// TestNonDefaultProjectNavHasHomeLink checks that every non-overview page of a
+// non-default project carries the single Home link to bare "/" in its nav and
+// never links to another project.
+func TestNonDefaultProjectNavHasHomeLink(t *testing.T) {
+	a := newTestApp(t)
+	if w := testRequest(t, a, http.MethodPost, "/api/v1/projects", map[string]any{"name": "bills"}, "application/json"); w.Code != http.StatusCreated {
+		t.Fatalf("create project: %d %s", w.Code, w.Body.String())
+	}
+	for _, route := range []string{"/bills/data", "/bills/files", "/bills/search", "/bills/help", "/bills/health"} {
+		response := testRequest(t, a, http.MethodGet, route, nil, "")
+		if response.Code != http.StatusOK {
+			t.Fatalf("GET %s status=%d: %s", route, response.Code, response.Body.String())
+		}
+		body := response.Body.String()
+		if !strings.Contains(body, `href='/'>Home</a>`) {
+			t.Errorf("GET %s nav missing the Home link to /: %s", route, body)
+		}
+		if strings.Contains(body, `href='/default/'`) {
+			t.Errorf("GET %s nav links to the default project: %s", route, body)
+		}
+	}
+}
+
+// TestDefaultProjectNavKeepsClioLink confirms the default project keeps its
+// "Clio" brand link to /{default}/ and does not gain a Home link.
+func TestDefaultProjectNavKeepsClioLink(t *testing.T) {
+	a := newTestApp(t)
+	response := testRequest(t, a, http.MethodGet, "/default/", nil, "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET /default/ status=%d: %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, `href='/default/'>Clio</a>`) {
+		t.Errorf("default nav missing the Clio link to /default/: %s", body)
+	}
+	if strings.Contains(body, `href='/'>Home</a>`) {
+		t.Errorf("default nav must not contain a Home link: %s", body)
 	}
 }
