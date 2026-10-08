@@ -118,6 +118,20 @@ than the product.
 - Builds and tests require `-tags sqlite_fts5` so the cgo SQLite driver compiles
   in FTS5. The `Makefile`, `Dockerfile` and CI apply it; a binary built without
   the tag fails at startup when it creates `content_search`.
+- `attachment` field type (spec v1.5 §64.9/§13.3): a field may declare
+  `{"type": "attachment"}` with an optional `accept` UI hint (a string or a list
+  of extensions/media types, normalized to a list and surfaced in field
+  metadata). The stored value is a content-entry ID and is returned in the
+  record representation as a JSON string; filtering, sorting and `distinct`
+  operate on the ID string. On create, update and default application Clio
+  validates that the ID names an entry in the **same project**, otherwise the
+  request fails with `422`. A record that references an entry prevents deletion
+  of that entry — or of a directory containing it — with `409 Conflict` through
+  the files API and the legacy directory/page facades, until the referencing
+  values are cleared; there is no cascade deletion. The generated record form
+  offers a choose control listing the project's files, and the record view links
+  the attachment through `/{project}/files/id/{id}`. The link survives rename
+  and move because it stores the stable ID.
 
 ### Documentation
 

@@ -517,6 +517,15 @@ func (a *app) deleteFileByPath(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if info.IsDir() {
+		ids, lookupErr := a.contentEntryIDsUnder(clean)
+		if lookupErr != nil {
+			writeErr(w, errAPI(lookupErr))
+			return
+		}
+		if e := a.attachmentDeleteConflict(ids); e != nil {
+			writeErr(w, e)
+			return
+		}
 		if err = os.RemoveAll(target); err != nil {
 			writeErr(w, errAPI(err))
 			return
@@ -531,6 +540,17 @@ func (a *app) deleteFileByPath(w http.ResponseWriter, r *http.Request) {
 	if !info.Mode().IsRegular() {
 		writeAPIError(w, missing("File"))
 		return
+	}
+	entry, found, lookupErr := a.contentEntryByPath(clean)
+	if lookupErr != nil {
+		writeErr(w, errAPI(lookupErr))
+		return
+	}
+	if found {
+		if e := a.attachmentDeleteConflict([]string{entry.ID}); e != nil {
+			writeErr(w, e)
+			return
+		}
 	}
 	if err = os.Remove(target); err != nil {
 		writeErr(w, errAPI(err))
@@ -559,6 +579,10 @@ func (a *app) deleteFileByID(w http.ResponseWriter, r *http.Request, id string) 
 	target, ae := a.contentPath(entry.Path)
 	if ae != nil {
 		writeErr(w, ae)
+		return
+	}
+	if conflictErr := a.attachmentDeleteConflict([]string{entry.ID}); conflictErr != nil {
+		writeErr(w, conflictErr)
 		return
 	}
 	if info, statErr := os.Lstat(target); statErr == nil {

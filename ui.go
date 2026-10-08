@@ -518,6 +518,26 @@ body{max-width:none;margin:0 auto;padding:0 1.4rem;background:#f4f7fb;color:#192
 				}
 			}
 			b.WriteString("</select>")
+		case "attachment":
+			// A choose control listing the project's files; the stored value is
+			// the content-entry ID (section 64.9).
+			b.WriteString("<select name=\"" + name + "\"" + required + ">")
+			if f["required"] != true {
+				b.WriteString("<option value=\"\"></option>")
+			}
+			found := false
+			for _, option := range a.contentEntryOptions() {
+				sel := ""
+				if option["id"] == textValue {
+					sel = " selected"
+					found = true
+				}
+				b.WriteString("<option value=\"" + option["id"] + "\"" + sel + ">" + esc(option["path"]) + "</option>")
+			}
+			if textValue != "" && !found {
+				b.WriteString("<option value=\"" + esc(textValue) + "\" selected>" + esc(textValue) + "</option>")
+			}
+			b.WriteString("</select>")
 		default:
 			inputType := map[string]string{"integer": "number", "decimal": "number", "date": "date", "datetime": "datetime-local", "url": "url"}[typ]
 			if inputType == "" {
@@ -531,6 +551,15 @@ body{max-width:none;margin:0 auto;padding:0 1.4rem;background:#f4f7fb;color:#192
 				step = " step=any"
 			}
 			b.WriteString("<input type=\"" + inputType + "\" name=\"" + name + "\" value=\"" + esc(textValue) + "\"" + required + step + ">")
+		}
+		if typ == "attachment" {
+			if accept, ok := f["accept"].([]any); ok && len(accept) > 0 {
+				labels := make([]string, len(accept))
+				for i, v := range accept {
+					labels[i] = fmt.Sprint(v)
+				}
+				b.WriteString("<span>Accepted: " + esc(strings.Join(labels, ", ")) + "</span>")
+			}
 		}
 		if description := strings.TrimSpace(fmt.Sprint(f["description"])); description != "" && description != "<nil>" {
 			b.WriteString("<span>" + esc(description) + "</span>")
@@ -554,7 +583,17 @@ body{max-width:none;margin:0 auto;padding:0 1.4rem;background:#f4f7fb;color:#192
 			continue
 		}
 		name := f["name"].(string)
-		b.WriteString(`<div class="record-detail-field"><dt>` + esc(f["label"]) + `</dt><dd>` + esc(record[name]) + `</dd></div>`)
+		b.WriteString(`<div class="record-detail-field"><dt>` + esc(f["label"]) + `</dt><dd>`)
+		if f["type"] == "attachment" {
+			if id, ok := record[name].(string); ok && id != "" {
+				b.WriteString(`<a href="` + htmlAttr(a.projectPath("files", "id", id)) + `">` + esc(id) + `</a>`)
+			} else {
+				b.WriteString(esc(record[name]))
+			}
+		} else {
+			b.WriteString(esc(record[name]))
+		}
+		b.WriteString(`</dd></div>`)
 	}
 	b.WriteString(`</dl></div></section>`)
 	return b.String()
@@ -609,7 +648,7 @@ func formData(r *http.Request, defs []map[string]any) (map[string]any, *apiError
 			continue
 		}
 		value := values[len(values)-1]
-		if value == "" && contains([]string{"integer", "decimal", "date", "datetime", "url", "reference", "enum"}, typ) {
+		if value == "" && contains([]string{"integer", "decimal", "date", "datetime", "url", "reference", "attachment", "enum"}, typ) {
 			out[name] = nil
 		} else if typ == "integer" {
 			out[name] = json.Number(value)
@@ -625,6 +664,26 @@ func formData(r *http.Request, defs []map[string]any) (map[string]any, *apiError
 var regexpOffset = mustCompile(`.*[+-][0-9]{2}:[0-9]{2}$`)
 
 func mustCompile(v string) *regexp.Regexp { return regexp.MustCompile(v) }
+
+// contentEntryOptions lists the project's content entries for an attachment
+// form control, ordered by path (section 64.9).
+func (a *app) contentEntryOptions() []map[string]string {
+	rows, err := a.db.Query(`SELECT id,path FROM content_entries WHERE project=? ORDER BY path LIMIT 1000`, a.project)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	options := []map[string]string{}
+	for rows.Next() {
+		var id, path string
+		if err := rows.Scan(&id, &path); err != nil {
+			return options
+		}
+		options = append(options, map[string]string{"id": id, "path": path})
+	}
+	return options
+}
+
 func queryURL(p string, q url.Values, overrides map[string]string) string {
 	out := url.Values{}
 	for k, values := range q {

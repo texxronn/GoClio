@@ -186,7 +186,7 @@ func tableIndexes(fields []map[string]any, declarations []schemaIndex, kind stri
 		if field["unique"] == true {
 			add(schemaIndex{fields: []string{name}, unique: true})
 		}
-		if field["type"] == "reference" {
+		if field["type"] == "reference" || field["type"] == "attachment" {
 			add(schemaIndex{fields: []string{name}})
 		}
 	}
