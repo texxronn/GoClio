@@ -93,6 +93,11 @@ func (a *app) listFiles(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, errAPI(err))
 		return
 	}
+	indexed, err := a.indexedEntryIDs()
+	if err != nil {
+		writeErr(w, errAPI(err))
+		return
+	}
 	rows, err := a.db.Query(
 		`SELECT id,project,path,kind,content_type,size,sha256,created_at,updated_at FROM content_entries WHERE `+where+` ORDER BY path LIMIT ? OFFSET ?`,
 		append(append([]any{}, args...), limit, offset)...,
@@ -109,7 +114,7 @@ func (a *app) listFiles(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, errAPI(scanErr))
 			return
 		}
-		data = append(data, a.contentEntryRepresentation(entry))
+		data = append(data, a.contentEntryRepresentationIndexed(entry, indexed[entry.ID]))
 	}
 	if err := rows.Err(); err != nil {
 		writeErr(w, errAPI(err))
@@ -196,6 +201,10 @@ func (a *app) directoryRepresentation(clean, target string, limit, offset int) (
 	if err != nil {
 		return nil, errAPI(err)
 	}
+	indexed, err := a.indexedEntryIDs()
+	if err != nil {
+		return nil, errAPI(err)
+	}
 	children := make([]map[string]any, 0, len(entries))
 	for _, de := range entries {
 		if de.Type()&os.ModeSymlink != 0 {
@@ -217,7 +226,7 @@ func (a *app) directoryRepresentation(clean, target string, limit, offset int) (
 		if ae != nil {
 			return nil, ae
 		}
-		children = append(children, a.contentEntryRepresentation(entry))
+		children = append(children, a.contentEntryRepresentationIndexed(entry, indexed[entry.ID]))
 	}
 	sort.Slice(children, func(i, j int) bool {
 		return children[i]["path"].(string) < children[j]["path"].(string)
@@ -235,6 +244,12 @@ func (a *app) directoryRepresentation(clean, target string, limit, offset int) (
 
 // contentEntryRepresentation is the wire form of a page or file (section 64.4).
 func (a *app) contentEntryRepresentation(entry contentEntry) map[string]any {
+	return a.contentEntryRepresentationIndexed(entry, a.entryIndexed(entry.ID))
+}
+
+// contentEntryRepresentationIndexed is contentEntryRepresentation with a known
+// index state, so a listing can resolve `indexed` for every entry in one query.
+func (a *app) contentEntryRepresentationIndexed(entry contentEntry, indexed bool) map[string]any {
 	return map[string]any{
 		"id":           entry.ID,
 		"path":         entry.Path,
@@ -246,8 +261,37 @@ func (a *app) contentEntryRepresentation(entry contentEntry) map[string]any {
 		"updated_at":   entry.UpdatedAt,
 		"url":          a.contentURL(entry.Path),
 		"stable_url":   a.baseURL + a.projectPath("files", "id", entry.ID),
-		"indexed":      false,
+		"indexed":      indexed,
 	}
+}
+
+// entryIndexed reports whether an entry has a searchable text-index row
+// (section 64.6): native extracted text or agent-supplied text.
+func (a *app) entryIndexed(id string) bool {
+	var n int
+	if err := a.db.QueryRow(`SELECT count(*) FROM content_search WHERE project=? AND id=?`, a.project, id).Scan(&n); err != nil {
+		return false
+	}
+	return n > 0
+}
+
+// indexedEntryIDs returns the IDs of entries that have a text-index row, so a
+// listing can set `indexed` without a query per entry (section 64.6).
+func (a *app) indexedEntryIDs() (map[string]bool, error) {
+	rows, err := a.db.Query(`SELECT id FROM content_search WHERE project=?`, a.project)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	indexed := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		indexed[id] = true
+	}
+	return indexed, rows.Err()
 }
 
 // getFile serves GET /api/v1/{project}/files/{id} (section 64.4).
