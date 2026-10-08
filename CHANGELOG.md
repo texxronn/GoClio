@@ -24,6 +24,19 @@ than the product.
   `default`; no stored data is rewritten. Group and table names are now unique
   per project.
 - `/health` and `/api/v1/health` report a `projects` count.
+- Project-first routing (spec v1.7 §66): every data and content route now begins
+  with the project. Instance routes stay unscoped (`/health`, `/help`,
+  `/api/v1/health`, `/api/v1/help`, `/api/v1/projects`, `/assets/...`,
+  `/favicon.svg`). Bare `/` and `/api/v1` redirect to `/{default}/` and
+  `/api/v1/{default}`; an unknown project returns `404`.
+- The data partition moved under `/api/v1/{project}/data/...` (metadata, groups,
+  tables, fields, records) and `/{project}/data/...` (table UI, forms, data
+  browser at `/{project}/collections/...`). Every data query is scoped by
+  project, and managed indexes include the project scope.
+- The content tree moved under `/api/v1/{project}/files/{directories,pages}`
+  and `/{project}/files/...`. These are the legacy directory and page operations
+  under the files partition until the unified files API lands; storage is not yet
+  partitioned per project. ClioJS is project-aware (`new Clio({ project })`).
 
 ### Documentation
 

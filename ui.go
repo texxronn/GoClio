@@ -10,14 +10,28 @@ import (
 	"strings"
 )
 
-func (a *app) tableUI(w http.ResponseWriter, r *http.Request) {
+func (a *app) tableUI(w http.ResponseWriter, r *http.Request, s []string) {
 	if r.Method != "GET" && r.Method != "POST" {
 		writeAPIError(w, methodNotAllowed())
 		return
 	}
-	s := splitPath(strings.TrimPrefix(r.URL.Path, "/t/"))
 	if len(s) == 0 {
-		writeAPIError(w, missing("Table"))
+		if r.Method != "GET" {
+			writeAPIError(w, methodNotAllowed())
+			return
+		}
+		groups, e := a.listGroups()
+		if e != nil {
+			writeErr(w, e)
+			return
+		}
+		var b strings.Builder
+		b.WriteString("<h1>Data</h1><ul>")
+		for _, g := range groups {
+			b.WriteString("<li><a href=\"" + htmlAttr(a.dataURL(fmt.Sprint(g["name"]))) + "\">" + esc(g["label"]) + "</a></li>")
+		}
+		b.WriteString("</ul>")
+		writeHTML(w, 200, a.pageShell(b.String(), "Data"))
 		return
 	}
 	group, e := validIdentifier(s[0], "group")
@@ -43,7 +57,7 @@ func (a *app) tableUI(w http.ResponseWriter, r *http.Request) {
 		var b strings.Builder
 		b.WriteString("<h1>" + esc(g["label"]) + " tables</h1><ul>")
 		for _, t := range tables {
-			b.WriteString("<li><a href=\"/t/" + group + "/" + t["name"].(string) + "\">" + esc(t["label"]) + "</a></li>")
+			b.WriteString("<li><a href=\"" + htmlAttr(a.dataURL(group, fmt.Sprint(t["name"]))) + "\">" + esc(t["label"]) + "</a></li>")
 		}
 		b.WriteString("</ul>")
 		writeHTML(w, 200, a.pageShell(b.String(), "Tables · "+group))
@@ -54,6 +68,7 @@ func (a *app) tableUI(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, e)
 		return
 	}
+	base := a.dataURL(group, table)
 	meta, e := a.table(group, table)
 	if e != nil {
 		writeErr(w, e)
@@ -69,7 +84,7 @@ func (a *app) tableUI(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, ae)
 			return
 		}
-		writeHTML(w, 200, a.pageShell(body, "/t/"+group+"/"+table))
+		writeHTML(w, 200, a.pageShell(body, base))
 		return
 	}
 	if len(s) == 3 && s[2] == "new" {
@@ -92,7 +107,7 @@ func (a *app) tableUI(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, ae)
 			return
 		}
-		http.Redirect(w, r, "/t/"+group+"/"+table+"/"+record["id"].(string), http.StatusSeeOther)
+		http.Redirect(w, r, base+"/"+record["id"].(string), http.StatusSeeOther)
 		return
 	}
 	if len(s) == 3 {
@@ -132,7 +147,7 @@ func (a *app) tableUI(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, ae)
 			return
 		}
-		http.Redirect(w, r, "/t/"+group+"/"+table+"/"+s[2], http.StatusSeeOther)
+		http.Redirect(w, r, base+"/"+s[2], http.StatusSeeOther)
 		return
 	}
 	if len(s) == 4 && s[3] == "delete" && r.Method == "POST" {
@@ -140,7 +155,7 @@ func (a *app) tableUI(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, ae)
 			return
 		}
-		http.Redirect(w, r, "/t/"+group+"/"+table, http.StatusSeeOther)
+		http.Redirect(w, r, base, http.StatusSeeOther)
 		return
 	}
 	writeAPIError(w, missing("Page"))
@@ -156,12 +171,13 @@ func (a *app) tableHTML(group, table string, meta map[string]any, q url.Values) 
 		return "", e
 	}
 	defs, _ := meta["fields"].([]map[string]any)
+	base := a.dataURL(group, table)
 	var b strings.Builder
 	b.WriteString(`<style>
 body{max-width:none;margin:0 auto;padding:0 1.4rem;background:#f4f7fb;color:#192a41}body>nav{display:flex;align-items:center;gap:.9rem;margin:0 calc(1.4rem * -1) 1.25rem;padding:.8rem 1.4rem;background:#fff;border-bottom:1px solid #e3e9f1;font-size:.9rem}body>nav a{color:#52647a}body>nav a:first-child{font-weight:750;color:#182f4b}main{max-width:none!important}.table-page{max-width:1180px;margin:1.2rem auto 4rem}.table-back{display:inline-block;margin:0 0 .75rem;color:#286a83;font-size:.84rem;font-weight:650;text-decoration:none}.table-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:1.2rem;margin-bottom:1rem;padding:1.3rem 1.4rem;border:1px solid #e3e9f1;border-radius:12px;background:#fff}.table-eyebrow{margin:0 0 .3rem;color:#8192a2;font-size:.68rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase}.table-heading h1{margin:0;color:#192a41;font-size:1.8rem;letter-spacing:-.04em}.table-heading p:last-child{margin:.4rem 0 0;color:#718394;font-size:.9rem}.table-actions{display:flex;align-items:center;gap:.55rem;flex:none}.table-actions a{padding:.58rem .78rem;border:1px solid #dce5eb;border-radius:7px;color:#315f75;font-size:.82rem;font-weight:650;text-decoration:none;white-space:nowrap}.table-actions a.button{border-color:#215f78;background:#215f78;color:#fff}.table-actions a:hover{filter:brightness(.97)}.table-query{margin:.75rem 0;padding:.85rem 1rem;border:1px solid #e3e9f1;border-radius:10px;background:#fff}.table-query summary{color:#315f75;font-size:.86rem;font-weight:650;cursor:pointer}.table-query fieldset{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,14rem),1fr));gap:.7rem;margin:1rem 0 0;padding:1rem 0 0;border:0;border-top:1px solid #edf0f4}.table-query legend{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}.table-query label{display:flex;flex-direction:column;gap:.35rem;margin:0;color:#52677b;font-size:.78rem;font-weight:600}.table-query input,.table-query select{box-sizing:border-box;width:100%;max-width:none;padding:.55rem .65rem;border:1px solid #d7e0e8;border-radius:6px;background:#fff;color:#192a41;font:inherit;font-weight:400}.table-query small{align-self:center;color:#718394;font-size:.78rem}.table-query button{padding:.55rem .8rem;border-radius:6px;background:#215f78;cursor:pointer}.table-query button+ a{align-self:center;color:#286a83;font-size:.82rem}.table-grid{overflow:auto;border:1px solid #e3e9f1;border-radius:10px;background:#fff}.table-grid table{min-width:100%;width:max-content;border-collapse:collapse}.table-grid th,.table-grid td{padding:.65rem .8rem;border:0;border-bottom:1px solid #e9eef2;text-align:left;font-size:.84rem}.table-grid th{background:#f7f9fb;color:#697d8e;font-size:.74rem;font-weight:650;white-space:nowrap}.table-grid th a{color:inherit;text-decoration:none}.table-grid tbody tr:hover{background:#f6fafb}.table-grid tbody tr:last-child td{border-bottom:0}.table-page>p{color:#718394;font-size:.83rem}.table-page>p a{margin-right:.5rem;color:#286a83}.table-page>p a.button{background:#215f78;color:#fff}.table-page>h1{margin:.6rem 0;font-size:1.4rem}.table-page>h1+p{max-width:60rem;color:#718394}.table-page>dl{padding:1rem;border:1px solid #e3e9f1;border-radius:9px;background:#fff}.table-page>dl dd{margin:.2rem 0 .8rem;color:#455b70}.table-page>form:not(.table-query form){display:inline}.table-page>form button{background:#a33c3c}.table-page>p:last-child{margin-top:.8rem}@media(max-width:760px){body{padding:0 .65rem}body>nav{margin:0 -.65rem .8rem;padding:.7rem .65rem;gap:.55rem;font-size:.82rem}.table-page{margin:.65rem auto 2rem}.table-heading{flex-direction:column;padding:1rem}.table-heading h1{font-size:1.5rem}.table-actions{flex-wrap:wrap}.table-query{padding:.75rem}.table-query fieldset{grid-template-columns:1fr}}
-</style><section class="table-page"><a class="table-back" href="/collections">← Collections</a><header class="table-heading"><div><p class="table-eyebrow">` + esc(group) + ` · TABLE</p><h1>` + esc(meta["label"]) + `</h1><p>` + esc(meta["description"]) + `</p></div><div class="table-actions"><a href="/collections/` + htmlAttr(group) + `/` + htmlAttr(table) + `">Collections view</a><a class="button" href="/t/` + htmlAttr(group) + `/` + htmlAttr(table) + `/new">＋ New record</a></div></header><details class="table-query"><summary>Filter and analyze records</summary><form method="get"><fieldset><legend>Filters and query</legend>`)
+</style><section class="table-page"><a class="table-back" href="` + a.projectPath("collections") + `">← Collections</a><header class="table-heading"><div><p class="table-eyebrow">` + esc(group) + ` · TABLE</p><h1>` + esc(meta["label"]) + `</h1><p>` + esc(meta["description"]) + `</p></div><div class="table-actions"><a href="` + a.projectPath("collections", group, table) + `">Collections view</a><a class="button" href="` + base + `/new">＋ New record</a></div></header><details class="table-query"><summary>Filter and analyze records</summary><form method="get"><fieldset><legend>Filters and query</legend>`)
 	writeTableControls(&b, meta, defs, q)
-	b.WriteString(`<button>Apply filters</button> <a href="/t/` + htmlAttr(group) + `/` + htmlAttr(table) + `">Clear</a></fieldset></form></details><div class="table-grid"><table><thead><tr>`)
+	b.WriteString(`<button>Apply filters</button> <a href="` + base + `">Clear</a></fieldset></form></details><div class="table-grid"><table><thead><tr>`)
 	records, isRecordList := result["data"].([]map[string]any)
 	if isRecordList {
 		sortBy, order := first(q, "sort"), first(q, "order")
@@ -174,7 +190,7 @@ body{max-width:none;margin:0 auto;padding:0 1.4rem;background:#f4f7fb;color:#192
 			if sortBy == name && strings.EqualFold(order, "asc") {
 				next = "desc"
 			}
-			href := queryURL("/t/"+group+"/"+table, q, map[string]string{"sort": name, "order": next, "offset": "0"})
+			href := queryURL(base, q, map[string]string{"sort": name, "order": next, "offset": "0"})
 			b.WriteString("<th><a href=\"" + esc(href) + "\">" + esc(f["label"]) + "</a></th>")
 		}
 		b.WriteString("<th></th></tr></thead><tbody>")
@@ -188,14 +204,14 @@ body{max-width:none;margin:0 auto;padding:0 1.4rem;background:#f4f7fb;color:#192
 				name := f["name"].(string)
 				b.WriteString("<td>")
 				if !linked {
-					b.WriteString("<a href=\"/t/" + group + "/" + table + "/" + esc(row["id"]) + "\">" + esc(row[name]) + "</a>")
+					b.WriteString("<a href=\"" + base + "/" + esc(row["id"]) + "\">" + esc(row[name]) + "</a>")
 					linked = true
 				} else {
 					b.WriteString(esc(row[name]))
 				}
 				b.WriteString("</td>")
 			}
-			b.WriteString("<td><a href=\"/t/" + group + "/" + table + "/" + esc(row["id"]) + "/edit\">Edit</a></td></tr>")
+			b.WriteString("<td><a href=\"" + base + "/" + esc(row["id"]) + "/edit\">Edit</a></td></tr>")
 		}
 		b.WriteString("</tbody></table></div>")
 	} else {
@@ -236,10 +252,10 @@ body{max-width:none;margin:0 auto;padding:0 1.4rem;background:#f4f7fb;color:#192
 		}
 		b.WriteString(fmt.Sprintf("<p>%d–%d of %d %s</p>", start, offset+count, total, kind))
 		if offset > 0 {
-			b.WriteString("<a href=\"" + esc(queryURL("/t/"+group+"/"+table, q, map[string]string{"offset": strconv.Itoa(max(0, offset-pageLimit))})) + "\">Previous</a> ")
+			b.WriteString("<a href=\"" + esc(queryURL(base, q, map[string]string{"offset": strconv.Itoa(max(0, offset-pageLimit))})) + "\">Previous</a> ")
 		}
 		if offset+count < total {
-			b.WriteString("<a href=\"" + esc(queryURL("/t/"+group+"/"+table, q, map[string]string{"offset": strconv.Itoa(offset + pageLimit)})) + "\">Next</a>")
+			b.WriteString("<a href=\"" + esc(queryURL(base, q, map[string]string{"offset": strconv.Itoa(offset + pageLimit)})) + "\">Next</a>")
 		}
 	}
 	b.WriteString("</section>")
@@ -421,19 +437,20 @@ func resultHeaderLabel(name string, defs []map[string]any) string {
 
 func (a *app) formHTML(group, table string, meta map[string]any, record map[string]any) string {
 	defs, _ := meta["fields"].([]map[string]any)
+	base := a.dataURL(group, table)
 	edit := record != nil
-	action := "/t/" + group + "/" + table + "/new"
+	action := base + "/new"
 	heading := "New "
 	formMode := "New record"
 	if edit {
-		action = "/t/" + group + "/" + table + "/" + record["id"].(string) + "/edit"
+		action = base + "/" + record["id"].(string) + "/edit"
 		heading = "Edit "
 		formMode = "Edit record"
 	}
 	var b strings.Builder
 	b.WriteString(`<style>
 body{max-width:none;margin:0 auto;padding:0 1.4rem;background:#f4f7fb;color:#192a41}body>nav{display:flex;align-items:center;gap:.9rem;margin:0 calc(1.4rem * -1) 1.25rem;padding:.8rem 1.4rem;background:#fff;border-bottom:1px solid #e3e9f1;font-size:.9rem}body>nav a{color:#52647a}body>nav a:first-child{font-weight:750;color:#182f4b}main{max-width:none!important}.record-form-page{max-width:850px;margin:1.2rem auto 4rem}.record-form-back{display:inline-block;margin:0 0 .8rem;color:#286a83;font-size:.84rem;font-weight:650;text-decoration:none}.record-form-back:hover{text-decoration:underline}.record-form-card{padding:clamp(1.2rem,4vw,2.2rem);border:1px solid #e3e9f1;border-radius:13px;background:#fff;box-shadow:0 5px 22px rgba(24,47,75,.04)}.record-form-eyebrow{margin:0 0 .35rem;color:#8192a2;font-size:.68rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase}.record-form-card h1{margin:0;color:#192a41;font-size:1.8rem;letter-spacing:-.04em}.record-form-intro{margin:.4rem 0 1.5rem;color:#718394;font-size:.9rem}.record-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.record-form label{display:flex;flex-direction:column;gap:.4rem;margin:0;color:#3e566c;font-size:.84rem;font-weight:650}.record-form label>span{color:#8494a2;font-size:.74rem;font-weight:500}.record-form input,.record-form textarea,.record-form select{box-sizing:border-box;width:100%;max-width:none;padding:.65rem .75rem;border:1px solid #d7e0e8;border-radius:7px;background:#fff;color:#192a41;font:inherit;font-weight:400;outline:none}.record-form input:focus,.record-form textarea:focus,.record-form select:focus{border-color:#4c9aa6;box-shadow:0 0 0 3px rgba(76,154,166,.14)}.record-form textarea{min-height:8rem;resize:vertical}.record-form input[type=checkbox]{width:1.05rem;height:1.05rem;accent-color:#24758a}.record-form-actions{grid-column:1/-1;display:flex;align-items:center;gap:.8rem;margin-top:.35rem;padding-top:1rem;border-top:1px solid #edf0f4}.record-form-actions button,.record-form-actions a{display:inline-flex;align-items:center;justify-content:center;min-height:2.45rem;padding:.55rem .9rem;border:0;border-radius:7px;font:inherit;font-size:.86rem;font-weight:650;text-decoration:none;cursor:pointer}.record-form-actions button{background:#215f78;color:#fff}.record-form-actions button:hover{background:#174d63}.record-form-actions a{color:#526b80}.record-form-actions a:hover{background:#f1f5f8}@media(max-width:700px){body{padding:0 .65rem}body>nav{margin:0 -.65rem .8rem;padding:.7rem .65rem;gap:.55rem;font-size:.82rem}.record-form-page{margin:.65rem auto 2rem}.record-form{grid-template-columns:1fr}.record-form-card{padding:1.1rem}}
-</style><section class="record-form-page"><a class="record-form-back" href="/t/` + htmlAttr(group) + `/` + htmlAttr(table) + `">← Back to ` + esc(meta["label"]) + `</a><div class="record-form-card"><p class="record-form-eyebrow">` + formMode + `</p><h1>` + heading + esc(meta["label"]) + `</h1><p class="record-form-intro">Enter the record details below. Fields marked required must be filled in.</p><form class="record-form" method="post" action="` + htmlAttr(action) + `">`)
+</style><section class="record-form-page"><a class="record-form-back" href="` + base + `">← Back to ` + esc(meta["label"]) + `</a><div class="record-form-card"><p class="record-form-eyebrow">` + formMode + `</p><h1>` + heading + esc(meta["label"]) + `</h1><p class="record-form-intro">Enter the record details below. Fields marked required must be filled in.</p><form class="record-form" method="post" action="` + htmlAttr(action) + `">`)
 	for _, f := range defs {
 		if f["hidden"] == true || f["readonly"] == true {
 			continue
@@ -520,17 +537,18 @@ body{max-width:none;margin:0 auto;padding:0 1.4rem;background:#f4f7fb;color:#192
 		}
 		b.WriteString("</label>")
 	}
-	b.WriteString(`<div class="record-form-actions"><button type="submit">Save record</button><a href="/t/` + htmlAttr(group) + `/` + htmlAttr(table) + `">Cancel</a></div></form></div></section>`)
+	b.WriteString(`<div class="record-form-actions"><button type="submit">Save record</button><a href="` + base + `">Cancel</a></div></form></div></section>`)
 	return b.String()
 }
 
 func (a *app) recordHTML(group, table string, meta, record map[string]any) string {
 	defs, _ := meta["fields"].([]map[string]any)
+	base := a.dataURL(group, table)
 	id := fmt.Sprint(record["id"])
 	var b strings.Builder
 	b.WriteString(`<style>
 body{max-width:none;margin:0 auto;padding:0 1.4rem;background:#f4f7fb;color:#192a41}body>nav{display:flex;align-items:center;gap:.9rem;margin:0 calc(1.4rem * -1) 1.25rem;padding:.8rem 1.4rem;background:#fff;border-bottom:1px solid #e3e9f1;font-size:.9rem}body>nav a{color:#52647a}body>nav a:first-child{font-weight:750;color:#182f4b}main{max-width:none!important}.record-detail-page{max-width:920px;margin:1.2rem auto 4rem}.record-detail-back{display:inline-block;margin:0 0 .75rem;color:#286a83;font-size:.84rem;font-weight:650;text-decoration:none}.record-detail-card{overflow:hidden;border:1px solid #e3e9f1;border-radius:13px;background:#fff;box-shadow:0 5px 22px rgba(24,47,75,.04)}.record-detail-heading{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1.3rem 1.5rem;border-bottom:1px solid #e9eef2}.record-detail-eyebrow{margin:0 0 .3rem;color:#8192a2;font-size:.68rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase}.record-detail-heading h1{margin:0;color:#192a41;font-size:1.65rem;letter-spacing:-.04em}.record-detail-id{margin:.35rem 0 0;color:#8192a2;font: .78rem ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}.record-detail-actions{display:flex;align-items:center;gap:.5rem;flex:none}.record-detail-actions a,.record-detail-actions button{display:inline-flex;align-items:center;justify-content:center;min-height:2.4rem;padding:.5rem .8rem;border:1px solid #dce5eb;border-radius:7px;background:#fff;color:#315f75;font:inherit;font-size:.82rem;font-weight:650;text-decoration:none;cursor:pointer}.record-detail-actions a{border-color:#215f78;background:#215f78;color:#fff}.record-detail-actions a:hover{background:#174d63}.record-detail-actions button{color:#9a4541}.record-detail-actions button:hover{background:#fff5f4}.record-detail-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0;padding:.35rem 1.5rem}.record-detail-field{min-width:0;padding:.8rem .7rem;border-bottom:1px solid #edf0f4}.record-detail-field dt{margin:0 0 .35rem;color:#7c8d9c;font-size:.75rem;font-weight:600}.record-detail-field dd{margin:0;color:#253e55;font-size:.92rem;overflow-wrap:anywhere;white-space:pre-wrap}.record-detail-empty{padding:1.5rem;color:#718394;font-size:.88rem}@media(max-width:700px){body{padding:0 .65rem}body>nav{margin:0 -.65rem .8rem;padding:.7rem .65rem;gap:.55rem;font-size:.82rem}.record-detail-page{margin:.65rem auto 2rem}.record-detail-heading{align-items:flex-start;flex-direction:column;padding:1rem}.record-detail-heading h1{font-size:1.4rem}.record-detail-fields{grid-template-columns:1fr;padding:0 .75rem}.record-detail-actions{flex-wrap:wrap}}
-</style><section class="record-detail-page"><a class="record-detail-back" href="/t/` + htmlAttr(group) + `/` + htmlAttr(table) + `">← Back to table</a><div class="record-detail-card"><header class="record-detail-heading"><div><p class="record-detail-eyebrow">` + esc(group) + ` · RECORD</p><h1>` + esc(meta["label"]) + `</h1><p class="record-detail-id">` + esc(id) + `</p></div><div class="record-detail-actions"><a href="/t/` + htmlAttr(group) + `/` + htmlAttr(table) + `/` + htmlAttr(id) + `/edit">Edit record</a><form method="post" action="/t/` + htmlAttr(group) + `/` + htmlAttr(table) + `/` + htmlAttr(id) + `/delete" onsubmit="return confirm('Delete this record?')"><button type="submit">Delete</button></form></div></header><dl class="record-detail-fields">`)
+</style><section class="record-detail-page"><a class="record-detail-back" href="` + base + `">← Back to table</a><div class="record-detail-card"><header class="record-detail-heading"><div><p class="record-detail-eyebrow">` + esc(group) + ` · RECORD</p><h1>` + esc(meta["label"]) + `</h1><p class="record-detail-id">` + esc(id) + `</p></div><div class="record-detail-actions"><a href="` + base + `/` + htmlAttr(id) + `/edit">Edit record</a><form method="post" action="` + base + `/` + htmlAttr(id) + `/delete" onsubmit="return confirm('Delete this record?')"><button type="submit">Delete</button></form></div></header><dl class="record-detail-fields">`)
 	for _, f := range defs {
 		if f["hidden"] == true {
 			continue
@@ -543,7 +561,32 @@ body{max-width:none;margin:0 auto;padding:0 1.4rem;background:#f4f7fb;color:#192
 }
 
 func (a *app) pageShell(body, title string) string {
-	return "<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><link rel=icon type='image/svg+xml' href='/favicon.svg'><title>" + esc(title) + " · Clio</title><style>body{font:16px system-ui,sans-serif;max-width:960px;margin:2rem auto;padding:0 1rem;color:#222}a{color:#165d9c}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:.5rem;text-align:left}label{display:block;margin:1rem 0}input,textarea,select{display:block;max-width:100%;width:28rem;padding:.5rem}textarea{height:8rem}button,.button{padding:.5rem .8rem;background:#165d9c;color:white;border:0;border-radius:3px}dt{font-weight:bold;margin-top:.7rem}pre{overflow:auto;background:#f5f5f5;padding:1rem}nav{border-bottom:1px solid #ddd;padding-bottom:1rem;margin-bottom:2rem}</style><nav><a href='/'>Clio</a> · <a href='/collections'>Data Browser</a> · <a href='/help'>Help</a> · <a href='/health'>Health</a></nav><main>" + body + "</main></html>"
+	home := a.projectPath() + "/"
+	dataPath := a.projectPath("collections")
+	helpPath := a.projectPath("help")
+	healthPath := a.projectPath("health")
+	return "<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><link rel=icon type='image/svg+xml' href='/favicon.svg'><title>" + esc(title) + " · Clio</title><style>body{font:16px system-ui,sans-serif;max-width:960px;margin:2rem auto;padding:0 1rem;color:#222}a{color:#165d9c}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:.5rem;text-align:left}label{display:block;margin:1rem 0}input,textarea,select{display:block;max-width:100%;width:28rem;padding:.5rem}textarea{height:8rem}button,.button{padding:.5rem .8rem;background:#165d9c;color:white;border:0;border-radius:3px}dt{font-weight:bold;margin-top:.7rem}pre{overflow:auto;background:#f5f5f5;padding:1rem}nav{border-bottom:1px solid #ddd;padding-bottom:1rem;margin-bottom:2rem}</style><nav><a href='" + home + "'>Clio</a> · <a href='" + dataPath + "'>Data Browser</a> · <a href='" + helpPath + "'>Help</a> · <a href='" + healthPath + "'>Health</a></nav><main>" + body + "</main></html>"
+}
+
+// projectName is the active project for URL building. The zero value (an
+// instance-scoped app such as health or help) addresses the default project.
+func (a *app) projectName() string {
+	if a.project == "" {
+		return defaultProject
+	}
+	return a.project
+}
+
+// projectPath builds a relative human URL inside the current project:
+// /{project}[/segments...].
+func (a *app) projectPath(segments ...string) string {
+	parts := []string{"/" + a.projectName()}
+	for _, segment := range segments {
+		if segment != "" {
+			parts = append(parts, urlPath(segment))
+		}
+	}
+	return strings.Join(parts, "/")
 }
 
 func formData(r *http.Request, defs []map[string]any) (map[string]any, *apiError) {

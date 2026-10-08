@@ -55,6 +55,15 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, &apiError{400, "bad_request", "Malformed query parameters"})
 		return
 	}
+	// Bare / and /api/v1 redirect to the default project (section 66.1).
+	if r.URL.Path == "/" {
+		http.Redirect(w, r, "/"+defaultProject+"/", http.StatusFound)
+		return
+	}
+	if r.URL.Path == "/api/v1" {
+		http.Redirect(w, r, "/api/v1/"+defaultProject, http.StatusFound)
+		return
+	}
 	if r.URL.Path == "/health" || r.URL.Path == "/api/v1/health" {
 		if r.Method != "GET" {
 			writeAPIError(w, methodNotAllowed())
@@ -113,6 +122,11 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeText(w, http.StatusOK, string(asset), "image/svg+xml; charset=utf-8")
 		return
 	}
+	if r.URL.Path == "/api/v1/projects" || strings.HasPrefix(r.URL.Path, "/api/v1/projects/") {
+		segments := splitPath(strings.TrimPrefix(r.URL.Path, "/api/v1/"))
+		a.projectsAPI(w, r, segments)
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/api/v1/") {
 		a.api(w, r)
 		return
@@ -121,19 +135,54 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, missing("Endpoint"))
 		return
 	}
-	if r.URL.Path == "/t" || strings.HasPrefix(r.URL.Path, "/t/") {
-		a.tableUI(w, r)
-		return
-	}
-	if r.URL.Path == "/collections" || strings.HasPrefix(r.URL.Path, "/collections/") {
-		a.collectionBrowserUI(w, r)
-		return
-	}
-	if reservedRoot[firstSegment(r.URL.Path)] {
+	a.projectUI(w, r)
+}
+
+// projectUI routes human (non-API) project-scoped URLs. The first path segment
+// is the project; everything is project-scoped (section 66.1).
+func (a *app) projectUI(w http.ResponseWriter, r *http.Request) {
+	segments := splitPath(r.URL.Path)
+	if len(segments) == 0 {
 		writeAPIError(w, missing("Resource"))
 		return
 	}
-	a.contentUI(w, r)
+	project := segments[0]
+	if e := a.requireProject(project); e != nil {
+		writeErr(w, e)
+		return
+	}
+	if reservedRoot[project] {
+		writeAPIError(w, missing("Resource"))
+		return
+	}
+	scoped := a.withProject(project)
+	rest := segments[1:]
+	if len(rest) == 0 {
+		http.Redirect(w, r, scoped.dataHome(), http.StatusFound)
+		return
+	}
+	switch rest[0] {
+	case "health":
+		if len(rest) == 1 && r.Method == http.MethodGet {
+			scoped.healthHTML(w)
+			return
+		}
+	case "help":
+		if len(rest) == 1 && r.Method == http.MethodGet {
+			writeHTML(w, 200, scoped.helpHTML())
+			return
+		}
+	case "data":
+		scoped.tableUI(w, r, rest[1:])
+		return
+	case "collections":
+		scoped.collectionBrowserUI(w, r, rest[1:])
+		return
+	case "files":
+		scoped.contentUI(w, r, rest[1:])
+		return
+	}
+	writeAPIError(w, missing("Resource"))
 }
 
 type responseStatusWriter struct {
@@ -164,13 +213,53 @@ func (a *app) api(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, missing("Endpoint"))
 		return
 	}
-	switch segments[0] {
-	case "projects":
-		a.projectsAPI(w, r, segments)
+	// The first segment is the project; unknown projects are 404 (section 66.1).
+	project := segments[0]
+	if e := a.requireProject(project); e != nil {
+		writeErr(w, e)
+		return
+	}
+	scoped := a.withProject(project)
+	if len(segments) < 2 {
+		writeAPIError(w, missing("Endpoint"))
+		return
+	}
+	switch segments[1] {
+	case "data":
+		scoped.dataAPI(w, r, segments[2:])
+	case "files":
+		scoped.filesAPI(w, r, segments[2:])
+	default:
+		writeAPIError(w, missing("Endpoint"))
+	}
+}
+
+// dataAPI serves the project data partition: metadata, groups, tables, fields
+// and records (section 66.6).
+func (a *app) dataAPI(w http.ResponseWriter, r *http.Request, s []string) {
+	if len(s) == 0 {
+		writeAPIError(w, missing("Endpoint"))
+		return
+	}
+	switch s[0] {
 	case "metadata":
-		a.metadataAPI(w, r, segments)
+		a.metadataAPI(w, r, s)
 	case "groups":
-		a.groupsAPI(w, r, segments)
+		a.groupsAPI(w, r, s)
+	default:
+		writeAPIError(w, missing("Endpoint"))
+	}
+}
+
+// filesAPI serves the project files partition. Until the unified files API
+// lands (section 66.7), the directory and page operations are exposed under it
+// and keep their legacy shapes.
+func (a *app) filesAPI(w http.ResponseWriter, r *http.Request, s []string) {
+	if len(s) == 0 {
+		writeAPIError(w, missing("Endpoint"))
+		return
+	}
+	switch s[0] {
 	case "directories":
 		a.directoriesAPI(w, r)
 	case "pages":
@@ -466,7 +555,7 @@ func (a *app) createGroup(input map[string]any) (map[string]any, *apiError) {
 		}
 		order = n
 	}
-	_, err := a.db.Exec(`INSERT INTO groups_meta(name,label,description,sort_order) VALUES(?,?,?,?)`, name, label, desc, order)
+	_, err := a.db.Exec(`INSERT INTO groups_meta(project,name,label,description,sort_order) VALUES(?,?,?,?,?)`, a.project, name, label, desc, order)
 	if err != nil {
 		if isConstraint(err) {
 			return nil, conflict("Group already exists")
@@ -565,12 +654,12 @@ func (a *app) createTable(group string, input map[string]any) (map[string]any, *
 		return nil, errAPI(err)
 	}
 	encodedIndexes, _ := encodeIndexes(indexes)
-	_, err = tx.Exec(`INSERT INTO tables_meta(group_name,name,label,description,kind,timestamp_field,indexes) VALUES(?,?,?,?,?,?,?)`, group, name, label, desc, kind, nullString(timestamp), encodedIndexes)
+	_, err = tx.Exec(`INSERT INTO tables_meta(project,group_name,name,label,description,kind,timestamp_field,indexes) VALUES(?,?,?,?,?,?,?,?)`, a.project, group, name, label, desc, kind, nullString(timestamp), encodedIndexes)
 	if err == nil {
-		err = saveFields(tx, group, name, fields)
+		err = saveFields(tx, a.project, group, name, fields)
 	}
 	if err == nil {
-		err = reconcileTableIndexes(tx, group, name, kind, nullString(timestamp), fields, indexes)
+		err = reconcileTableIndexes(tx, a.project, group, name, kind, nullString(timestamp), fields, indexes)
 	}
 	if err != nil {
 		tx.Rollback()
@@ -878,13 +967,13 @@ func mergeFields(existing []map[string]any, raw any, remove []string) ([]map[str
 	return normalizeFields(merged)
 }
 
-func saveFields(tx *sql.Tx, group, table string, fields []map[string]any) error {
+func saveFields(tx *sql.Tx, project, group, table string, fields []map[string]any) error {
 	for i, f := range fields {
 		b, e := json.Marshal(f)
 		if e != nil {
 			return e
 		}
-		if _, e = tx.Exec(`INSERT INTO fields_meta(group_name,table_name,name,position,definition) VALUES(?,?,?,?,?)`, group, table, f["name"], i, string(b)); e != nil {
+		if _, e = tx.Exec(`INSERT INTO fields_meta(project,group_name,table_name,name,position,definition) VALUES(?,?,?,?,?,?)`, project, group, table, f["name"], i, string(b)); e != nil {
 			return e
 		}
 	}
@@ -915,7 +1004,7 @@ func (a *app) updateTable(group, table string, patch map[string]any) (map[string
 	defer tx.Rollback()
 	effectiveFields, _ := current["fields"].([]map[string]any)
 	var storedIndexes string
-	if err = tx.QueryRow(`SELECT indexes FROM tables_meta WHERE group_name=? AND name=?`, group, table).Scan(&storedIndexes); err != nil {
+	if err = tx.QueryRow(`SELECT indexes FROM tables_meta WHERE project=? AND group_name=? AND name=?`, a.project, group, table).Scan(&storedIndexes); err != nil {
 		return nil, errAPI(err)
 	}
 	declarations, err := decodeIndexes(storedIndexes)
@@ -933,7 +1022,7 @@ func (a *app) updateTable(group, table string, patch map[string]any) (map[string
 		if v, ok := patch["description"].(string); ok {
 			desc = v
 		}
-		if _, err = tx.Exec(`UPDATE tables_meta SET label=?,description=? WHERE group_name=? AND name=?`, label, desc, group, table); err != nil {
+		if _, err = tx.Exec(`UPDATE tables_meta SET label=?,description=? WHERE project=? AND group_name=? AND name=?`, label, desc, a.project, group, table); err != nil {
 			return nil, errAPI(err)
 		}
 	}
@@ -995,7 +1084,7 @@ func (a *app) updateTable(group, table string, patch map[string]any) (map[string
 			nf := newBy[name]
 			if nf == nil {
 				var nonNull bool
-				rows, x := tx.Query(`SELECT data FROM records WHERE group_name=? AND table_name=?`, group, table)
+				rows, x := tx.Query(`SELECT data FROM records WHERE project=? AND group_name=? AND table_name=?`, a.project, group, table)
 				if x != nil {
 					return nil, errAPI(x)
 				}
@@ -1025,7 +1114,7 @@ func (a *app) updateTable(group, table string, patch map[string]any) (map[string
 				return nil, conflict("A required field added to a non-empty table must have a default: " + name)
 			}
 		}
-		rows, x := tx.Query(`SELECT id,data FROM records WHERE group_name=? AND table_name=?`, group, table)
+		rows, x := tx.Query(`SELECT id,data FROM records WHERE project=? AND group_name=? AND table_name=?`, a.project, group, table)
 		if x != nil {
 			return nil, errAPI(x)
 		}
@@ -1066,14 +1155,14 @@ func (a *app) updateTable(group, table string, patch map[string]any) (map[string
 		}
 		rows.Close()
 		for _, u := range updates {
-			if _, x = tx.Exec(`UPDATE records SET data=? WHERE id=?`, u.data, u.id); x != nil {
+			if _, x = tx.Exec(`UPDATE records SET data=? WHERE project=? AND id=?`, u.data, a.project, u.id); x != nil {
 				return nil, errAPI(x)
 			}
 		}
-		if _, err = tx.Exec(`DELETE FROM fields_meta WHERE group_name=? AND table_name=?`, group, table); err != nil {
+		if _, err = tx.Exec(`DELETE FROM fields_meta WHERE project=? AND group_name=? AND table_name=?`, a.project, group, table); err != nil {
 			return nil, errAPI(err)
 		}
-		if err = saveFields(tx, group, table, requested); err != nil {
+		if err = saveFields(tx, a.project, group, table, requested); err != nil {
 			return nil, errAPI(err)
 		}
 		indexesChanged = true
@@ -1087,7 +1176,7 @@ func (a *app) updateTable(group, table string, patch map[string]any) (map[string
 	}
 	if indexesChanged {
 		declarations = validIndexesForFields(declarations, effectiveFields)
-		if _, err = tx.Exec(`UPDATE tables_meta SET indexes=? WHERE group_name=? AND name=?`, mustEncodeIndexes(declarations), group, table); err != nil {
+		if _, err = tx.Exec(`UPDATE tables_meta SET indexes=? WHERE project=? AND group_name=? AND name=?`, mustEncodeIndexes(declarations), a.project, group, table); err != nil {
 			return nil, errAPI(err)
 		}
 		timestampField := current["timestamp_field"]
@@ -1095,13 +1184,13 @@ func (a *app) updateTable(group, table string, patch map[string]any) (map[string
 			timestampField = principalTimestamp(effectiveFields)
 		}
 		if name, ok := timestampField.(string); ok && name != "" {
-			if _, err = tx.Exec(`UPDATE records SET timestamp_value=json_extract(data, ?) WHERE group_name=? AND table_name=?`, indexJSONPath(name), group, table); err != nil {
+			if _, err = tx.Exec(`UPDATE records SET timestamp_value=json_extract(data, ?) WHERE project=? AND group_name=? AND table_name=?`, indexJSONPath(name), a.project, group, table); err != nil {
 				return nil, errAPI(err)
 			}
-		} else if _, err = tx.Exec(`UPDATE records SET timestamp_value=NULL WHERE group_name=? AND table_name=?`, group, table); err != nil {
+		} else if _, err = tx.Exec(`UPDATE records SET timestamp_value=NULL WHERE project=? AND group_name=? AND table_name=?`, a.project, group, table); err != nil {
 			return nil, errAPI(err)
 		}
-		if err = reconcileTableIndexes(tx, group, table, current["kind"].(string), timestampField, effectiveFields, declarations); err != nil {
+		if err = reconcileTableIndexes(tx, a.project, group, table, current["kind"].(string), timestampField, effectiveFields, declarations); err != nil {
 			return nil, mapIndexError(err)
 		}
 	}
@@ -1122,7 +1211,7 @@ func (a *app) deleteTable(group, table string) *apiError {
 	if count > 0 {
 		return conflict("Delete records before deleting this table")
 	}
-	rows, err := a.db.Query(`SELECT group_name,table_name,definition FROM fields_meta`)
+	rows, err := a.db.Query(`SELECT group_name,table_name,definition FROM fields_meta WHERE project=?`, a.project)
 	if err != nil {
 		return errAPI(err)
 	}
@@ -1148,10 +1237,10 @@ func (a *app) deleteTable(group, table string) *apiError {
 		return errAPI(err)
 	}
 	defer tx.Rollback()
-	if err = reconcileTableIndexes(tx, group, table, "record", nil, nil, nil); err != nil {
+	if err = reconcileTableIndexes(tx, a.project, group, table, "record", nil, nil, nil); err != nil {
 		return errAPI(err)
 	}
-	if _, err = tx.Exec(`DELETE FROM tables_meta WHERE group_name=? AND name=?`, group, table); err != nil {
+	if _, err = tx.Exec(`DELETE FROM tables_meta WHERE project=? AND group_name=? AND name=?`, a.project, group, table); err != nil {
 		return errAPI(err)
 	}
 	if err = tx.Commit(); err != nil {
@@ -1163,7 +1252,7 @@ func (a *app) deleteTable(group, table string) *apiError {
 func (a *app) group(name string) (map[string]any, *apiError) {
 	var label, desc string
 	var order int
-	e := a.db.QueryRow(`SELECT label,description,sort_order FROM groups_meta WHERE name=?`, name).Scan(&label, &desc, &order)
+	e := a.db.QueryRow(`SELECT label,description,sort_order FROM groups_meta WHERE project=? AND name=?`, a.project, name).Scan(&label, &desc, &order)
 	if errors.Is(e, sql.ErrNoRows) {
 		return nil, missing("Group")
 	}
@@ -1174,10 +1263,10 @@ func (a *app) group(name string) (map[string]any, *apiError) {
 	if ae != nil {
 		return nil, ae
 	}
-	return map[string]any{"name": name, "label": label, "description": desc, "order": order, "url": a.baseURL + "/t/" + name, "api_url": a.baseURL + "/api/v1/groups/" + name, "tables": tables}, nil
+	return map[string]any{"name": name, "label": label, "description": desc, "order": order, "url": a.baseURL + a.dataURL(name), "api_url": a.baseURL + a.apiDataURL("groups", name), "tables": tables}, nil
 }
 func (a *app) listGroups() ([]map[string]any, *apiError) {
-	rows, e := a.db.Query(`SELECT name FROM groups_meta ORDER BY sort_order,label,name`)
+	rows, e := a.db.Query(`SELECT name FROM groups_meta WHERE project=? ORDER BY sort_order,label,name`, a.project)
 	if e != nil {
 		return nil, errAPI(e)
 	}
@@ -1201,7 +1290,7 @@ func (a *app) listTables(group string) ([]map[string]any, *apiError) {
 	if e := a.requireGroup(group); e != nil {
 		return nil, e
 	}
-	rows, e := a.db.Query(`SELECT name FROM tables_meta WHERE group_name=? ORDER BY label,name`, group)
+	rows, e := a.db.Query(`SELECT name FROM tables_meta WHERE project=? AND group_name=? ORDER BY label,name`, a.project, group)
 	if e != nil {
 		return nil, errAPI(e)
 	}
@@ -1224,7 +1313,7 @@ func (a *app) table(group, name string) (map[string]any, *apiError) {
 	var label, desc, kind string
 	var timestamp sql.NullString
 	var rawIndexes string
-	e := a.db.QueryRow(`SELECT label,description,kind,timestamp_field,indexes FROM tables_meta WHERE group_name=? AND name=?`, group, name).Scan(&label, &desc, &kind, &timestamp, &rawIndexes)
+	e := a.db.QueryRow(`SELECT label,description,kind,timestamp_field,indexes FROM tables_meta WHERE project=? AND group_name=? AND name=?`, a.project, group, name).Scan(&label, &desc, &kind, &timestamp, &rawIndexes)
 	if errors.Is(e, sql.ErrNoRows) {
 		return nil, missing("Table")
 	}
@@ -1247,12 +1336,12 @@ func (a *app) table(group, name string) (map[string]any, *apiError) {
 	for _, declaration := range declarations {
 		indexes = append(indexes, map[string]any{"fields": declaration.fields})
 	}
-	root := a.baseURL + "/t/" + group + "/" + name
-	api := a.baseURL + "/api/v1/groups/" + group + "/tables/" + name
+	root := a.baseURL + a.dataURL("", group, name)
+	api := a.baseURL + a.apiDataURL("groups", group, "tables", name)
 	return map[string]any{"group": group, "name": name, "label": label, "description": desc, "kind": kind, "timestamp_field": ts, "indexes": indexes, "fields": fields, "url": root, "api_url": api, "records_url": api + "/records", "record_url_template": root + "/{id}"}, nil
 }
 func (a *app) fields(group, table string) ([]map[string]any, *apiError) {
-	rows, e := a.db.Query(`SELECT definition FROM fields_meta WHERE group_name=? AND table_name=? ORDER BY position`, group, table)
+	rows, e := a.db.Query(`SELECT definition FROM fields_meta WHERE project=? AND group_name=? AND table_name=? ORDER BY position`, a.project, group, table)
 	if e != nil {
 		return nil, errAPI(e)
 	}
@@ -1273,7 +1362,7 @@ func (a *app) fields(group, table string) ([]map[string]any, *apiError) {
 }
 func (a *app) requireGroup(group string) *apiError {
 	var one int
-	e := a.db.QueryRow(`SELECT 1 FROM groups_meta WHERE name=?`, group).Scan(&one)
+	e := a.db.QueryRow(`SELECT 1 FROM groups_meta WHERE project=? AND name=?`, a.project, group).Scan(&one)
 	if errors.Is(e, sql.ErrNoRows) {
 		return missing("Group")
 	}
@@ -1488,8 +1577,39 @@ func esc(v any) string {
 	}
 	return html.EscapeString(fmt.Sprint(v))
 }
-func absContentURL(base, p string) string { return base + urlPath(p) }
-func urlPath(p string) string             { return (&url.URL{Path: p}).EscapedPath() }
+func urlPath(p string) string { return (&url.URL{Path: p}).EscapedPath() }
+
+// dataHome is the human data home for the current project.
+func (a *app) dataHome() string { return "/" + a.project + "/data" }
+
+// dataURL builds a relative human data URL: /{project}/data[/segments...].
+func (a *app) dataURL(segments ...string) string {
+	parts := []string{a.dataHome()}
+	for _, segment := range segments {
+		if segment != "" {
+			parts = append(parts, urlPath(segment))
+		}
+	}
+	return strings.Join(parts, "/")
+}
+
+// apiDataURL builds a relative API data URL:
+// /api/v1/{project}/data/segments.
+func (a *app) apiDataURL(segments ...string) string {
+	return "/api/v1/" + a.project + "/data/" + strings.Join(segments, "/")
+}
+
+// filesPath builds a relative human files URL: /{project}/files[/path].
+func (a *app) filesPath(p string) string {
+	base := a.projectPath("files")
+	if p == "" || p == "/" {
+		return base
+	}
+	return base + urlPath(p)
+}
+
+// contentURL is the absolute files URL for a content path.
+func (a *app) contentURL(p string) string { return a.baseURL + a.filesPath(p) }
 func mapClone(in map[string]any) map[string]any {
 	out := map[string]any{}
 	for k, v := range in {

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -209,5 +210,144 @@ func TestOpenDatabaseMigratesLegacyTablesToProjectScope(t *testing.T) {
 	}
 	if count != 2 {
 		t.Errorf("group count after reopen = %d, want 2", count)
+	}
+}
+
+func TestBareRoutesRedirectToDefaultProject(t *testing.T) {
+	a := newTestApp(t)
+	for _, test := range []struct{ path, location string }{
+		{"/", "/default/"},
+		{"/api/v1", "/api/v1/default"},
+		{"/default", "/default/data"},
+	} {
+		response := testRequest(t, a, http.MethodGet, test.path, nil, "")
+		if response.Code != http.StatusFound || response.Header().Get("Location") != test.location {
+			t.Errorf("GET %s = %d location=%q, want 302 %q", test.path, response.Code, response.Header().Get("Location"), test.location)
+		}
+	}
+}
+
+func TestUnknownProjectReturnsNotFound(t *testing.T) {
+	a := newTestApp(t)
+	for _, path := range []string{
+		"/api/v1/nope/data/groups",
+		"/api/v1/nope/files/directories",
+		"/nope/data",
+		"/nope/files",
+		"/nope/collections",
+	} {
+		assertAPIError(t, testRequest(t, a, http.MethodGet, path, nil, ""), http.StatusNotFound)
+	}
+}
+
+func TestProjectDataIsolation(t *testing.T) {
+	a := newTestApp(t)
+	if w := testRequest(t, a, http.MethodPost, "/api/v1/projects", map[string]any{"name": "bills", "label": "Bills"}, "application/json"); w.Code != http.StatusCreated {
+		t.Fatalf("create project: %d %s", w.Code, w.Body.String())
+	}
+
+	// The same group and table names in two projects must coexist.
+	for _, project := range []string{"default", "bills"} {
+		label := "Default Shared"
+		if project == "bills" {
+			label = "Bills Shared"
+		}
+		if w := testRequest(t, a, http.MethodPost, "/api/v1/"+project+"/data/groups", map[string]any{"name": "shared", "label": label}, "application/json"); w.Code != http.StatusCreated {
+			t.Fatalf("create group in %s: %d %s", project, w.Code, w.Body.String())
+		}
+		table := map[string]any{"name": "items", "fields": []any{map[string]any{"name": "name", "type": "string"}}}
+		if w := testRequest(t, a, http.MethodPost, "/api/v1/"+project+"/data/groups/shared/tables", table, "application/json"); w.Code != http.StatusCreated {
+			t.Fatalf("create table in %s: %d %s", project, w.Code, w.Body.String())
+		}
+		record := map[string]any{"name": project}
+		if w := testRequest(t, a, http.MethodPost, "/api/v1/"+project+"/data/groups/shared/tables/items/records", record, "application/json"); w.Code != http.StatusCreated {
+			t.Fatalf("create record in %s: %d %s", project, w.Code, w.Body.String())
+		}
+	}
+
+	// Each project sees only its own group.
+	readGroups := func(project string) []map[string]any {
+		response := testRequest(t, a, http.MethodGet, "/api/v1/"+project+"/data/groups", nil, "")
+		if response.Code != http.StatusOK {
+			t.Fatalf("list groups in %s: %d %s", project, response.Code, response.Body.String())
+		}
+		var groups []map[string]any
+		testJSON(t, response, &groups)
+		return groups
+	}
+	defaultGroups := readGroups("default")
+	if len(defaultGroups) != 1 || defaultGroups[0]["label"] != "Default Shared" {
+		t.Fatalf("default groups = %#v", defaultGroups)
+	}
+	billsGroups := readGroups("bills")
+	if len(billsGroups) != 1 || billsGroups[0]["label"] != "Bills Shared" {
+		t.Fatalf("bills groups = %#v", billsGroups)
+	}
+
+	// Each project sees only its own records, and IDs do not leak across.
+	readRecords := func(project string) []map[string]any {
+		response := testRequest(t, a, http.MethodGet, "/api/v1/"+project+"/data/groups/shared/tables/items/records", nil, "")
+		if response.Code != http.StatusOK {
+			t.Fatalf("list records in %s: %d %s", project, response.Code, response.Body.String())
+		}
+		var page map[string]any
+		testJSON(t, response, &page)
+		out := []map[string]any{}
+		for _, item := range page["data"].([]any) {
+			out = append(out, item.(map[string]any))
+		}
+		return out
+	}
+	defaultRecords := readRecords("default")
+	if len(defaultRecords) != 1 || defaultRecords[0]["name"] != "default" {
+		t.Fatalf("default records = %#v", defaultRecords)
+	}
+	billsRecords := readRecords("bills")
+	if len(billsRecords) != 1 || billsRecords[0]["name"] != "bills" {
+		t.Fatalf("bills records = %#v", billsRecords)
+	}
+	defaultID := defaultRecords[0]["id"].(string)
+	assertAPIError(t, testRequest(t, a, http.MethodGet, "/api/v1/bills/data/groups/shared/tables/items/records/"+defaultID, nil, ""), http.StatusNotFound)
+
+	// A reference field may not target a record in another project.
+	if w := testRequest(t, a, http.MethodPatch, "/api/v1/bills/data/groups/shared/tables/items", map[string]any{
+		"fields": []any{
+			map[string]any{"name": "name", "type": "string"},
+			map[string]any{"name": "owner", "type": "reference", "group": "shared", "table": "items"},
+		},
+	}, "application/json"); w.Code != http.StatusOK {
+		t.Fatalf("add reference field: %d %s", w.Code, w.Body.String())
+	}
+	cross := testRequest(t, a, http.MethodPost, "/api/v1/bills/data/groups/shared/tables/items/records", map[string]any{"name": "cross", "owner": defaultID}, "application/json")
+	assertAPIError(t, cross, http.StatusUnprocessableEntity)
+}
+
+func TestProjectScopedHumanAndAPIRoutes(t *testing.T) {
+	a := newTestApp(t)
+	createTestGroup(t, a, "pool")
+	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/pool/tables", map[string]any{"name": "readings", "fields": []any{map[string]any{"name": "value", "type": "integer"}}}, "application/json"); w.Code != http.StatusCreated {
+		t.Fatalf("create table: %d %s", w.Code, w.Body.String())
+	}
+	record := createTestRecord(t, a, "pool", "readings", map[string]any{"value": 1})
+	id := record["id"].(string)
+
+	// API metadata and table UI live under the data partition.
+	for _, test := range []struct{ path, contains string }{
+		{"/api/v1/default/data/metadata", `"api_version":"v1"`},
+		{"/api/v1/default/data/groups/pool/tables/readings", `"name":"readings"`},
+		{"/default/data", "Data"},
+		{"/default/data/pool", "Pool tables"},
+		{"/default/data/pool/readings", "pool · TABLE"},
+	} {
+		response := testRequest(t, a, http.MethodGet, test.path, nil, "")
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), test.contains) {
+			t.Errorf("GET %s status=%d missing %q: %s", test.path, response.Code, test.contains, response.Body.String())
+		}
+	}
+
+	// The record page uses the project-scoped data URL and preserves it in links.
+	recordPage := testRequest(t, a, http.MethodGet, "/default/data/pool/readings/"+id, nil, "")
+	if recordPage.Code != http.StatusOK || !strings.Contains(recordPage.Body.String(), `href="/default/data/pool/readings/`+id+`/edit"`) {
+		t.Fatalf("record page links not project-scoped: status=%d body=%s", recordPage.Code, recordPage.Body.String())
 	}
 }

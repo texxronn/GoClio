@@ -16,7 +16,7 @@ func TestDecimalFormatNumericOutput(t *testing.T) {
 	]}`)
 	postRecordRaw(t, a, "billing", "amounts", `{"label":"a","amount":"12.50","count":3}`)
 
-	base := "/api/v1/groups/billing/tables/amounts/records"
+	base := "/api/v1/default/data/groups/billing/tables/amounts/records"
 
 	// Default behavior is unchanged: decimal values are JSON strings.
 	def := testRequest(t, a, http.MethodGet, base, nil, "")

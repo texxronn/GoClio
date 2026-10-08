@@ -45,7 +45,8 @@
       options = options || {};
       const origin = root.location && root.location.origin;
       this.baseUrl = String(options.baseUrl || origin || "").replace(/\/+$/, "");
-      this.apiUrl = `${this.baseUrl}/api/${apiVersion}`;
+      this.project = String(options.project || "default");
+      this.apiUrl = `${this.baseUrl}/api/${apiVersion}/${encodeURIComponent(this.project)}`;
       this._fetch = options.fetch || root.fetch;
       this._headers = options.headers || {};
       this._credentials = options.credentials || "same-origin";
@@ -95,14 +96,14 @@
       });
     }
 
-    metadata(options) { return this._get("/metadata", options); }
-    groups(options) { return this._get("/groups", options); }
-    createGroup(value, options) { return this._mutate("POST", "/groups", value, options); }
+    metadata(options) { return this._get("/data/metadata", options); }
+    groups(options) { return this._get("/data/groups", options); }
+    createGroup(value, options) { return this._mutate("POST", "/data/groups", value, options); }
 
     group(name) {
       const client = this;
       const groupName = name;
-      const base = `/groups/${encodeURIComponent(name)}`;
+      const base = `/data/groups/${encodeURIComponent(name)}`;
       return {
         get(options) { return client._get(base, options); },
         tables(options) { return client._get(`${base}/tables`, options); },
@@ -114,7 +115,7 @@
     table(group, name) {
       if (!group || !name) throw new TypeError("clio.table() requires a group and table name");
       const client = this;
-      const base = `/groups/${encodeURIComponent(group)}/tables/${encodeURIComponent(name)}`;
+      const base = `/data/groups/${encodeURIComponent(group)}/tables/${encodeURIComponent(name)}`;
       const recordsPath = `${base}/records`;
       const table = {
         metadata(options) { return client._get(base, options); },
@@ -144,30 +145,30 @@
 
     directory(path, options) {
       options = Object.assign({}, options, { path });
-      return this._get("/directories", options);
+      return this._get("/files/directories", options);
     }
 
     page(path, options) {
       options = Object.assign({}, options, { path });
-      return this._get("/pages", options);
+      return this._get("/files/pages", options);
     }
 
     createDirectory(path, options) {
-      return this._mutate("POST", "/directories", { path }, options);
+      return this._mutate("POST", "/files/directories", { path }, options);
     }
 
     deleteDirectory(path, options) {
       const query = queryString({ path });
-      return this._request(`${this.apiUrl}/directories?${query}`, { method: "DELETE", signal: options && options.signal });
+      return this._request(`${this.apiUrl}/files/directories?${query}`, { method: "DELETE", signal: options && options.signal });
     }
 
     publishPage(value, options) {
-      return this._mutate("POST", "/pages", value, options);
+      return this._mutate("POST", "/files/pages", value, options);
     }
 
     deletePage(path, options) {
       const query = queryString({ path });
-      return this._request(`${this.apiUrl}/pages?${query}`, { method: "DELETE", signal: options && options.signal });
+      return this._request(`${this.apiUrl}/files/pages?${query}`, { method: "DELETE", signal: options && options.signal });
     }
   }
 
@@ -207,6 +208,16 @@
     }
   });
 
+  // browserProject resolves the project a mounted DataBrowser belongs to. The
+  // collection browser lives at /{project}/collections/..., so the project is
+  // the first path segment.
+  function browserProject(options) {
+    if (options && options.project) return String(options.project);
+    const parts = ((root.location && root.location.pathname) || "").split("/").filter(Boolean);
+    if (parts.length > 1 && parts[1] === "collections") return parts[0];
+    return "default";
+  }
+
   const DataBrowser = {
     mount(target, options) {
       options = options || {};
@@ -214,7 +225,8 @@
       if (!doc) throw new TypeError("Clio.DataBrowser.mount() requires a browser element");
       const host = typeof target === "string" ? doc.querySelector(target) : target;
       if (!host) throw new TypeError("Clio.DataBrowser.mount() requires a browser element");
-      const client = options.client || new Clio(options);
+      const project = browserProject(options);
+      const client = options.client || new Clio(Object.assign({}, options, { project }));
       const pageSize = Math.min(1000, Math.max(1, Number(options.pageSize) || 50));
       let currentGroup = "";
       let currentTable = "";
@@ -290,7 +302,7 @@
       }
 
       function setURL(group, table, page, replace) {
-        const path = group ? `/collections/${encodeURIComponent(group)}${table ? `/${encodeURIComponent(table)}` : ""}` : "/collections";
+        const path = group ? `/${encodeURIComponent(project)}/collections/${encodeURIComponent(group)}${table ? `/${encodeURIComponent(table)}` : ""}` : `/${encodeURIComponent(project)}/collections`;
         const query = page > 1 ? `?page=${page}` : "";
         if (root.history && root.history[replace ? "replaceState" : "pushState"]) {
           root.history[replace ? "replaceState" : "pushState"]({}, "", `${path}${query}`);
@@ -313,7 +325,7 @@
         for (const table of tables) {
           const item = element("li");
           const link = element("a", table.label || table.name);
-          link.href = `/collections/${encodeURIComponent(currentGroup)}/${encodeURIComponent(table.name)}`;
+          link.href = `/${encodeURIComponent(project)}/collections/${encodeURIComponent(currentGroup)}/${encodeURIComponent(table.name)}`;
           if (table.name === currentTable) link.setAttribute("aria-current", "page");
           link.addEventListener("click", (event) => {
             event.preventDefault();
@@ -408,7 +420,7 @@
           if (!tableItem) tableItem = tables[0];
           currentTable = tableItem ? tableItem.name : "";
           tableViewLink.hidden = !currentTable;
-          if (currentTable) tableViewLink.href = `/t/${encodeURIComponent(currentGroup)}/${encodeURIComponent(currentTable)}`;
+          if (currentTable) tableViewLink.href = `/${encodeURIComponent(project)}/data/${encodeURIComponent(currentGroup)}/${encodeURIComponent(currentTable)}`;
           drawCollections();
           drawTableLinks(tables);
           if (!tableItem) {
@@ -448,11 +460,13 @@
 
       collectionSelect.addEventListener("change", () => navigate(collectionSelect.value, currentTable, 1));
       const initialParts = ((root.location && root.location.pathname) || "").split("/").filter(Boolean);
-      const initialGroup = initialParts[0] === "collections" ? initialParts[1] || "" : "";
-      const initialTable = initialParts[0] === "collections" ? initialParts[2] || "" : "";
+      const initialCollections = initialParts[1] === "collections";
+      const initialGroup = initialCollections ? initialParts[2] || "" : "";
+      const initialTable = initialCollections ? initialParts[3] || "" : "";
       const popstate = () => {
         const parts = (root.location.pathname || "").split("/").filter(Boolean);
-        navigate(parts[0] === "collections" ? parts[1] || "" : "", parts[0] === "collections" ? parts[2] || "" : "", selectedPage(), true);
+        const onCollections = parts[1] === "collections";
+        navigate(onCollections ? parts[2] || "" : "", onCollections ? parts[3] || "" : "", selectedPage(), true);
       };
       if (root.addEventListener) root.addEventListener("popstate", popstate);
       const ready = navigate(initialGroup, initialTable, selectedPage(), true);

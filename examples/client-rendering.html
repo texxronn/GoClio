@@ -9,7 +9,7 @@
   <div id="report">Loading report…</div>
 </main>
 <script>
-  fetch('/api/v1/pages?path=%2Fexamples%2Freport.md')
+  fetch('/api/v1/default/files/pages?path=%2Fexamples%2Freport.md')
     .then(response => {
       if (!response.ok) throw new Error('Could not load the Markdown page');
       return response.json();

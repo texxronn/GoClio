@@ -32,7 +32,31 @@ type app struct {
 	baseURL   string
 	auth      authConfig
 	started   time.Time
-	contentMu sync.Mutex
+	contentMu *sync.Mutex
+	// project is the project scope of a request. The zero value means the
+	// default project. ServeHTTP replaces the handler with a shallow copy that
+	// carries the resolved project (see withProject); the shared fields are
+	// read-only for the life of a request.
+	project string
+}
+
+// withProject returns a shallow copy of the app scoped to a project. Fields are
+// shared, including the content mutex pointer, so copies are safe to use
+// concurrently. The zero-value project means the default project.
+func (a *app) withProject(project string) *app {
+	scoped := *a
+	scoped.project = project
+	if scoped.contentMu == nil {
+		scoped.contentMu = &sync.Mutex{}
+	}
+	return &scoped
+}
+
+func (a *app) contentLock() *sync.Mutex {
+	if a.contentMu == nil {
+		a.contentMu = &sync.Mutex{}
+	}
+	return a.contentMu
 }
 
 func main() {
@@ -73,7 +97,7 @@ func main() {
 		log.Fatalf("open database: %v", err)
 	}
 	defer db.Close()
-	a := &app{db: db, content: content, baseURL: baseURL, auth: auth, started: time.Now()}
+	a := &app{db: db, content: content, baseURL: baseURL, auth: auth, started: time.Now(), contentMu: &sync.Mutex{}}
 	srv := &http.Server{Addr: addr, Handler: a, ReadHeaderTimeout: 10 * time.Second}
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -200,7 +224,7 @@ func migrateSchema(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS fields_meta (project TEXT NOT NULL DEFAULT 'default', group_name TEXT NOT NULL, table_name TEXT NOT NULL, name TEXT NOT NULL, position INTEGER NOT NULL, definition TEXT NOT NULL, PRIMARY KEY(project,group_name,table_name,name), FOREIGN KEY(project,group_name,table_name) REFERENCES tables_meta(project,group_name,name) ON DELETE CASCADE)`,
 		`CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, project TEXT NOT NULL DEFAULT 'default', group_name TEXT NOT NULL, table_name TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, data TEXT NOT NULL, timestamp_value TEXT, FOREIGN KEY(project,group_name,table_name) REFERENCES tables_meta(project,group_name,name) ON DELETE CASCADE)`,
 		`CREATE TABLE IF NOT EXISTS content_page_times (path TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS managed_indexes (name TEXT PRIMARY KEY, group_name TEXT NOT NULL, table_name TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS managed_indexes (name TEXT PRIMARY KEY, project TEXT NOT NULL DEFAULT 'default', group_name TEXT NOT NULL, table_name TEXT NOT NULL)`,
 	}
 	for _, statement := range statements {
 		if _, err = conn.ExecContext(ctx, statement); err != nil {
@@ -214,6 +238,9 @@ func migrateSchema(db *sql.DB) error {
 	// Add the schema declaration column to databases created by earlier Clio
 	// versions before tables_meta is rebuilt.
 	if err = ensureColumn(ctx, conn, "tables_meta", "indexes", `TEXT NOT NULL DEFAULT '[]'`); err != nil {
+		return err
+	}
+	if err = ensureColumn(ctx, conn, "managed_indexes", "project", `TEXT NOT NULL DEFAULT 'default'`); err != nil {
 		return err
 	}
 	rebuilds := []struct{ table, create, copy string }{

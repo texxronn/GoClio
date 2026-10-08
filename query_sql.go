@@ -286,9 +286,9 @@ func filterSQLExpression(field string, def map[string]any) (string, []any) {
 	return sqlFieldExpression(field, def)
 }
 
-func buildRecordWhere(group, table string, defs map[string]map[string]any, q url.Values, timeseries bool, meta map[string]any, from, to *time.Time) (string, []any, *apiError) {
-	conditions := []string{"group_name=?", "table_name=?"}
-	args := []any{group, table}
+func buildRecordWhere(project, group, table string, defs map[string]map[string]any, q url.Values, timeseries bool, meta map[string]any, from, to *time.Time) (string, []any, *apiError) {
+	conditions := []string{"project=?", "group_name=?", "table_name=?"}
+	args := []any{project, group, table}
 	if timeseries && (from != nil || to != nil) {
 		if from != nil {
 			conditions = append(conditions, "timestamp_value COLLATE CLIO_DATETIME >= ?")
@@ -359,7 +359,7 @@ func filterArgument(value any) any {
 }
 
 func (a *app) queryRecordPage(group, table string, defs map[string]map[string]any, q url.Values, timeseries bool, meta map[string]any, from, to *time.Time, limit, offset int, sortField, order string, numeric bool) (map[string]any, *apiError) {
-	where, args, ae := buildRecordWhere(group, table, defs, q, timeseries, meta, from, to)
+	where, args, ae := buildRecordWhere(a.project, group, table, defs, q, timeseries, meta, from, to)
 	if ae != nil {
 		return nil, ae
 	}
@@ -436,7 +436,7 @@ func (a *app) distinctRecordValues(group, table string, defs map[string]map[stri
 	if ae != nil {
 		return nil, ae
 	}
-	where, whereArgs, ae := buildRecordWhere(group, table, defs, q, timeseries, meta, from, to)
+	where, whereArgs, ae := buildRecordWhere(a.project, group, table, defs, q, timeseries, meta, from, to)
 	if ae != nil {
 		return nil, ae
 	}
@@ -537,7 +537,7 @@ func (a *app) groupRecordAggregates(group, table string, defs map[string]map[str
 	if ae != nil {
 		return nil, ae
 	}
-	where, whereArgs, ae := buildRecordWhere(group, table, defs, q, timeseries, meta, from, to)
+	where, whereArgs, ae := buildRecordWhere(a.project, group, table, defs, q, timeseries, meta, from, to)
 	if ae != nil {
 		return nil, ae
 	}
@@ -670,7 +670,7 @@ func (a *app) bucketRecordAggregates(group, table string, defs map[string]map[st
 	if ae != nil {
 		return nil, ae
 	}
-	where, whereArgs, ae := buildRecordWhere(group, table, defs, q, true, meta, from, to)
+	where, whereArgs, ae := buildRecordWhere(a.project, group, table, defs, q, true, meta, from, to)
 	if ae != nil {
 		return nil, ae
 	}

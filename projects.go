@@ -65,7 +65,7 @@ func (a *app) projectsAPI(w http.ResponseWriter, r *http.Request, s []string) {
 		name := s[1]
 		switch r.Method {
 		case http.MethodGet:
-			item, e := a.project(name)
+			item, e := a.projectInfo(name)
 			if e != nil {
 				writeErr(w, e)
 				return
@@ -85,7 +85,7 @@ func (a *app) projectsAPI(w http.ResponseWriter, r *http.Request, s []string) {
 	writeAPIError(w, missing("Endpoint"))
 }
 
-func (a *app) project(name string) (map[string]any, *apiError) {
+func (a *app) projectInfo(name string) (map[string]any, *apiError) {
 	var label, desc, created string
 	var order int
 	e := a.db.QueryRow(`SELECT label,description,sort_order,created_at FROM projects WHERE name=?`, name).Scan(&label, &desc, &order, &created)
@@ -118,7 +118,7 @@ func (a *app) listProjects() ([]map[string]any, *apiError) {
 		if e = rows.Scan(&name); e != nil {
 			return nil, errAPI(e)
 		}
-		item, x := a.project(name)
+		item, x := a.projectInfo(name)
 		if x != nil {
 			return nil, x
 		}
@@ -159,7 +159,7 @@ func (a *app) createProject(input map[string]any) (map[string]any, *apiError) {
 		}
 		return nil, errAPI(err)
 	}
-	return a.project(name)
+	return a.projectInfo(name)
 }
 
 // deleteProject removes a project only when it is empty: it has no groups,
@@ -168,7 +168,7 @@ func (a *app) deleteProject(name string) *apiError {
 	if name == defaultProject {
 		return invalid("The default project cannot be deleted")
 	}
-	if _, e := a.project(name); e != nil {
+	if _, e := a.projectInfo(name); e != nil {
 		return e
 	}
 	var used int

@@ -76,7 +76,7 @@ func (a *app) createRecord(group, table string, input map[string]any) (map[strin
 	if err != nil {
 		return nil, errAPI(err)
 	}
-	_, err = a.db.Exec(`INSERT INTO records(id,group_name,table_name,created_at,updated_at,data,timestamp_value) VALUES(?,?,?,?,?,?,?)`, id, group, table, now, now, string(b), timestamp)
+	_, err = a.db.Exec(`INSERT INTO records(id,project,group_name,table_name,created_at,updated_at,data,timestamp_value) VALUES(?,?,?,?,?,?,?,?)`, id, a.project, group, table, now, now, string(b), timestamp)
 	if err != nil {
 		if isConstraint(err) {
 			return nil, conflict("Record violates a table constraint")
@@ -118,7 +118,7 @@ func (a *app) patchRecord(group, table, id string, patch map[string]any) (map[st
 	if timestampName != "" {
 		timestamp = values[timestampName]
 	}
-	_, err = a.db.Exec(`UPDATE records SET updated_at=?,data=?,timestamp_value=? WHERE id=? AND group_name=? AND table_name=?`, now, string(b), timestamp, id, group, table)
+	_, err = a.db.Exec(`UPDATE records SET updated_at=?,data=?,timestamp_value=? WHERE project=? AND id=? AND group_name=? AND table_name=?`, now, string(b), timestamp, a.project, id, group, table)
 	if err != nil {
 		return nil, errAPI(err)
 	}
@@ -187,7 +187,7 @@ func (a *app) validateValues(input map[string]any, defs []map[string]any, existi
 
 func (a *app) validateReference(f map[string]any, value any) *apiError {
 	var one int
-	e := a.db.QueryRow(`SELECT 1 FROM records WHERE id=? AND group_name=? AND table_name=?`, value, f["group"], f["table"]).Scan(&one)
+	e := a.db.QueryRow(`SELECT 1 FROM records WHERE project=? AND id=? AND group_name=? AND table_name=?`, a.project, value, f["group"], f["table"]).Scan(&one)
 	if errors.Is(e, sql.ErrNoRows) {
 		return invalid("Referenced record does not exist for field " + fmt.Sprint(f["name"]))
 	}
@@ -206,7 +206,7 @@ func (a *app) getRecordFormatted(group, table, id string, numeric bool) (map[str
 		return nil, e
 	}
 	var created, updated, raw string
-	e := a.db.QueryRow(`SELECT created_at,updated_at,data FROM records WHERE group_name=? AND table_name=? AND id=?`, group, table, id).Scan(&created, &updated, &raw)
+	e := a.db.QueryRow(`SELECT created_at,updated_at,data FROM records WHERE project=? AND group_name=? AND table_name=? AND id=?`, a.project, group, table, id).Scan(&created, &updated, &raw)
 	if errors.Is(e, sql.ErrNoRows) {
 		return nil, missing("Record")
 	}
@@ -232,7 +232,7 @@ func (a *app) getRecordFormatted(group, table, id string, numeric bool) (map[str
 
 func (a *app) recordCount(group, table string) (int, *apiError) {
 	var n int
-	e := a.db.QueryRow(`SELECT count(*) FROM records WHERE group_name=? AND table_name=?`, group, table).Scan(&n)
+	e := a.db.QueryRow(`SELECT count(*) FROM records WHERE project=? AND group_name=? AND table_name=?`, a.project, group, table).Scan(&n)
 	if e != nil {
 		return 0, errAPI(e)
 	}
@@ -243,7 +243,7 @@ func (a *app) deleteRecord(group, table, id string) *apiError {
 	if _, e := a.getRecord(group, table, id); e != nil {
 		return e
 	}
-	rows, e := a.db.Query(`SELECT group_name,table_name,name,definition FROM fields_meta`)
+	rows, e := a.db.Query(`SELECT group_name,table_name,name,definition FROM fields_meta WHERE project=?`, a.project)
 	if e != nil {
 		return errAPI(e)
 	}
@@ -273,7 +273,7 @@ func (a *app) deleteRecord(group, table, id string) *apiError {
 	for _, ref := range references {
 		var one int
 		expression := "json_extract(data, " + indexJSONPathSQL(ref.name) + ")"
-		e = a.db.QueryRow(`SELECT 1 FROM records WHERE group_name=? AND table_name=? AND `+expression+`=? LIMIT 1`, ref.group, ref.table, id).Scan(&one)
+		e = a.db.QueryRow(`SELECT 1 FROM records WHERE project=? AND group_name=? AND table_name=? AND `+expression+`=? LIMIT 1`, a.project, ref.group, ref.table, id).Scan(&one)
 		if e == nil {
 			return conflict("Record is referenced by another record")
 		}
@@ -281,7 +281,7 @@ func (a *app) deleteRecord(group, table, id string) *apiError {
 			return errAPI(e)
 		}
 	}
-	_, e = a.db.Exec(`DELETE FROM records WHERE group_name=? AND table_name=? AND id=?`, group, table, id)
+	_, e = a.db.Exec(`DELETE FROM records WHERE project=? AND group_name=? AND table_name=? AND id=?`, a.project, group, table, id)
 	if e != nil {
 		return errAPI(e)
 	}
@@ -439,11 +439,11 @@ func (a *app) legacyQueryRecordPage(group, table string, by map[string]map[strin
 		}
 	}
 	needsFullDecode := filtering || from != nil || to != nil || sortField != ""
-	query := `SELECT id,created_at,updated_at FROM records WHERE group_name=? AND table_name=?`
+	query := `SELECT id,created_at,updated_at FROM records WHERE project=? AND group_name=? AND table_name=?`
 	if needsFullDecode {
-		query = `SELECT id,created_at,updated_at,data FROM records WHERE group_name=? AND table_name=?`
+		query = `SELECT id,created_at,updated_at,data FROM records WHERE project=? AND group_name=? AND table_name=?`
 	}
-	rows, err := tx.Query(query, group, table)
+	rows, err := tx.Query(query, a.project, group, table)
 	if err != nil {
 		return nil, errAPI(err)
 	}
@@ -535,7 +535,7 @@ func (a *app) legacyQueryRecordPage(group, table string, by map[string]map[strin
 			page[i] = selected[i].row
 		}
 	} else {
-		loaded, loadErr := loadQueryPage(tx, group, table, selected)
+		loaded, loadErr := loadQueryPage(tx, a.project, group, table, selected)
 		if loadErr != nil {
 			return nil, loadErr
 		}
@@ -547,15 +547,15 @@ func (a *app) legacyQueryRecordPage(group, table string, by map[string]map[strin
 	return map[string]any{"data": page, "page": pageInfo(limit, offset, len(page), total)}, nil
 }
 
-func loadQueryPage(tx *sql.Tx, group, table string, candidates []recordCandidate) ([]map[string]any, *apiError) {
+func loadQueryPage(tx *sql.Tx, project, group, table string, candidates []recordCandidate) ([]map[string]any, *apiError) {
 	loaded := make(map[string]map[string]any, len(candidates))
 	const batchSize = 500
 	for start := 0; start < len(candidates); start += batchSize {
 		end := min(start+batchSize, len(candidates))
 		batch := candidates[start:end]
-		query := `SELECT id,created_at,updated_at,data FROM records WHERE group_name=? AND table_name=? AND id IN (` + strings.TrimSuffix(strings.Repeat("?,", len(batch)), ",") + `)`
-		args := make([]any, 0, len(batch)+2)
-		args = append(args, group, table)
+		query := `SELECT id,created_at,updated_at,data FROM records WHERE project=? AND group_name=? AND table_name=? AND id IN (` + strings.TrimSuffix(strings.Repeat("?,", len(batch)), ",") + `)`
+		args := make([]any, 0, len(batch)+3)
+		args = append(args, project, group, table)
 		for _, candidate := range batch {
 			args = append(args, candidate.id)
 		}
@@ -595,7 +595,7 @@ func loadQueryPage(tx *sql.Tx, group, table string, candidates []recordCandidate
 }
 
 func (a *app) eachMatchingRecord(group, table string, defs map[string]map[string]any, q url.Values, timeseries bool, meta map[string]any, from, to *time.Time, visit func(map[string]any) *apiError) *apiError {
-	rows, err := a.db.Query(`SELECT id,created_at,updated_at,data FROM records WHERE group_name=? AND table_name=?`, group, table)
+	rows, err := a.db.Query(`SELECT id,created_at,updated_at,data FROM records WHERE project=? AND group_name=? AND table_name=?`, a.project, group, table)
 	if err != nil {
 		return errAPI(err)
 	}
