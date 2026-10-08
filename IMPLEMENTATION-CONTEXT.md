@@ -12,7 +12,7 @@
 - **Plan:** `IMPLEMENTATION-PLAN.md`
 - **Code baseline:** Phase 1 implemented; data tables are project-scoped; routing is still unscoped (Phase 2)
 - **Branch:** `master`
-- **Last merged commit:** `e195571` (implementation plan and context, PR #4)
+- **Last merged commit:** `719f063` (Phase 1, PR #5)
 - **Current phase:** Phase 1 complete (this commit)
 - **Next action:** Phase 2 — rework `ServeHTTP`/`api` for instance routes and `/api/v1/{project}/data/...`, resolve and validate `{project}` on every scoped request, thread `project` through every SQL query, move the table UI under `/{project}/data/...`, add `/` and `/api/v1` redirects, and mechanically update every test URL through a shared helper.
 - **Blockers:** none
