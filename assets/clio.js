@@ -2,7 +2,7 @@
   "use strict";
 
   const apiVersion = "v1";
-  const libraryVersion = "1.3.0";
+  const libraryVersion = "1.4.0";
 
   class ClioError extends Error {
     constructor(status, code, message, body) {
@@ -775,6 +775,15 @@
       let currentPath = normalizeContentPath(options.path || initialFileBrowserPath());
       let currentChildren = [];
       let selectedEntry = "";
+      let currentEntries = [];
+      let rowEntry = new Map();
+      let menuEl = null;
+      let menuItems = [];
+      let menuActions = [];
+      let menuIndex = 0;
+      let menuEntry = null;
+      let menuAnchorRow = null;
+      let menuDocHandlers = null;
       let requestNumber = 0;
       let destroyed = false;
 
@@ -1310,103 +1319,254 @@
         else if (root.location && "href" in root.location) root.location.href = url;
       }
 
-      function entryActions(name, childPath) {
-        const actions = element("div", null, "fb-actions");
-        const renameButton = element("button", "Rename");
-        renameButton.type = "button";
-        renameButton.addEventListener("click", (event) => {
-          if (event && event.preventDefault) event.preventDefault();
-          const next = ask("New name", name);
-          if (next) renameEntry(childPath, joinContentPath(parentContentPath(childPath), next));
-        });
-        const deleteButton = element("button", "Delete", "fb-danger");
-        deleteButton.type = "button";
-        deleteButton.addEventListener("click", (event) => {
-          if (event && event.preventDefault) event.preventDefault();
-          if (confirmDelete(name)) removeEntry(childPath);
-        });
-        actions.append(renameButton, deleteButton);
-        return actions;
+      // selectEntry highlights one row without re-rendering, so an open context
+      // menu keeps a valid anchor and the row keeps its focus.
+      function selectEntry(path) {
+        selectedEntry = path;
+        for (const [row, entry] of rowEntry) {
+          row.className = entry.childPath === selectedEntry ? "fb-row-selected" : "";
+        }
       }
 
+      function rowForPath(path) {
+        for (const [row, entry] of rowEntry) if (entry.childPath === path) return row;
+        return null;
+      }
+
+      function entryForPath(path) {
+        for (const entry of currentEntries) if (entry.childPath === path) return entry;
+        return null;
+      }
+
+      // contentIDUrl is the stable, ID-addressed download URL (section 66.9).
+      function contentIDUrl(id) {
+        return `/${encodeURIComponent(project)}/files/id/${encodeURIComponent(id)}`;
+      }
+
+      function downloadEntry(entry) {
+        const url = contentIDUrl(entry.id);
+        if (typeof root.open === "function") root.open(url, "_blank");
+        else if (root.location && "href" in root.location) root.location.href = url;
+      }
+
+      function pointerX(event) {
+        const value = Number(event && event.clientX);
+        return Number.isFinite(value) ? value : 0;
+      }
+
+      function pointerY(event) {
+        const value = Number(event && event.clientY);
+        return Number.isFinite(value) ? value : 0;
+      }
+
+      // --- context menu -----------------------------------------------------
+      function focusMenuItem(index) {
+        if (!menuItems.length) return;
+        menuIndex = ((index % menuItems.length) + menuItems.length) % menuItems.length;
+        const item = menuItems[menuIndex];
+        if (item && typeof item.focus === "function") item.focus();
+      }
+
+      function activateMenuItem(index) {
+        const run = menuActions[index];
+        closeMenu(true);
+        if (run) run();
+      }
+
+      function unbindMenuDocument() {
+        const handlers = menuDocHandlers;
+        menuDocHandlers = null;
+        if (!handlers || !doc.removeEventListener) return;
+        doc.removeEventListener("mousedown", handlers.down);
+        doc.removeEventListener("keydown", handlers.key);
+        doc.removeEventListener("scroll", handlers.scroll, true);
+        doc.removeEventListener("blur", handlers.blur);
+      }
+
+      function closeMenu(refocus) {
+        if (!menuEl) return;
+        const el = menuEl;
+        const entry = menuEntry;
+        menuEl = null;
+        menuItems = [];
+        menuActions = [];
+        menuIndex = 0;
+        menuEntry = null;
+        unbindMenuDocument();
+        if (entry && entry.kebab) entry.kebab.setAttribute("aria-expanded", "false");
+        if (typeof el.remove === "function") el.remove();
+        else if (el.parentNode && el.parentNode.removeChild) el.parentNode.removeChild(el);
+        const row = menuAnchorRow;
+        menuAnchorRow = null;
+        if (refocus && row && typeof row.focus === "function") row.focus();
+      }
+
+      function bindMenuDocument() {
+        if (!doc.addEventListener) return;
+        const down = (event) => {
+          if (menuEl && event && event.target && typeof menuEl.contains === "function" && menuEl.contains(event.target)) return;
+          if (event && event.target && typeof event.target.closest === "function" && event.target.closest(".fb-row-menu")) return;
+          closeMenu(false);
+        };
+        const key = (event) => {
+          if (event && event.key === "Escape") closeMenu(true);
+        };
+        const scroll = () => closeMenu(false);
+        const blur = () => closeMenu(false);
+        menuDocHandlers = { down, key, scroll, blur };
+        doc.addEventListener("mousedown", down);
+        doc.addEventListener("keydown", key);
+        doc.addEventListener("scroll", scroll, true);
+        doc.addEventListener("blur", blur);
+      }
+
+      // openMenu builds a fresh floating menu for an entry at the given viewport
+      // coordinates, appends it to the host and moves focus to its first item.
+      function openMenu(entry, x, y, row) {
+        if (!entry) return;
+        closeMenu(false);
+        const isDir = entry.child && entry.child.kind === "directory";
+        const defs = [{ label: "Open", run: () => openEntry(entry.child, entry.childPath) }];
+        if (!isDir && entry.id) defs.push({ label: "Download", run: () => downloadEntry(entry) });
+        defs.push({
+          label: "Rename",
+          run: () => {
+            const next = ask("New name", entry.name);
+            if (next) renameEntry(entry.childPath, joinContentPath(parentContentPath(entry.childPath), next));
+          }
+        });
+        defs.push({
+          label: "Delete",
+          danger: true,
+          run: () => { if (confirmDelete(entry.name)) removeEntry(entry.childPath); }
+        });
+        const menu = element("div", null, "fb-menu");
+        menu.setAttribute("role", "menu");
+        menu.tabIndex = -1;
+        menuItems = defs.map((def, index) => {
+          const item = element("button", def.label, def.danger ? "fb-menu-item fb-menu-danger" : "fb-menu-item");
+          item.type = "button";
+          item.setAttribute("role", "menuitem");
+          item.tabIndex = -1;
+          item.addEventListener("click", (event) => {
+            if (event && event.preventDefault) event.preventDefault();
+            if (event && event.stopPropagation) event.stopPropagation();
+            activateMenuItem(index);
+          });
+          return item;
+        });
+        menuActions = defs.map((def) => def.run);
+        menu.replaceChildren(...menuItems);
+        menu.addEventListener("keydown", (event) => {
+          const key = event && event.key;
+          if (!key) return;
+          if (key === "ArrowDown") { if (event.preventDefault) event.preventDefault(); focusMenuItem(menuIndex + 1); }
+          else if (key === "ArrowUp") { if (event.preventDefault) event.preventDefault(); focusMenuItem(menuIndex - 1); }
+          else if (key === "Home") { if (event.preventDefault) event.preventDefault(); focusMenuItem(0); }
+          else if (key === "End") { if (event.preventDefault) event.preventDefault(); focusMenuItem(menuItems.length - 1); }
+          else if (key === "Enter" || key === " ") {
+            if (event.preventDefault) event.preventDefault();
+            if (event.stopPropagation) event.stopPropagation();
+            activateMenuItem(menuIndex);
+          } else if (key === "Escape" || key === "Tab") {
+            if (event.preventDefault) event.preventDefault();
+            if (event.stopPropagation) event.stopPropagation();
+            closeMenu(true);
+          }
+        });
+        if (menu.style) {
+          menu.style.position = "fixed";
+          menu.style.left = `${Number(x) || 0}px`;
+          menu.style.top = `${Number(y) || 0}px`;
+        }
+        host.appendChild(menu);
+        menuEl = menu;
+        menuEntry = entry;
+        menuAnchorRow = row || null;
+        if (entry.kebab) entry.kebab.setAttribute("aria-expanded", "true");
+        bindMenuDocument();
+        focusMenuItem(0);
+      }
+
+      // drawEntries renders one uniform table: directories first, then files,
+      // each sorted by name. Every row carries an icon, a basename and a kebab
+      // that opens the context menu.
       function drawEntries(children) {
         list.replaceChildren();
-        if (!children.length) {
-          list.appendChild(element("p", "This folder is empty.", "fb-empty"));
-          return;
-        }
+        rowEntry = new Map();
+        currentEntries = [];
         const directories = [];
         const files = [];
         for (const child of children) {
           const childPath = String(child.path || joinContentPath(currentPath, child.name || ""));
-          const item = { child, childPath, name: baseName(childPath) };
-          if (child && child.kind === "directory") directories.push(item);
-          else files.push(item);
+          const entry = { child, childPath, name: baseName(childPath), id: child && child.id ? String(child.id) : "", kebab: null };
+          currentEntries.push(entry);
+          if (child && child.kind === "directory") directories.push(entry);
+          else files.push(entry);
         }
-        // Subfolders first, as a compact list with a folder icon.
-        if (directories.length) {
-          const section = element("section", null, "fb-dirs");
-          section.setAttribute("aria-label", "Subfolders");
-          for (const item of directories) {
-            const row = element("div", null, "fb-dir-row");
-            const open = element("button", null, "fb-dir");
-            open.type = "button";
-            open.setAttribute("aria-label", `Open folder ${item.name}`);
-            open.append(element("span", "📁", "fb-dir-icon"), element("span", item.name, "fb-dir-name"));
-            open.addEventListener("click", (event) => {
-              if (event && event.preventDefault) event.preventDefault();
-              requestNavigate(item.childPath, false);
-            });
-            row.append(open, entryActions(item.name, item.childPath));
-            section.appendChild(row);
-          }
-          list.appendChild(section);
+        const byName = (a, b) => String(a.name).localeCompare(String(b.name));
+        directories.sort(byName);
+        files.sort(byName);
+        if (!currentEntries.length) {
+          list.appendChild(element("p", "This folder is empty.", "fb-empty"));
+          return;
         }
-        // Files below: Name (basename), Size, Actions. No kind column and no
-        // explicit download link (double-click opens/serves the entry).
-        if (files.length) {
-          const table = element("table", null, "fb-table");
-          const head = element("thead");
-          const headingRow = element("tr");
-          for (const label of ["Name", "Size", ""]) headingRow.appendChild(element("th", label));
-          head.appendChild(headingRow);
-          table.appendChild(head);
-          const body = element("tbody");
-          for (const item of files) {
-            const { child, childPath, name } = item;
-            const row = element("tr", null, childPath === selectedEntry ? "fb-row-selected" : "");
-            row.setAttribute("data-path", childPath);
-            const nameCell = element("td", null, "fb-name-cell");
-            const link = element("a", name);
-            link.href = child.url ? String(child.url) : `/${encodeURIComponent(project)}/files${encodeURI(childPath)}`;
-            link.addEventListener("click", (event) => {
-              if (event && event.preventDefault) event.preventDefault();
-              selectedEntry = childPath;
-              drawEntries(currentChildren);
-            });
-            link.addEventListener("dblclick", (event) => {
-              if (event && event.preventDefault) event.preventDefault();
-              openEntry(child, childPath);
-            });
-            nameCell.appendChild(link);
-            row.appendChild(nameCell);
-            row.appendChild(element("td", formatBytes(child.size), "fb-size-cell"));
-            const actionsCell = element("td", null, "fb-actions-cell");
-            actionsCell.appendChild(entryActions(name, childPath));
-            row.appendChild(actionsCell);
-            row.addEventListener("click", () => {
-              selectedEntry = childPath;
-              drawEntries(currentChildren);
-            });
-            row.addEventListener("dblclick", (event) => {
-              if (event && event.preventDefault) event.preventDefault();
-              openEntry(child, childPath);
-            });
-            body.appendChild(row);
-          }
-          table.appendChild(body);
-          list.appendChild(table);
+        const table = element("table", null, "fb-table");
+        const head = element("thead");
+        const headingRow = element("tr");
+        for (const label of ["Name", "Size", ""]) headingRow.appendChild(element("th", label));
+        head.appendChild(headingRow);
+        table.appendChild(head);
+        const body = element("tbody");
+        for (const item of directories.concat(files)) {
+          const isDir = item.child && item.child.kind === "directory";
+          const row = element("tr", null, item.childPath === selectedEntry ? "fb-row-selected" : "");
+          row.setAttribute("data-path", item.childPath);
+          const nameCell = element("td", null, "fb-name-cell");
+          const link = element("a", null);
+          const fallbackUrl = `/${encodeURIComponent(project)}/files${encodeURI(item.childPath)}`;
+          link.href = isDir ? fallbackUrl : (item.child.url ? String(item.child.url) : fallbackUrl);
+          link.append(element("span", isDir ? "📁" : "📄", "fb-row-icon"), element("span", item.name, "fb-row-name"));
+          link.addEventListener("click", (event) => {
+            if (event && event.preventDefault) event.preventDefault();
+            // A directory name opens it; a file name only selects it.
+            if (isDir) { requestNavigate(item.childPath, false); return; }
+            selectEntry(item.childPath);
+          });
+          nameCell.appendChild(link);
+          row.appendChild(nameCell);
+          row.appendChild(element("td", isDir ? "–" : formatBytes(item.child.size), "fb-size-cell"));
+          const actionsCell = element("td", null, "fb-actions-cell");
+          const kebab = element("button", "⋮", "fb-row-menu");
+          kebab.type = "button";
+          kebab.setAttribute("aria-label", `Actions for ${item.name}`);
+          kebab.setAttribute("aria-haspopup", "menu");
+          kebab.setAttribute("aria-expanded", "false");
+          kebab.addEventListener("click", (event) => {
+            if (event && event.preventDefault) event.preventDefault();
+            if (event && event.stopPropagation) event.stopPropagation();
+            selectEntry(item.childPath);
+            const rect = typeof kebab.getBoundingClientRect === "function" ? kebab.getBoundingClientRect() : null;
+            openMenu(item, rect ? rect.left : 0, rect ? rect.bottom : 0, row);
+          });
+          item.kebab = kebab;
+          actionsCell.appendChild(kebab);
+          row.appendChild(actionsCell);
+          row.addEventListener("click", () => selectEntry(item.childPath));
+          row.addEventListener("dblclick", (event) => {
+            if (event && event.preventDefault) event.preventDefault();
+            openEntry(item.child, item.childPath);
+          });
+          row.addEventListener("contextmenu", (event) => {
+            if (event && event.preventDefault) event.preventDefault();
+            selectEntry(item.childPath);
+            openMenu(item, pointerX(event), pointerY(event), row);
+          });
+          body.appendChild(row);
+          rowEntry.set(row, item);
         }
+        table.appendChild(body);
+        list.appendChild(table);
       }
 
       function action(promise, failure) {
@@ -1550,6 +1710,22 @@
         const files = event && event.dataTransfer ? event.dataTransfer.files : null;
         if (files && files.length) stageFiles(files);
       });
+      // Shift+F10 or the ContextMenu key opens the menu for the selected row.
+      list.addEventListener("keydown", (event) => {
+        const key = event && event.key;
+        if (!(key === "ContextMenu" || (event.shiftKey && key === "F10"))) return;
+        const entry = entryForPath(selectedEntry) || currentEntries[0];
+        if (!entry) return;
+        if (event.preventDefault) event.preventDefault();
+        const row = rowForPath(entry.childPath);
+        let x = 0;
+        let y = 0;
+        if (row && typeof row.getBoundingClientRect === "function") {
+          const rect = row.getBoundingClientRect();
+          if (rect) { x = rect.left; y = rect.bottom; }
+        }
+        openMenu(entry, x, y, row);
+      });
       const popstate = () => requestNavigate(initialFileBrowserPath(), true);
       if (root.addEventListener) root.addEventListener("popstate", popstate);
 
@@ -1581,6 +1757,7 @@
         get staged() { return tray.map((item) => ({ name: item.name, size: item.size, type: item.type, target: item.target, status: item.status, replaces: item.replaces })); },
         destroy() {
           destroyed = true;
+          closeMenu(false);
           if (root.removeEventListener) root.removeEventListener("popstate", popstate);
           host.replaceChildren();
         }

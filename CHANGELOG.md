@@ -20,14 +20,27 @@ than the product.
   more" node that pages a large folder, ancestors of the current path
   auto-expanded and highlighted, roving-tabindex keyboard navigation, and
   expansion state persisted per project in `sessionStorage`). The right pane is
-  a **compact detailed list** with single-click selection and double-click to
-  open. Uploads are **staged, not immediate**: choosing files or dropping them
+  a **single uniform list** — directories first, then files, each sorted by
+  name, with a folder or document icon, Name/Size and single-click selection and
+  double-click to open. Uploads are **staged, not immediate**: choosing files or dropping them
   on the listing fills a staging tray (name, human-readable size, type, resolved
   target path, status) that rejects files over the 16 MiB limit, sanitizes
   path separators, marks an existing name "will replace", asks for confirmation
   before replacing, uploads sequentially with a per-file status and error, and
   refreshes the listing at the end. No API or route changed. There is no icon or
-  grid view. `Clio.version` is `1.3.0`.
+  grid view. `Clio.version` is `1.4.0`.
+- The file explorer's right pane has a **right-click / kebab context menu**
+  (Google-Drive style) instead of inline Rename/Delete buttons: `menu`/`menuitem`
+  roles, opened by right-clicking a row at the pointer, by the per-row kebab
+  button, or by **Shift+F10** / the **ContextMenu** key for the selected row. A
+  file menu offers Open, Download, Rename and Delete; a directory menu omits
+  Download, and Download is omitted when an entry has no stable ID. Open
+  navigates a directory or opens a file's URL, Download uses the stable ID URL
+  `/{project}/files/id/{id}`, and Rename/Delete reuse the existing prompt and
+  confirmation. The menu closes on outside click, Escape, scroll, blur or after
+  an action; Up/Down move, Enter activates, and focus moves into the menu and
+  returns to the row. The old `.fb-dirs` block and inline `.fb-actions` buttons
+  are removed.
 
 ### Changed
 
@@ -36,10 +49,12 @@ than the product.
   chevrons, and shows a fixed spacer for folders with no subfolders so labels
   align. Presentation only; no behaviour or API change.
 - The file-explorer folder tree is more compact (smaller type and a `1rem`
-  indent per level). The right pane lists **subfolders first** as a compact list
-  with a folder icon, then files in a table with **Name (basename only) / Size /
-  Actions** — the `Kind` column, the redundant full path, and the explicit
-  "download" link are gone. Rename/Delete remain for both folders and files.
+  indent per level). The right pane is one **uniform table**: directories first
+  (folder icon, en-dash size), then files (document icon, human size), each
+  group sorted by name and with **Name / Size / Actions** — the `Kind` column,
+  the redundant full path, and the explicit "download" link are gone. Rename and
+  Delete for both folders and files now live in the row's context menu instead
+  of inline buttons.
 
 ### Changed
 
