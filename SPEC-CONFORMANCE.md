@@ -66,3 +66,4 @@ spec v1.5.
 | §64.10 WebDAV | optional flag; method set including MOVE/COPY; ID preservation; auth enforcement |
 | §64.11 backup and restore | restored database plus content reproduces IDs, timestamps and agent text |
 | §64.14 web file explorer | `/files` shell and reserved route; ClioJS `Clio.FileBrowser`; breadcrumbs and URL state; upload/rename/delete actions; referenced-entry `409`; escaped search snippets |
+| §65 namespaces (projects) | project create/list/read/delete-when-empty; `default` alias for unscoped routes and root content; project-scoped groups/files/search; project-relative paths and `(project, path)` uniqueness; cross-project reference rejection |

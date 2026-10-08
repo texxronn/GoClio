@@ -13,17 +13,22 @@ than the product.
 
 ### Documentation
 
-- `SPEC.md` revised to v1.5. New section 64 defines the content filesystem:
-  stable content-entry IDs, a filesystem REST API with `/f/{id}` stable URLs,
-  the
-  `attachment` field type, native text extraction with a bounded SQLite
-  full-text index, the search and enrichment APIs, optional WebDAV at `/dav`, a
-  ClioJS file explorer at `/files`, and the corresponding backup requirements.
-  Sections 3.1, 13, 14.1, 32.3, 34, 35, 36, 41, 43, 46, 47, 49, 52, 55.1, 56,
-  57, 58 and 62 were updated accordingly.
-- `SPEC-CONFORMANCE.md` records the v1.5 areas as pending coverage.
+- `SPEC.md` revised to v1.6.
+  - v1.5 (section 64) added the content filesystem: stable content-entry IDs, a
+    filesystem REST API with `/f/{id}` stable URLs, the `attachment` field type,
+    native text extraction with a bounded SQLite full-text index, the search and
+    enrichment APIs, optional WebDAV at `/dav`, and a ClioJS file explorer at
+    `/files`. Sections 3.1, 13, 14.1, 32.3, 34, 35, 36, 41, 43, 46, 47, 49, 52,
+    55.1, 56, 57, 58 and 62 were updated accordingly.
+  - v1.6 (section 65) added namespaces as logical projects: project-scoped
+    groups/tables and content, the projects API and project-scoped route
+    prefixes, project-relative paths, reserved `/p`, and the `default` alias for
+    existing routes. Sections 8, 9, 13.4, 17, 32.2, 32.3, 36, 47, 49, 58, 62 and
+    64 were updated accordingly.
+- `SPEC-CONFORMANCE.md` records the v1.5 and v1.6 areas as pending coverage.
 
-This is a specification change only; none of section 64 is implemented yet.
+This is a specification change only; none of sections 64 or 65 is implemented
+yet.
 
 ## [1.0.1] - 2026-09-29
 
