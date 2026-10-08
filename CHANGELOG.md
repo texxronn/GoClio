@@ -35,6 +35,11 @@ than the product.
   classic vertical tree guides, uses larger accent-coloured expand/collapse
   chevrons, and shows a fixed spacer for folders with no subfolders so labels
   align. Presentation only; no behaviour or API change.
+- The file-explorer folder tree is more compact (smaller type and a `1rem`
+  indent per level). The right pane lists **subfolders first** as a compact list
+  with a folder icon, then files in a table with **Name (basename only) / Size /
+  Actions** — the `Kind` column, the redundant full path, and the explicit
+  "download" link are gone. Rename/Delete remain for both folders and files.
 
 ### Changed
 

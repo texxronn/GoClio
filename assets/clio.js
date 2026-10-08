@@ -714,6 +714,12 @@
     return index <= 0 ? "/" : path.slice(0, index);
   }
 
+  function baseName(value) {
+    const path = normalizeContentPath(value);
+    const index = path.lastIndexOf("/");
+    return index < 0 ? path : path.slice(index + 1);
+  }
+
   function initialFileBrowserPath() {
     const parts = ((root.location && root.location.pathname) || "").split("/").filter(Boolean);
     if (parts.length > 2 && parts[1] === "files") return "/" + parts.slice(2).join("/");
@@ -1304,75 +1310,103 @@
         else if (root.location && "href" in root.location) root.location.href = url;
       }
 
+      function entryActions(name, childPath) {
+        const actions = element("div", null, "fb-actions");
+        const renameButton = element("button", "Rename");
+        renameButton.type = "button";
+        renameButton.addEventListener("click", (event) => {
+          if (event && event.preventDefault) event.preventDefault();
+          const next = ask("New name", name);
+          if (next) renameEntry(childPath, joinContentPath(parentContentPath(childPath), next));
+        });
+        const deleteButton = element("button", "Delete", "fb-danger");
+        deleteButton.type = "button";
+        deleteButton.addEventListener("click", (event) => {
+          if (event && event.preventDefault) event.preventDefault();
+          if (confirmDelete(name)) removeEntry(childPath);
+        });
+        actions.append(renameButton, deleteButton);
+        return actions;
+      }
+
       function drawEntries(children) {
         list.replaceChildren();
         if (!children.length) {
           list.appendChild(element("p", "This folder is empty.", "fb-empty"));
           return;
         }
-        const table = element("table", null, "fb-table");
-        const head = element("thead");
-        const headingRow = element("tr");
-        for (const label of ["Name", "Kind", "Size", "Actions"]) headingRow.appendChild(element("th", label));
-        head.appendChild(headingRow);
-        table.appendChild(head);
-        const body = element("tbody");
+        const directories = [];
+        const files = [];
         for (const child of children) {
-          const name = String(child.name != null ? child.name : child.path || "");
-          const childPath = String(child.path || joinContentPath(currentPath, name));
-          const row = element("tr", null, childPath === selectedEntry ? "fb-row-selected" : "");
-          row.setAttribute("data-path", childPath);
-          const nameCell = element("td");
-          const link = element("a", name);
-          link.href = child.url ? String(child.url) : `/${encodeURIComponent(project)}/files${encodeURI(childPath)}`;
-          link.addEventListener("click", (event) => {
-            if (event && event.preventDefault) event.preventDefault();
-            selectedEntry = childPath;
-            drawEntries(currentChildren);
-          });
-          link.addEventListener("dblclick", (event) => {
-            if (event && event.preventDefault) event.preventDefault();
-            openEntry(child, childPath);
-          });
-          nameCell.appendChild(link);
-          if (child.id && child.kind !== "directory") {
-            const stable = element("a", "download");
-            stable.href = `/${encodeURIComponent(project)}/files/id/${encodeURIComponent(child.id)}`;
-            stable.setAttribute("aria-label", `Download ${name}`);
-            nameCell.appendChild(doc.createTextNode(" "));
-            nameCell.appendChild(stable);
-          }
-          row.appendChild(nameCell);
-          row.appendChild(element("td", child.kind === "directory" ? "directory" : String(child.kind || "file")));
-          row.appendChild(element("td", formatBytes(child.size)));
-          const actions = element("td");
-          const renameButton = element("button", "Rename");
-          renameButton.type = "button";
-          renameButton.addEventListener("click", (event) => {
-            if (event && event.preventDefault) event.preventDefault();
-            const next = ask("New name", name);
-            if (next) renameEntry(childPath, joinContentPath(parentContentPath(childPath), next));
-          });
-          const deleteButton = element("button", "Delete", "fb-danger");
-          deleteButton.type = "button";
-          deleteButton.addEventListener("click", (event) => {
-            if (event && event.preventDefault) event.preventDefault();
-            if (confirmDelete(name)) removeEntry(childPath);
-          });
-          actions.append(renameButton, deleteButton);
-          row.appendChild(actions);
-          row.addEventListener("click", () => {
-            selectedEntry = childPath;
-            drawEntries(currentChildren);
-          });
-          row.addEventListener("dblclick", (event) => {
-            if (event && event.preventDefault) event.preventDefault();
-            openEntry(child, childPath);
-          });
-          body.appendChild(row);
+          const childPath = String(child.path || joinContentPath(currentPath, child.name || ""));
+          const item = { child, childPath, name: baseName(childPath) };
+          if (child && child.kind === "directory") directories.push(item);
+          else files.push(item);
         }
-        table.appendChild(body);
-        list.appendChild(table);
+        // Subfolders first, as a compact list with a folder icon.
+        if (directories.length) {
+          const section = element("section", null, "fb-dirs");
+          section.setAttribute("aria-label", "Subfolders");
+          for (const item of directories) {
+            const row = element("div", null, "fb-dir-row");
+            const open = element("button", null, "fb-dir");
+            open.type = "button";
+            open.setAttribute("aria-label", `Open folder ${item.name}`);
+            open.append(element("span", "📁", "fb-dir-icon"), element("span", item.name, "fb-dir-name"));
+            open.addEventListener("click", (event) => {
+              if (event && event.preventDefault) event.preventDefault();
+              requestNavigate(item.childPath, false);
+            });
+            row.append(open, entryActions(item.name, item.childPath));
+            section.appendChild(row);
+          }
+          list.appendChild(section);
+        }
+        // Files below: Name (basename), Size, Actions. No kind column and no
+        // explicit download link (double-click opens/serves the entry).
+        if (files.length) {
+          const table = element("table", null, "fb-table");
+          const head = element("thead");
+          const headingRow = element("tr");
+          for (const label of ["Name", "Size", ""]) headingRow.appendChild(element("th", label));
+          head.appendChild(headingRow);
+          table.appendChild(head);
+          const body = element("tbody");
+          for (const item of files) {
+            const { child, childPath, name } = item;
+            const row = element("tr", null, childPath === selectedEntry ? "fb-row-selected" : "");
+            row.setAttribute("data-path", childPath);
+            const nameCell = element("td", null, "fb-name-cell");
+            const link = element("a", name);
+            link.href = child.url ? String(child.url) : `/${encodeURIComponent(project)}/files${encodeURI(childPath)}`;
+            link.addEventListener("click", (event) => {
+              if (event && event.preventDefault) event.preventDefault();
+              selectedEntry = childPath;
+              drawEntries(currentChildren);
+            });
+            link.addEventListener("dblclick", (event) => {
+              if (event && event.preventDefault) event.preventDefault();
+              openEntry(child, childPath);
+            });
+            nameCell.appendChild(link);
+            row.appendChild(nameCell);
+            row.appendChild(element("td", formatBytes(child.size), "fb-size-cell"));
+            const actionsCell = element("td", null, "fb-actions-cell");
+            actionsCell.appendChild(entryActions(name, childPath));
+            row.appendChild(actionsCell);
+            row.addEventListener("click", () => {
+              selectedEntry = childPath;
+              drawEntries(currentChildren);
+            });
+            row.addEventListener("dblclick", (event) => {
+              if (event && event.preventDefault) event.preventDefault();
+              openEntry(child, childPath);
+            });
+            body.appendChild(row);
+          }
+          table.appendChild(body);
+          list.appendChild(table);
+        }
       }
 
       function action(promise, failure) {
