@@ -152,57 +152,9 @@ func openDatabase(path string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
-	statements := []string{
-		`CREATE TABLE IF NOT EXISTS groups_meta (name TEXT PRIMARY KEY, label TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0)`,
-		`CREATE TABLE IF NOT EXISTS tables_meta (group_name TEXT NOT NULL, name TEXT NOT NULL, label TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL, timestamp_field TEXT, indexes TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(group_name,name), FOREIGN KEY(group_name) REFERENCES groups_meta(name) ON DELETE CASCADE)`,
-		`CREATE TABLE IF NOT EXISTS fields_meta (group_name TEXT NOT NULL, table_name TEXT NOT NULL, name TEXT NOT NULL, position INTEGER NOT NULL, definition TEXT NOT NULL, PRIMARY KEY(group_name,table_name,name), FOREIGN KEY(group_name,table_name) REFERENCES tables_meta(group_name,name) ON DELETE CASCADE)`,
-		`CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, group_name TEXT NOT NULL, table_name TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, data TEXT NOT NULL, timestamp_value TEXT, FOREIGN KEY(group_name,table_name) REFERENCES tables_meta(group_name,name) ON DELETE CASCADE)`,
-		`CREATE TABLE IF NOT EXISTS content_page_times (path TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS managed_indexes (name TEXT PRIMARY KEY, group_name TEXT NOT NULL, table_name TEXT NOT NULL)`,
-		`CREATE INDEX IF NOT EXISTS records_table_idx ON records(group_name,table_name)`,
-		`CREATE INDEX IF NOT EXISTS records_created_idx ON records(group_name,table_name,created_at)`,
-		`CREATE INDEX IF NOT EXISTS records_timeseries_idx ON records(group_name,table_name,timestamp_value)`,
-		`CREATE INDEX IF NOT EXISTS records_created_query_idx ON records(group_name,table_name,created_at COLLATE CLIO_DATETIME DESC)`,
-		`CREATE INDEX IF NOT EXISTS records_timeseries_query_idx ON records(group_name,table_name,timestamp_value COLLATE CLIO_DATETIME)`,
-		`CREATE INDEX IF NOT EXISTS records_temporal_page_idx ON records(group_name,table_name,timestamp_value COLLATE CLIO_DATETIME DESC,id DESC)`,
-	}
-	for _, statement := range statements {
-		if _, err = db.Exec(statement); err != nil {
-			db.Close()
-			return nil, err
-		}
-	}
-	// Add the schema declaration column to databases created by earlier Clio versions.
-	columns, err := db.Query(`PRAGMA table_info(tables_meta)`)
-	if err != nil {
+	if err = migrateSchema(db); err != nil {
 		db.Close()
 		return nil, err
-	}
-	hasIndexes := false
-	for columns.Next() {
-		var cid, notnull, pk int
-		var name, typ string
-		var defaultValue any
-		if err = columns.Scan(&cid, &name, &typ, &notnull, &defaultValue, &pk); err != nil {
-			columns.Close()
-			db.Close()
-			return nil, err
-		}
-		if name == "indexes" {
-			hasIndexes = true
-		}
-	}
-	if err = columns.Err(); err != nil {
-		columns.Close()
-		db.Close()
-		return nil, err
-	}
-	columns.Close()
-	if !hasIndexes {
-		if _, err = db.Exec(`ALTER TABLE tables_meta ADD COLUMN indexes TEXT NOT NULL DEFAULT '[]'`); err != nil {
-			db.Close()
-			return nil, err
-		}
 	}
 	var mode string
 	if err = db.QueryRow(`PRAGMA journal_mode`).Scan(&mode); err != nil {
@@ -218,6 +170,138 @@ func openDatabase(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("reconcile indexes: %w", err)
 	}
 	return db, nil
+}
+
+// migrateSchema creates the SQLite schema and upgrades databases created by
+// earlier Clio versions. Project scoping (section 65.7) makes the primary and
+// foreign keys of the data tables project-scoped, so a legacy database needs
+// those tables rebuilt rather than a plain ALTER TABLE. The rebuild runs on one
+// connection with foreign keys disabled so that dropping a parent table cannot
+// cascade into its children.
+func migrateSchema(db *sql.DB) error {
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if _, e := conn.ExecContext(ctx, `PRAGMA foreign_keys=ON`); e != nil {
+			log.Printf("restore foreign key enforcement: %v", e)
+		}
+		_ = conn.Close()
+	}()
+	if _, err = conn.ExecContext(ctx, `PRAGMA foreign_keys=OFF`); err != nil {
+		return err
+	}
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS projects (name TEXT PRIMARY KEY, label TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS groups_meta (project TEXT NOT NULL DEFAULT 'default', name TEXT NOT NULL, label TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(project,name), FOREIGN KEY(project) REFERENCES projects(name) ON DELETE CASCADE)`,
+		`CREATE TABLE IF NOT EXISTS tables_meta (project TEXT NOT NULL DEFAULT 'default', group_name TEXT NOT NULL, name TEXT NOT NULL, label TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL, timestamp_field TEXT, indexes TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(project,group_name,name), FOREIGN KEY(project,group_name) REFERENCES groups_meta(project,name) ON DELETE CASCADE)`,
+		`CREATE TABLE IF NOT EXISTS fields_meta (project TEXT NOT NULL DEFAULT 'default', group_name TEXT NOT NULL, table_name TEXT NOT NULL, name TEXT NOT NULL, position INTEGER NOT NULL, definition TEXT NOT NULL, PRIMARY KEY(project,group_name,table_name,name), FOREIGN KEY(project,group_name,table_name) REFERENCES tables_meta(project,group_name,name) ON DELETE CASCADE)`,
+		`CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, project TEXT NOT NULL DEFAULT 'default', group_name TEXT NOT NULL, table_name TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, data TEXT NOT NULL, timestamp_value TEXT, FOREIGN KEY(project,group_name,table_name) REFERENCES tables_meta(project,group_name,name) ON DELETE CASCADE)`,
+		`CREATE TABLE IF NOT EXISTS content_page_times (path TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS managed_indexes (name TEXT PRIMARY KEY, group_name TEXT NOT NULL, table_name TEXT NOT NULL)`,
+	}
+	for _, statement := range statements {
+		if _, err = conn.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	// The implicit default project always exists (section 65.1).
+	if _, err = conn.ExecContext(ctx, `INSERT OR IGNORE INTO projects(name,label,description,sort_order,created_at) VALUES('default','Default','',0,?)`, formatUTC(time.Now())); err != nil {
+		return err
+	}
+	// Add the schema declaration column to databases created by earlier Clio
+	// versions before tables_meta is rebuilt.
+	if err = ensureColumn(ctx, conn, "tables_meta", "indexes", `TEXT NOT NULL DEFAULT '[]'`); err != nil {
+		return err
+	}
+	rebuilds := []struct{ table, create, copy string }{
+		{
+			"groups_meta",
+			`CREATE TABLE groups_meta_new (project TEXT NOT NULL DEFAULT 'default', name TEXT NOT NULL, label TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(project,name), FOREIGN KEY(project) REFERENCES projects(name) ON DELETE CASCADE)`,
+			`INSERT INTO groups_meta_new(project,name,label,description,sort_order) SELECT 'default',name,label,description,sort_order FROM groups_meta`,
+		},
+		{
+			"tables_meta",
+			`CREATE TABLE tables_meta_new (project TEXT NOT NULL DEFAULT 'default', group_name TEXT NOT NULL, name TEXT NOT NULL, label TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL, timestamp_field TEXT, indexes TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(project,group_name,name), FOREIGN KEY(project,group_name) REFERENCES groups_meta(project,name) ON DELETE CASCADE)`,
+			`INSERT INTO tables_meta_new(project,group_name,name,label,description,kind,timestamp_field,indexes) SELECT 'default',group_name,name,label,description,kind,timestamp_field,indexes FROM tables_meta`,
+		},
+		{
+			"fields_meta",
+			`CREATE TABLE fields_meta_new (project TEXT NOT NULL DEFAULT 'default', group_name TEXT NOT NULL, table_name TEXT NOT NULL, name TEXT NOT NULL, position INTEGER NOT NULL, definition TEXT NOT NULL, PRIMARY KEY(project,group_name,table_name,name), FOREIGN KEY(project,group_name,table_name) REFERENCES tables_meta(project,group_name,name) ON DELETE CASCADE)`,
+			`INSERT INTO fields_meta_new(project,group_name,table_name,name,position,definition) SELECT 'default',group_name,table_name,name,position,definition FROM fields_meta`,
+		},
+		{
+			"records",
+			`CREATE TABLE records_new (id TEXT PRIMARY KEY, project TEXT NOT NULL DEFAULT 'default', group_name TEXT NOT NULL, table_name TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, data TEXT NOT NULL, timestamp_value TEXT, FOREIGN KEY(project,group_name,table_name) REFERENCES tables_meta(project,group_name,name) ON DELETE CASCADE)`,
+			`INSERT INTO records_new(id,project,group_name,table_name,created_at,updated_at,data,timestamp_value) SELECT id,'default',group_name,table_name,created_at,updated_at,data,timestamp_value FROM records`,
+		},
+	}
+	for _, rebuild := range rebuilds {
+		if err = rebuildProjectTable(ctx, conn, rebuild.table, rebuild.create, rebuild.copy); err != nil {
+			return err
+		}
+	}
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS records_table_idx ON records(group_name,table_name)`,
+		`CREATE INDEX IF NOT EXISTS records_created_idx ON records(group_name,table_name,created_at)`,
+		`CREATE INDEX IF NOT EXISTS records_timeseries_idx ON records(group_name,table_name,timestamp_value)`,
+		`CREATE INDEX IF NOT EXISTS records_created_query_idx ON records(group_name,table_name,created_at COLLATE CLIO_DATETIME DESC)`,
+		`CREATE INDEX IF NOT EXISTS records_timeseries_query_idx ON records(group_name,table_name,timestamp_value COLLATE CLIO_DATETIME)`,
+		`CREATE INDEX IF NOT EXISTS records_temporal_page_idx ON records(group_name,table_name,timestamp_value COLLATE CLIO_DATETIME DESC,id DESC)`,
+	}
+	for _, statement := range indexes {
+		if _, err = conn.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// rebuildProjectTable gives a legacy table project-scoped primary and foreign
+// keys. It is a no-op once the table already has a project column.
+func rebuildProjectTable(ctx context.Context, conn *sql.Conn, table, create, copy string) error {
+	has, err := tableHasColumn(ctx, conn, table, "project")
+	if err != nil || has {
+		return err
+	}
+	statements := []string{`DROP TABLE IF EXISTS ` + table + `_new`, create, copy, `DROP TABLE ` + table, `ALTER TABLE ` + table + `_new RENAME TO ` + table}
+	for _, statement := range statements {
+		if _, err = conn.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("migrate %s to project scope: %w", table, err)
+		}
+	}
+	return nil
+}
+
+func tableHasColumn(ctx context.Context, conn *sql.Conn, table, column string) (bool, error) {
+	rows, err := conn.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, typ string
+		var defaultValue any
+		if err = rows.Scan(&cid, &name, &typ, &notnull, &defaultValue, &pk); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+func ensureColumn(ctx context.Context, conn *sql.Conn, table, column, definition string) error {
+	has, err := tableHasColumn(ctx, conn, table, column)
+	if err != nil || has {
+		return err
+	}
+	_, err = conn.ExecContext(ctx, `ALTER TABLE `+table+` ADD COLUMN `+column+` `+definition)
+	return err
 }
 
 func bindAddress(value string) (string, error) {

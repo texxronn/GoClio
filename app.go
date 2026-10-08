@@ -165,6 +165,8 @@ func (a *app) api(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch segments[0] {
+	case "projects":
+		a.projectsAPI(w, r, segments)
 	case "metadata":
 		a.metadataAPI(w, r, segments)
 	case "groups":

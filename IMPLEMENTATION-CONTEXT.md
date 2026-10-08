@@ -10,11 +10,11 @@
 - **Last updated:** 2026-10-08
 - **Spec:** `SPEC.md` v1.7 (sections 64, 65, 66 are new; earlier URL sections carry supersession notes)
 - **Plan:** `IMPLEMENTATION-PLAN.md`
-- **Code baseline:** implements the v1.4 contract only; none of v1.5–v1.7 is implemented
+- **Code baseline:** Phase 1 implemented; data tables are project-scoped; routing is still unscoped (Phase 2)
 - **Branch:** `master`
-- **Last merged commit:** `a47b6bb` (Spec v1.7, PR #3)
-- **Current phase:** Phase 0 complete (this commit)
-- **Next action:** Phase 1 — add the `projects` table and seed `default`; add the `project` column (default `default`) to `groups_meta`, `tables_meta`, `fields_meta`, `records` and migrate existing rows on open; then the projects API.
+- **Last merged commit:** `e195571` (implementation plan and context, PR #4)
+- **Current phase:** Phase 1 complete (this commit)
+- **Next action:** Phase 2 — rework `ServeHTTP`/`api` for instance routes and `/api/v1/{project}/data/...`, resolve and validate `{project}` on every scoped request, thread `project` through every SQL query, move the table UI under `/{project}/data/...`, add `/` and `/api/v1` redirects, and mechanically update every test URL through a shared helper.
 - **Blockers:** none
 
 ## Decision log (locked — do not relitigate)
@@ -32,6 +32,9 @@ Design decisions already fixed by `SPEC.md` v1.5–v1.7:
 - **Full-text index uses SQLite FTS5**, native extraction for text-like formats and PDF text; **OCR is not in the executable** — sidecar agents enrich via a fingerprint-checked write-back API.
 - **WebDAV is opt-in** (`CLIO_WEBDAV_ENABLED`, default off), exposed at both `/api/v1/{project}/files/dav/...` and `/{project}/files/dav/...`, read/write including rename/move.
 - **Reserved project names:** `api`, `health`, `help`, `projects`, `assets`, `favicon.svg`; `default` is reserved.
+- **Project representation URLs** follow section 66.5, not the superseded 65.4: `url` is `/{project}/` (the overview) and `api_url` is `/api/v1/projects/{project}`.
+- **Delete status codes:** a non-empty project delete returns `409`; deleting the reserved `default` project returns `422`.
+- **Project scope is a storage-key change, not a column add.** Phase 1 rebuilds `groups_meta`, `tables_meta`, `fields_meta` and `records` with `(project, …)` primary keys and project-scoped foreign keys, so names are unique per project. A legacy database migrates on open with every row assigned to `default`; no stored data is rewritten.
 - **Backup must capture the database and content root together;** the database is mandatory (IDs, timestamps, agent text).
 - **No migration/compatibility layer** for the old unscoped routes; update tests instead.
 
@@ -42,11 +45,12 @@ Design decisions already fixed by `SPEC.md` v1.5–v1.7:
 - **Human search surface:** search box in the explorer, a `/{project}/search` page, or both. Phase 11.
 - **`clio backup` / `restore` command:** ship in Phase 13 or document stop-copy only.
 - **Data listing convenience:** whether `/{project}/data` also exposes a flat table list. Phase 11.
+- **Project-scoped managed indexes:** Phase 1 introduced project-scoped primary keys but left `managed_indexes` (and the index name/expression helpers in `indexing.go`) unscoped. Phase 2 must add `project` to the managed index names, expressions and `managed_indexes` rows, or a `unique` field could enforce uniqueness across projects.
 
 ## Progress
 
 - [x] **Phase 0** — scaffolding and baseline
-- [ ] **Phase 1** — projects registry and instance routes
+- [x] **Phase 1** — projects registry and instance routes
 - [ ] **Phase 2** — project scope, routing, `data` partition
 - [ ] **Phase 3** — content entries and identity
 - [ ] **Phase 4** — files REST API
@@ -92,3 +96,4 @@ Design decisions already fixed by `SPEC.md` v1.5–v1.7:
 
 - **2026-10-08** — Spec v1.5 (content filesystem), v1.6 (namespaces/projects) and v1.7 (project-scoped URL scheme and partitions) drafted, merged to `master` via PRs #1–#3. No application code changed. Created `IMPLEMENTATION-PLAN.md` and this context file. Next: Phase 0.
 - **2026-10-08** — Phase 0: baseline verified green (`go test -count=1 ./...` 1.7s, `go vet ./...`, `go build -buildvcs=false`). 79 tests, 67.1% coverage. Plan and context files committed. Next: Phase 1.
+- **2026-10-08** — Phase 1: added the `projects` table and seeded `default`; rebuilt `groups_meta`, `tables_meta`, `fields_meta` and `records` with project-scoped primary/foreign keys and migrated legacy databases on open (all rows assigned to `default`); added the projects API (`GET`/`POST /api/v1/projects`, `GET`/`DELETE /api/v1/projects/{project}`), reserved project names, and a `projects` health count. New tests: `projects_test.go` (5). All checks green. Next: Phase 2.

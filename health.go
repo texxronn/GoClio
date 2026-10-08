@@ -22,6 +22,7 @@ func (a *app) health() map[string]any {
 	groups := a.count("groups_meta")
 	tables := a.count("tables_meta")
 	records := a.count("records")
+	projects := a.count("projects")
 	pages, dirs := int64(0), int64(0)
 	_ = filepath.WalkDir(a.content, func(p string, d os.DirEntry, e error) error {
 		if e != nil {
@@ -35,7 +36,7 @@ func (a *app) health() map[string]any {
 		return nil
 	})
 	status := dbStatus
-	return map[string]any{"status": status, "version": version, "uptime_seconds": int64(time.Since(a.started).Seconds()), "memory": map[string]any{"alloc_bytes": mem.Alloc, "sys_bytes": mem.Sys, "heap_alloc_bytes": mem.HeapAlloc, "heap_inuse_bytes": mem.HeapInuse}, "database": map[string]any{"status": dbStatus}, "groups": groups, "tables": tables, "records": records, "pages": pages, "directories": dirs}
+	return map[string]any{"status": status, "version": version, "uptime_seconds": int64(time.Since(a.started).Seconds()), "memory": map[string]any{"alloc_bytes": mem.Alloc, "sys_bytes": mem.Sys, "heap_alloc_bytes": mem.HeapAlloc, "heap_inuse_bytes": mem.HeapInuse}, "database": map[string]any{"status": dbStatus}, "projects": projects, "groups": groups, "tables": tables, "records": records, "pages": pages, "directories": dirs}
 }
 func (a *app) count(table string) int64 {
 	var n int64
@@ -57,6 +58,7 @@ func (a *app) healthHTML(w http.ResponseWriter) {
 	stats := []struct{ label, value string }{
 		{"API version", fmt.Sprint(info["version"])},
 		{"Uptime", (time.Duration(info["uptime_seconds"].(int64)) * time.Second).Round(time.Second).String()},
+		{"Projects", fmt.Sprint(info["projects"])},
 		{"Collections", fmt.Sprint(info["groups"])},
 		{"Tables", fmt.Sprint(info["tables"])},
 		{"Records", fmt.Sprint(info["records"])},
