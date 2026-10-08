@@ -211,7 +211,7 @@ vm.runInNewContext(source, context, { filename: "clio.js" });
 
 async function main() {
   const Clio = context.Clio;
-  assert.equal(Clio.version, "1.5.0");
+  assert.equal(Clio.version, "1.6.0");
   assert.equal(Clio.apiVersion, "v1");
   assert.equal(typeof Clio.DataBrowser.mount, "function");
   assert.equal(typeof Clio.FileBrowser.mount, "function");
@@ -422,6 +422,93 @@ async function main() {
   assert.equal(timeseriesBody.kind, "timeseries");
   assert.equal(timeseriesBody.timestamp_field, "taken_at");
   assert.deepEqual(timeseriesBody.fields, [{ name: "taken_at", type: "datetime", required: true, role: "timestamp" }]);
+
+  // --- enum field editor: comma-separated per-field values ---
+  const enumInputs = () => collectByTag(createPanel, "input").filter((input) => input.className === "browser-field-values");
+  const enumBoxes = () => collectByTag(createPanel, "div").filter((div) => div.className === "browser-field-enum");
+  const refBoxes = () => collectByTag(createPanel, "div").filter((div) => div.className === "browser-field-reference");
+  const refGroupSelects = () => collectByTag(createPanel, "select").filter((select) => select.className === "browser-field-reference-group");
+  const refTableSelects = () => collectByTag(createPanel, "select").filter((select) => select.className === "browser-field-reference-table");
+  const lastPoolTableBody = () => JSON.parse(requests.filter((request) => request.options.method === "POST" && request.url.endsWith("/groups/pool/tables")).at(-1).options.body);
+
+  newTableButton.handlers.click({ preventDefault() {} });
+  selectByClass(createPanel, "browser-create-collection").value = "pool";
+  inputByClass(createPanel, "browser-create-name").value = "enum_table";
+  createFieldNames()[0].value = "status";
+  createFieldTypes()[0].value = "enum";
+  createFieldTypes()[0].handlers.change();
+  assert.equal(enumBoxes()[0].hidden, false, "selecting enum reveals the values editor");
+  assert.equal(refBoxes()[0].hidden, true, "the reference editor stays hidden for an enum field");
+  const enumPostsBefore = tablePosts();
+  await createForm.handlers.submit({ preventDefault() {} });
+  await settle();
+  assert.equal(tablePosts(), enumPostsBefore, "empty enum values send no request");
+  assert.match(createPanel.textContent, /needs at least one value/, "empty enum values are explained");
+  enumInputs()[0].value = "open, open";
+  await createForm.handlers.submit({ preventDefault() {} });
+  await settle();
+  assert.equal(tablePosts(), enumPostsBefore, "duplicate enum values send no request");
+  assert.match(createPanel.textContent, /must be unique/, "duplicate enum values are explained");
+  enumInputs()[0].value = " open, closed ,pending ,";
+  await createForm.handlers.submit({ preventDefault() {} });
+  await settle();
+  assert.deepEqual(lastPoolTableBody().fields, [{ name: "status", type: "enum", values: ["open", "closed", "pending"] }], "enum values are trimmed, order-preserving and de-duplicated");
+
+  // --- reference field editor: collection + table selectors ---
+  newTableButton.handlers.click({ preventDefault() {} });
+  selectByClass(createPanel, "browser-create-collection").value = "pool";
+  inputByClass(createPanel, "browser-create-name").value = "ref_table";
+  createFieldNames()[0].value = "target";
+  createFieldTypes()[0].value = "reference";
+  createFieldTypes()[0].handlers.change();
+  assert.equal(refBoxes()[0].hidden, false, "selecting reference reveals the target selectors");
+  assert.equal(enumBoxes()[0].hidden, true, "the enum editor is hidden for a reference field");
+  assert.ok(refGroupSelects()[0].children.some((option) => option.value === "pool"), "the collection selector lists existing collections");
+  refGroupSelects()[0].value = "pool";
+  refGroupSelects()[0].handlers.change();
+  await settle();
+  assert.ok(requests.some((request) => request.url.endsWith("/groups/pool/tables") && (request.options.method || "GET") === "GET"), "choosing a collection fetches its tables");
+  assert.ok(refTableSelects()[0].children.some((option) => option.value === "measurements"), "the table selector lists the collection's tables");
+  const refPostsBefore = tablePosts();
+  await createForm.handlers.submit({ preventDefault() {} });
+  await settle();
+  assert.equal(tablePosts(), refPostsBefore, "a missing reference target sends no request");
+  assert.match(createPanel.textContent, /needs a target/, "a missing reference target is explained");
+  refTableSelects()[0].value = "measurements";
+  await createForm.handlers.submit({ preventDefault() {} });
+  await settle();
+  assert.deepEqual(lastPoolTableBody().fields, [{ name: "target", type: "reference", group: "pool", table: "measurements" }], "the reference target is emitted");
+
+  // --- per-table scoping: same-named enum/reference fields keep their own config ---
+  async function createScopedTable(tableName, enumValues, targetTable) {
+    newTableButton.handlers.click({ preventDefault() {} });
+    selectByClass(createPanel, "browser-create-collection").value = "pool";
+    inputByClass(createPanel, "browser-create-name").value = tableName;
+    createFieldNames()[0].value = "state";
+    createFieldTypes()[0].value = "enum";
+    createFieldTypes()[0].handlers.change();
+    enumInputs()[0].value = enumValues;
+    createButton("browser-field-add").handlers.click({ preventDefault() {} });
+    createFieldNames()[1].value = "target";
+    createFieldTypes()[1].value = "reference";
+    createFieldTypes()[1].handlers.change();
+    refGroupSelects()[1].value = "pool";
+    refGroupSelects()[1].handlers.change();
+    await settle();
+    refTableSelects()[1].value = targetTable;
+    await createForm.handlers.submit({ preventDefault() {} });
+    await settle();
+    return lastPoolTableBody();
+  }
+  const scopedA = await createScopedTable("scoped_a", "open, closed", "measurements");
+  const scopedB = await createScopedTable("scoped_b", "draft, published", "readings");
+  assert.deepEqual(scopedA.fields.find((field) => field.name === "state"), { name: "state", type: "enum", values: ["open", "closed"] });
+  assert.deepEqual(scopedB.fields.find((field) => field.name === "state"), { name: "state", type: "enum", values: ["draft", "published"] });
+  assert.deepEqual(scopedA.fields.find((field) => field.name === "target"), { name: "target", type: "reference", group: "pool", table: "measurements" });
+  assert.deepEqual(scopedB.fields.find((field) => field.name === "target"), { name: "target", type: "reference", group: "pool", table: "readings" });
+  assert.equal(JSON.stringify(scopedA).includes("draft"), false, "the first table's body carries none of the second table's enum values");
+  assert.equal(JSON.stringify(scopedB).includes("open"), false, "the second table's body carries none of the first table's enum values");
+
   createBrowser.destroy();
 
   // FileBrowser: gutter navigation, URL state, light actions and search.

@@ -11,6 +11,16 @@ than the product.
 
 ## [Unreleased]
 
+### Added
+
+- The Data Browser's **New table** form gains type-specific field editors for
+  `enum` fields (a comma-separated list of values, split and trimmed, order
+  preserved, duplicates rejected) and `reference` fields (a collection selector
+  plus a table selector populated through `GET …/groups/{group}/tables`). Enum
+  values and reference targets are captured per field row: they are properties
+  of the individual field definition in the individual table, with no shared
+  enum or reference registry. `Clio.version` is now `1.6.0`.
+
 ## [2.1.1] - 2026-10-08
 
 ### Fixed

@@ -2358,6 +2358,13 @@ the selected table and current record range and provides previous/next and
 numbered page navigation. Its initial page size is 50 records; page navigation
 maps to `limit=50` and `offset=(page-1)*50` and uses the API response's total.
 
+The browser can also create a table (and a collection) through the public API.
+Its inline field editor offers the scalar types plus `enum` and `reference`: an
+`enum` field takes a comma-separated list of values, and a `reference` field
+takes a target group and table in the same project. Enum values and reference
+targets are properties of the individual field definition in the individual
+table; there is no shared enum or reference registry.
+
 ## 35.3 Boundaries and verification
 
 The browser is for inspection and navigation only. Record creation and editing
