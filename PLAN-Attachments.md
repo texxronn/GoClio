@@ -1,12 +1,12 @@
 # Plan: content filesystem, namespaces, search, and WebDAV
 
 **Status: PLAN — spec revisions drafted, implementation not started.** `SPEC.md`
-is now v1.6: section 64 defines the content filesystem (attachments, search,
-WebDAV, the file explorer) and section 65 defines namespaces as logical
-projects, with targeted edits across the affected earlier sections and a
-pending-coverage section in `SPEC-CONFORMANCE.md`. No application code has
-changed. This document remains the design rationale; `SPEC.md` is now the
-normative contract.
+is now v1.7: section 64 defines the content filesystem (attachments, search,
+WebDAV, the file explorer), section 65 defines namespaces as logical projects,
+and section 66 defines the mandatory project-scoped URL scheme and the
+`data`/`files` partitions, which supersede the URL listings later in this
+document. No application code has changed. This document remains the design
+rationale; `SPEC.md` is now the normative contract.
 
 Clio today treats a **file** as a content-tree resource (`SPEC.md` §36) and
 serves files verbatim at stable root URLs, but files can only be published as

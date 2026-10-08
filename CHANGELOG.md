@@ -13,7 +13,7 @@ than the product.
 
 ### Documentation
 
-- `SPEC.md` revised to v1.6.
+- `SPEC.md` revised to v1.7.
   - v1.5 (section 64) added the content filesystem: stable content-entry IDs, a
     filesystem REST API with `/f/{id}` stable URLs, the `attachment` field type,
     native text extraction with a bounded SQLite full-text index, the search and
@@ -25,10 +25,15 @@ than the product.
     prefixes, project-relative paths, reserved `/p`, and the `default` alias for
     existing routes. Sections 8, 9, 13.4, 17, 32.2, 32.3, 36, 47, 49, 58, 62 and
     64 were updated accordingly.
-- `SPEC-CONFORMANCE.md` records the v1.5 and v1.6 areas as pending coverage.
+  - v1.7 (section 66) made project scoping mandatory and organized each project
+    into `data` and `files` partitions: every application route begins with the
+    project, `default` is explicit, bare `/` and `/api/v1` redirect to it, and
+    the Directory and Page APIs are folded into the files partition. Sections
+    32, 35, 38, 41, 49, 64 and 65 carry supersession notes where their URLs
+    changed.
+- `SPEC-CONFORMANCE.md` records the v1.5–v1.7 areas as pending coverage.
 
-This is a specification change only; none of sections 64 or 65 is implemented
-yet.
+This is a specification change only; none of sections 64–66 is implemented yet.
 
 ## [1.0.1] - 2026-09-29
 
