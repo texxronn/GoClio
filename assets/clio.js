@@ -2,7 +2,7 @@
   "use strict";
 
   const apiVersion = "v1";
-  const libraryVersion = "1.5.0";
+  const libraryVersion = "1.6.0";
 
   class ClioError extends Error {
     constructor(status, code, message, body) {
@@ -544,11 +544,18 @@
       // --- create collection/table form -------------------------------------
       // The Data Browser can create a collection and a table through the
       // existing public API; the panel is inline (not a dialog) and every
-      // server-provided value is assigned as text. enum and reference fields
-      // need extra configuration and are deliberately not offered yet.
+      // server-provided value is assigned as text. Every field type the API
+      // accepts is offered, including enum and reference, which need a
+      // type-specific editor; attachment is deliberately left out of this form
+      // because it targets a content entry rather than a table.
       const NEW_COLLECTION = "__new__";
-      const simpleFieldTypes = ["string", "text", "integer", "decimal", "boolean", "date", "datetime", "url"];
+      const fieldTypeOptions = ["string", "text", "integer", "decimal", "boolean", "date", "datetime", "url", "enum", "reference"];
       let fieldEditors = [];
+      // referenceTableCache caches only the *available tables* of a collection,
+      // keyed by collection name, so a reference editor does not refetch. It
+      // never stores a reference target: a field's chosen group/table lives on
+      // that field row alone.
+      const referenceTableCache = new Map();
       const createPanel = element("section", null, "browser-create");
       createPanel.setAttribute("role", "region");
       createPanel.setAttribute("aria-label", "Create a collection or table");
@@ -617,7 +624,7 @@
         fieldName.value = name || "";
         const fieldType = element("select", null, "browser-field-type");
         fieldType.setAttribute("aria-label", "Field type");
-        for (const candidate of simpleFieldTypes) {
+        for (const candidate of fieldTypeOptions) {
           const option = element("option", candidate);
           option.value = candidate;
           fieldType.appendChild(option);
@@ -626,16 +633,134 @@
         const remove = element("button", "×", "browser-field-remove");
         remove.type = "button";
         remove.setAttribute("aria-label", "Remove field");
-        const editor = { row, name: fieldName, type: fieldType };
+
+        // Type-specific configuration, shown only for the selected type. Enum
+        // values and reference targets belong to the individual field
+        // definition of the individual table: there is no global/shared enum or
+        // reference registry, so each row reads and emits only its own values
+        // and target, and nothing is cached or shared between rows or tables.
+        const config = element("div", null, "browser-field-config");
+        config.hidden = true;
+        const enumBox = element("div", null, "browser-field-enum");
+        const enumLabel = element("label", "Enum values (comma-separated)");
+        const enumValues = element("input", null, "browser-field-values");
+        enumValues.type = "text";
+        enumValues.setAttribute("placeholder", "open, closed, pending");
+        enumValues.setAttribute("aria-label", "Enum values, comma-separated");
+        enumLabel.appendChild(enumValues);
+        enumBox.appendChild(enumLabel);
+        const referenceBox = element("div", null, "browser-field-reference");
+        const referenceGroupLabel = element("label", "Reference collection");
+        const referenceGroup = element("select", null, "browser-field-reference-group");
+        referenceGroup.setAttribute("aria-label", "Reference collection");
+        referenceGroupLabel.appendChild(referenceGroup);
+        const referenceTableLabel = element("label", "Reference table");
+        const referenceTable = element("select", null, "browser-field-reference-table");
+        referenceTable.setAttribute("aria-label", "Reference table");
+        referenceTableLabel.appendChild(referenceTable);
+        referenceBox.append(referenceGroupLabel, referenceTableLabel);
+        config.append(enumBox, referenceBox);
+
+        const editor = { row, name: fieldName, type: fieldType, config, enumBox, enumValues, referenceBox, referenceGroup, referenceTable };
+        fieldType.addEventListener("change", () => syncFieldConfig(editor));
+        referenceGroup.addEventListener("change", () => fillReferenceTables(editor));
         remove.addEventListener("click", (event) => {
           if (event && event.preventDefault) event.preventDefault();
           fieldEditors = fieldEditors.filter((entry) => entry !== editor);
           if (row.parentNode && row.parentNode.removeChild) row.parentNode.removeChild(row);
         });
-        row.append(fieldName, fieldType, remove);
+        row.append(fieldName, fieldType, remove, config);
         fieldRows.appendChild(row);
         fieldEditors.push(editor);
+        syncFieldConfig(editor);
         return editor;
+      }
+
+      // drawReferenceGroups lists the collections (from the already-loaded
+      // groups) as reference targets and refreshes the table selector.
+      function drawReferenceGroups(editor) {
+        const previous = editor.referenceGroup.value;
+        editor.referenceGroup.replaceChildren();
+        const placeholder = element("option", "Choose collection…");
+        placeholder.value = "";
+        editor.referenceGroup.appendChild(placeholder);
+        for (const group of groups) {
+          const option = element("option", group.label || group.name);
+          option.value = group.name;
+          editor.referenceGroup.appendChild(option);
+        }
+        if (previous && groups.some((group) => group.name === previous)) editor.referenceGroup.value = previous;
+        fillReferenceTables(editor);
+      }
+
+      // ensureReferenceGroups fills the reference collection selector, loading
+      // the group list once if the browser has not loaded it yet.
+      function ensureReferenceGroups(editor) {
+        drawReferenceGroups(editor);
+        if (groups.length) return;
+        client.groups().then((loaded) => {
+          if (destroyed) return;
+          groups = Array.isArray(loaded) ? loaded : [];
+          if (!groups.length) return;
+          drawCollections();
+          for (const entry of fieldEditors) {
+            if (entry.type.value === "reference") drawReferenceGroups(entry);
+          }
+        }).catch(() => {});
+      }
+
+      // fillReferenceTables populates one reference field's table selector from
+      // its chosen collection, caching each collection's table list per group
+      // and showing a loading or error state while it resolves.
+      function fillReferenceTables(editor) {
+        const groupName = editor.referenceGroup.value;
+        editor.referenceTable.replaceChildren();
+        editor.referenceTable.disabled = false;
+        if (!groupName) {
+          const option = element("option", "Choose a collection first");
+          option.value = "";
+          editor.referenceTable.appendChild(option);
+          return;
+        }
+        const cached = referenceTableCache.get(groupName);
+        if (cached && cached.error) {
+          const option = element("option", "Could not load tables");
+          option.value = "";
+          editor.referenceTable.appendChild(option);
+          return;
+        }
+        if (!cached) {
+          const loading = element("option", "Loading…");
+          loading.value = "";
+          editor.referenceTable.appendChild(loading);
+          editor.referenceTable.disabled = true;
+          client.group(groupName).tables().then((tables) => {
+            if (destroyed) return;
+            referenceTableCache.set(groupName, { tables: Array.isArray(tables) ? tables : [] });
+            if (editor.referenceGroup.value === groupName) fillReferenceTables(editor);
+          }).catch((error) => {
+            if (destroyed) return;
+            referenceTableCache.set(groupName, { error: error && error.message ? error.message : "Unable to load tables" });
+            if (editor.referenceGroup.value === groupName) fillReferenceTables(editor);
+          });
+          return;
+        }
+        const placeholder = element("option", "Choose table…");
+        placeholder.value = "";
+        editor.referenceTable.appendChild(placeholder);
+        for (const table of cached.tables) {
+          const option = element("option", table.label || table.name);
+          option.value = table.name;
+          editor.referenceTable.appendChild(option);
+        }
+      }
+
+      function syncFieldConfig(editor) {
+        const type = editor.type.value;
+        editor.enumBox.hidden = type !== "enum";
+        editor.referenceBox.hidden = type !== "reference";
+        editor.config.hidden = type !== "enum" && type !== "reference";
+        if (type === "reference") ensureReferenceGroups(editor);
       }
 
       function drawCreateCollections() {
@@ -703,7 +828,33 @@
           if (!fieldName) return { error: "Every field needs a name." };
           if (names.indexOf(fieldName) !== -1) return { error: `Field names must be unique: ${fieldName}` };
           names.push(fieldName);
-          fields.push({ name: fieldName, type: editor.type.value });
+          const fieldType = editor.type.value;
+          if (fieldType === "enum") {
+            // Enum values are captured per field row. They are a property of
+            // this field definition alone and are never shared between rows or
+            // tables.
+            const values = [];
+            for (const part of String(editor.enumValues.value || "").split(",")) {
+              const value = part.trim();
+              if (!value) continue;
+              if (values.indexOf(value) !== -1) return { error: `Enum values must be unique for field ${fieldName}: ${value}` };
+              values.push(value);
+            }
+            if (!values.length) return { error: `Enum field ${fieldName} needs at least one value.` };
+            fields.push({ name: fieldName, type: "enum", values });
+            continue;
+          }
+          if (fieldType === "reference") {
+            // The reference target is captured per field row and is a property
+            // of this field definition alone; nothing is shared between rows or
+            // tables.
+            const group = String(editor.referenceGroup.value || "");
+            const table = String(editor.referenceTable.value || "");
+            if (!group || !table) return { error: `Reference field ${fieldName} needs a target collection and table.` };
+            fields.push({ name: fieldName, type: "reference", group, table });
+            continue;
+          }
+          fields.push({ name: fieldName, type: fieldType });
         }
         const kind = createKindSelect.value === "timeseries" ? "timeseries" : "record";
         let timestampField = "";
