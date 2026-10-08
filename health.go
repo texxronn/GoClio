@@ -94,25 +94,44 @@ Clio is a self-hosted metadata-driven personal data and publishing service.
 Canonical base URL: ` + a.baseURL + `
 API root: /api/v1
 
+Every application route is project-scoped (section 66). The project is the first
+path segment after /api/v1/ or after the site root. Bare / redirects to
+/{default}/ and bare /api/v1 redirects to /api/v1/{default}. The implicit project
+` + "`default`" + ` always exists. The only instance-level routes are /health, /help,
+/api/v1/health, /api/v1/help, /api/v1/projects and /assets/...; /api,
+/api/v1/{unknown} and /{unknown} return 404.
+
+## Projects and partitions
+- GET/POST /api/v1/projects and GET/DELETE /api/v1/projects/{project}. A project
+  has name, label, description and order. ` + "`default`" + ` is reserved and cannot be
+  created, renamed or deleted; DELETE removes only an empty project (204) and a
+  non-empty project returns 409. Reserved names: api, health, help, projects,
+  assets, favicon.svg.
+- A project is divided into two partitions. The ` + "`data`" + ` partition holds groups,
+  tables, fields, records and metadata under /api/v1/{project}/data/... and
+  /{project}/data/.... The ` + "`files`" + ` partition holds the unified content tree
+  (directories, pages and files, with search, extraction, enrichment and WebDAV)
+  under /api/v1/{project}/files... and /{project}/files/....
+
 ## Discovery and operations
-- GET /api/v1/metadata describes groups, tables, fields and canonical URLs. The detailed metadata routes are /api/v1/metadata/groups, /api/v1/metadata/groups/{group}, /api/v1/metadata/groups/{group}/tables, and /api/v1/metadata/groups/{group}/tables/{table}.
+- GET /api/v1/{project}/data/metadata describes groups, tables, fields and canonical URLs. The detailed metadata routes are /api/v1/{project}/data/metadata/groups, .../metadata/groups/{group}, .../metadata/groups/{group}/tables, and .../metadata/groups/{group}/tables/{table}.
 - GET /api/v1/help returns this guide. /help is its HTML version.
-- GET /health and GET /api/v1/health report health, version, uptime, memory and resource counts.
+- GET /health and GET /api/v1/health report health, version, uptime, memory, project count and resource counts.
 - Groups are one-level containers. Tables have kind record or timeseries.
 - CLIO_BASE_URL is the canonical public HTTP(S) origin used in returned URLs. CLIO_ADDR is the local host:port bind address.
 
 ## Groups, tables, fields, records
-Create a group with POST /api/v1/groups and {"name":"pool","label":"Pool"}. Read it at GET /api/v1/groups/pool; list its tables at GET /api/v1/groups/pool/tables.
-Create a table with POST /api/v1/groups/pool/tables and name, label, kind, fields, and timestamp_field for timeseries. GET and PATCH /api/v1/groups/pool/tables/{table} read and update metadata; DELETE removes an empty, unreferenced table. A metadata PATCH merges fields by name: a partial fields list adds or updates only the named fields and never drops the others. Remove fields explicitly with {"remove_fields":["name"]} when they have no stored values.
+Create a group with POST /api/v1/{project}/data/groups and {"name":"pool","label":"Pool"}. Read it at GET /api/v1/{project}/data/groups/pool; list its tables at GET /api/v1/{project}/data/groups/pool/tables.
+Create a table with POST /api/v1/{project}/data/groups/pool/tables and name, label, kind, fields, and timestamp_field for timeseries. GET and PATCH /api/v1/{project}/data/groups/pool/tables/{table} read and update metadata; DELETE removes an empty, unreferenced table. A metadata PATCH merges fields by name: a partial fields list adds or updates only the named fields and never drops the others. Remove fields explicitly with {"remove_fields":["name"]} when they have no stored values.
 Field types: string, text, integer, decimal, boolean, date, datetime, enum, url, reference, attachment.
 Fields support required, default, description, order, readonly, hidden, validation min/max, min_length/max_length and pattern.
-Records support GET list/item, POST create, PATCH update, DELETE at /api/v1/groups/{group}/tables/{table}/records[/{id}]. PATCH omitted fields remain unchanged; explicit null clears nullable fields. Defaults apply on create; omitted nullable values are returned as null. Required, unknown and readonly fields are validated.
+Records support GET list/item, POST create, PATCH update, DELETE at /api/v1/{project}/data/groups/{group}/tables/{table}/records[/{id}]. PATCH omitted fields remain unchanged; explicit null clears nullable fields. Defaults apply on create; omitted nullable values are returned as null. Required, unknown and readonly fields are validated.
 Decimal values are JSON strings by default; integer values are JSON integers; datetimes are RFC 3339 and normalized to UTC. Record reads accept decimal_format=number to return decimal fields as JSON numbers (canonical decimal text preserved) for consumers that require numeric JSON; decimal_format=string is the default.
 References contain target record IDs and prevent deletion of referenced records/tables.
 Attachments contain content-entry IDs from the same project and prevent deletion of a referenced file (or a directory containing one) until the value is cleared.
-HTML views use /{project}/data/{group}/{table}, /new, /{id}, and /{id}/edit. Forms are metadata-driven. The read-only Data Browser is at /{project}/data; its table view links to /{project}/data/{group}/{table}.
+HTML views use /{project}/data/{group}/{table}, /new, /{id}, and /{id}/edit. Forms are metadata-driven. The read-only Data Browser is at /{project}/data and carries group, table and page in the query string; its table view links to /{project}/data/{group}/{table}. /{project}/health and /{project}/help mirror the instance pages for one project.
 
-Example: POST /api/v1/groups/pool/tables with {"name":"readings","kind":"timeseries","timestamp_field":"timestamp","fields":[{"name":"timestamp","type":"datetime","required":true},{"name":"temperature","type":"decimal"}]}; then POST /api/v1/groups/pool/tables/readings/records with {"timestamp":"2026-09-27T12:00:00+10:00","temperature":"20.43"}. A record response contains the generated id, created_at, updated_at, and every defined field.
+Example: POST /api/v1/{project}/data/groups/pool/tables with {"name":"readings","kind":"timeseries","timestamp_field":"timestamp","fields":[{"name":"timestamp","type":"datetime","required":true},{"name":"temperature","type":"decimal"}]}; then POST /api/v1/{project}/data/groups/pool/tables/readings/records with {"timestamp":"2026-09-27T12:00:00+10:00","temperature":"20.43"}. A record response contains the generated id, created_at, updated_at, and every defined field.
 
 ## Querying records
 List records with limit and offset. Sort with sort={field}&order=asc|desc. Filters use filter.{field}[.{operator}], for example ?filter.cost.gte=100.
@@ -120,27 +139,36 @@ Operators: eq, ne, gt, gte, lt, lte, contains, in, isnull. Repeated in parameter
 Distinct values: ?distinct=type. Aggregates: ?aggregate=count,cost:sum,cost:avg. Grouping: ?group_by=type&aggregate=count,cost:sum. Functions: count, sum, avg, min, max. Results are pageable where grouped/distinct.
 Time-series records additionally accept RFC 3339 from (inclusive) and to (exclusive), and bucket=hour|day|week|month. Time comparisons and buckets use UTC; weeks start Monday; empty buckets are omitted.
 
-## Content tree and publishing
-The content filesystem lives in the files partition: pages and files are entries under /api/v1/{project}/files. List the catalog with GET /api/v1/{project}/files, read an entry or directory listing with GET /api/v1/{project}/files?path=/reports, and read a single entry by ID with GET /api/v1/{project}/files/{id}. Create a directory with POST /api/v1/{project}/files/directories and {"path":"/reports"}; upload a directory tree as application/zip to the same route with ?path=/reports.
-Create or replace a page with PUT /api/v1/{project}/files?path=/reports/latest.md and the Markdown source as the request body. Markdown paths end .md and render as HTML when viewed; HTML paths end .html and are trusted executable content. Download an entry's stored bytes from /{project}/files/id/{id} or GET /api/v1/{project}/files/{id}/content. Delete a page, file or directory with DELETE /api/v1/{project}/files?path=... or DELETE /api/v1/{project}/files/{id}.
+## Content filesystem (files partition)
+Pages and files are content entries with stable opaque IDs under /api/v1/{project}/files. List the paged catalog (prefix, content_type and kind filters) with GET /api/v1/{project}/files, read an entry or directory listing with GET /api/v1/{project}/files?path=/reports, and read a single entry by ID with GET /api/v1/{project}/files/{id}.
+Create a directory with POST /api/v1/{project}/files/directories and {"path":"/reports"}; upload a directory tree as application/zip to the same route with ?path=/reports. Create or replace a page or file with PUT /api/v1/{project}/files?path=/reports/latest.md and the raw bytes as the request body (16 MiB limit). Rename or move with POST /api/v1/{project}/files/move (IDs preserved), copy with /files/copy (new IDs), and reconcile with /files/rescan. Delete with DELETE /api/v1/{project}/files?path=... (subtree) or DELETE /api/v1/{project}/files/{id}.
+Markdown paths end .md and render as sanitised HTML when viewed; HTML paths end .html and are trusted executable content. Every other file downloads. Download an entry's stored bytes from /{project}/files/id/{id} or GET /api/v1/{project}/files/{id}/content; both send Content-Disposition: attachment and X-Content-Type-Options: nosniff and support HEAD and byte ranges. The human file explorer is at /{project}/files with a directory-browsing gutter.
 ZIP upload limits: 32 MiB compressed, 256 MiB expanded, 10,000 entries, 16 MiB per file, depth 32. Overwrite requires overwrite=true.
 The asset /assets/clio-markdown.js exposes ClioMarkdown.render(source) for client-side Markdown display.
 
+## Search, extraction and enrichment
+- GET /api/v1/{project}/search?q=... searches the extracted text of pages and files across one project. Terms are literal (quoted and AND-combined; FTS5 operators cannot inject syntax), results are paged (limit default 100, max 1000), and each result carries id, path, kind, content_type, source, a plain-text snippet and a relevance score. A human search page is at /{project}/search.
+- Native text-like formats and PDF text layers are indexed automatically, capped at 1 MiB per entry. OCR is not built in; a sidecar agent submits text with PUT /api/v1/{project}/files/extraction ({"path" or "id", "fingerprint", "text", "provider"}) so it becomes searchable with source agent:{provider}. GET reads the current extraction and DELETE falls back to native text. A fingerprint mismatch returns 409.
+
+## WebDAV
+When CLIO_WEBDAV_ENABLED=true (default false), a project's content tree is mounted read/write at /api/v1/{project}/files/dav/... and /{project}/files/dav/... with the standard WebDAV method set. When disabled the mount does not exist and returns 404. Locks are in-memory and do not survive a restart.
+
 ## Browser JavaScript client
 - Load /assets/clio.js for the optional, dependency-free ClioJS v1 client (also available at /assets/clio/v1/clio.js). It uses same-origin fetch() by default and HTTP Basic Authentication supported by the browser.
-- Example: const clio = new Clio(); const table = clio.table("pool", "measurements"); const recent = await table.query({limit: 20, sort: "timestamp", order: "desc"});
-- ClioJS supports metadata, groups/tables, records, query paging/async iteration, files and directory listing. Clio.DataBrowser.mount(element) powers the built-in read-only data browser at /{project}/data; Clio.FileBrowser.mount(element) powers the file explorer at /{project}/files. Decimal values remain strings; errors expose status, code, and message.
+- Example: const clio = new Clio(); (scope another project with new Clio({project: "bills"})) const table = clio.table("pool", "measurements"); const recent = await table.query({limit: 20, sort: "timestamp", order: "desc"});
+- ClioJS supports metadata, groups/tables, records, query paging/async iteration, files and directory listing, and search. Clio.DataBrowser.mount(element) powers the built-in read-only data browser at /{project}/data; Clio.FileBrowser.mount(element) powers the file explorer at /{project}/files. Decimal values remain strings; errors expose status, code, and message.
 - Load /assets/clio-markdown.js separately to use Clio.Markdown.render(page.content).
 
-Content paths are canonical, case-sensitive UTF-8 paths. They reject traversal, empty segments, backslashes, control characters and the reserved root names api, health, help, assets, t and collections. The files endpoints return entry metadata; the stored source is served as raw bytes from the stable ID URL, and pages render at their path URL.
+Content paths are canonical, case-sensitive UTF-8 paths relative to the project root. They reject traversal, empty segments, backslashes, control characters and the reserved root names api, health, help, assets, t and collections. The files endpoints return entry metadata; the stored source is served as raw bytes from the stable ID URL, and pages render at their path URL.
 
-## Safety and examples
+## Safety, builds and examples
 Group/table identifiers contain lowercase ASCII letters, digits, underscore and hyphen. Content paths reject traversal, backslashes, control characters and reserved root paths including /collections. API errors use {"error":"validation_error","message":"..."}. SQL values are parameterized; arbitrary SQL is unavailable.
 One SQLite database runs in WAL mode. Authentication is ` + authStatus + `. Enable it with CLIO_AUTH_ENABLED=true; then every route, including health, help, published content and static assets, requires HTTP Basic Authentication. API clients send standard Basic credentials. Generate a bcrypt password hash with ` + "`clio hash-password`" + ` and set CLIO_AUTH_USER and CLIO_AUTH_PASSWORD_HASH.
 When authentication is enabled, HTTPS is required by default except for localhost and explicitly configured CLIO_TRUSTED_HTTP_NETWORKS. CLIO_TRUST_PROXY=true accepts X-Forwarded-Proto only from peers in CLIO_TRUSTED_PROXY_NETWORKS. Direct TLS can be enabled with CLIO_TLS_CERT and CLIO_TLS_KEY. Basic Authentication without TLS exposes credentials to network observers; use HTTPS on untrusted networks. Published HTML is trusted executable content and should only be created by trusted publishers.
-Errors use JSON {"error":"validation_error","message":"..."}; invalid input returns 422 and resource conflicts return 409. Stop Clio before backing up or restoring the complete data directory, including the SQLite database and content/ tree. The commands ` + "`clio backup <dest>`" + ` and ` + "`clio restore <src> [--force]`" + ` snapshot and restore the database (VACUUM INTO) and content tree with a manifest, then reconcile the catalog, preserving content-entry IDs, timestamps and agent text.
+Errors use JSON {"error":"validation_error","message":"..."}; invalid input returns 422 and resource conflicts return 409. Build and test with the mandatory ` + "`-tags sqlite_fts5`" + ` tag: the SQLite driver only compiles in FTS5 under that tag, and a binary built without it fails at startup when it creates the content_search table.
+Back up by stopping Clio and copying the complete CLIO_DATA_DIR (clio.db, any -wal/-shm files, and content/). The commands ` + "`clio backup <dest>`" + ` and ` + "`clio restore <src> [--force]`" + ` snapshot and restore the database (VACUUM INTO) and content tree with a manifest, then reconcile the catalog, preserving content-entry IDs, timestamps and agent text.
 
-Query daily averages with GET /api/v1/groups/pool/tables/readings/records?bucket=day&aggregate=temperature:avg.
+Query daily averages with GET /api/v1/{project}/data/groups/pool/tables/readings/records?bucket=day&aggregate=temperature:avg.
 `
 }
 

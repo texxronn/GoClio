@@ -31,12 +31,13 @@ than the product.
   `/api/v1/{default}`; an unknown project returns `404`.
 - The data partition moved under `/api/v1/{project}/data/...` (metadata, groups,
   tables, fields, records) and `/{project}/data/...` (table UI, forms, data
-  browser at `/{project}/collections/...`). Every data query is scoped by
-  project, and managed indexes include the project scope.
-- The content tree moved under `/api/v1/{project}/files/{directories,pages}`
-  and `/{project}/files/...`. These are the legacy directory and page operations
-  under the files partition until the unified files API lands; storage is not yet
-  partitioned per project. ClioJS is project-aware (`new Clio({ project })`).
+  browser at `/{project}/data`). Every data query is scoped by project, and
+  managed indexes include the project scope.
+- The content tree moved into the per-project `files` partition under
+  `/api/v1/{project}/files...` and `/{project}/files/...`, replacing the legacy
+  root-namespace directory and page operations (see the files REST API and
+  human-UI entries below). Content storage is partitioned per project. ClioJS
+  is project-aware (`new Clio({ project })`).
 - Content identity (spec v1.5 §64.2): replaced `content_page_times` with
   `content_entries` (`id`, `project`, `path`, `kind`, `content_type`, `size`,
   `sha256`, `created_at`, `updated_at`; unique `(project, path)`). Entry IDs are
@@ -218,9 +219,23 @@ than the product.
     the Directory and Page APIs are folded into the files partition. Sections
     32, 35, 38, 41, 49, 64 and 65 carry supersession notes where their URLs
     changed.
-- `SPEC-CONFORMANCE.md` records the v1.5–v1.7 areas as pending coverage.
+- `SPEC-CONFORMANCE.md` maps each v1.5–v1.7 area to its automated tests; nothing
+  is left under *Pending*.
+- `/help` and `/api/v1/help` now document the project-scoped routes, the
+  `data`/`files` partitions, search, enrichment, WebDAV, the mandatory
+  `-tags sqlite_fts5` build tag, `CLIO_WEBDAV_ENABLED`, and `clio backup` /
+  `restore`. `README.md` documents the same feature set, routes, configuration
+  and backup procedure, and `examples/` uses the project-scoped routes.
+- `SPEC.md` sections 10 and 49 no longer describe the removed
+  `/{project}/collections` browser; the data browser is `/{project}/data`
+  (section 66.5). The `/collections` content-root reservation (section 32.3) is
+  unchanged.
+- Added the section 59 acceptance walkthrough test
+  (`TestSection59AcceptanceWalkthrough`), which runs the end-to-end walkthrough
+  against the project-scoped routes.
 
-This is a specification change only; none of sections 64–66 is implemented yet.
+All of sections 64–66 are implemented; this release brings the product to the
+`SPEC.md` v1.7 contract.
 
 ## [1.0.1] - 2026-09-29
 

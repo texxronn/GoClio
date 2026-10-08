@@ -25,11 +25,11 @@ through HTTP and use temporary SQLite databases and content directories.
 | §38/§38.1 directory creation from the browser | `TestDirectoryUIShowsCreateForm`, `TestDirectoryUIPostCreatesChildAndRedirects`, `TestDirectoryUIPostCreatesRootChild`, `TestDirectoryUIPostRejectsInvalidAndExistingNames` |
 | §44/§44.1–§44.3 directory-tree upload | `TestDirectoryZipUploadPreservesPathsAndRejectsTraversal`, `TestDirectoryZipRejectsCompressedAndEntryCountLimits`, `TestDirectoryZipRejectsTotalExpandedSize`, `TestDirectoryZipRejectsExpandedFileLimit`, `TestZipResponseBodyAndNoTopLevelStripping`, `TestZipEdgeRejections` |
 | §42/§55 Markdown subset, safety and UI escaping | `TestMarkdownSubsetRendering`, `TestMarkdownAssetContract`, `TestRecordValuesEscapedInUI`, `TestHiddenFieldsOmittedFromUI` |
-| §46 help, §47 health, home and favicon | `TestHelpAndHealthPagesUseWorkspaceLayout`, `TestHomePageAndFavicon`, `TestHelpFormats`, `TestHealthCountsAndVersion`, `TestMethodRestrictionsAndReservedRoutes` |
+| §46 help, §47 health, home and favicon | `TestHelpAndHealthPagesUseWorkspaceLayout`, `TestHomePageAndFavicon`, `TestHelpFormats`, `TestHealthCountsAndVersion`, `TestMethodRestrictionsAndReservedRoutes`, `TestClioJSAssetsAndHelp`, `TestSection59AcceptanceWalkthrough` |
 | §49/§50/§16 API shapes, requests and errors | `TestAPIRequestAndQueryErrors`, `TestAPIErrorCodesAndHeaders`, `TestMetadataShapes` |
 | §52 SQLite indexing | `TestAutomaticAndExplicitIndexesAreAppliedAndReconciled`, `TestOpenDatabaseAddsIndexMetadataToExistingSchema`, `TestDeclaredIndexesAreNonUniqueAndValidated`, `TestIndexReconciliationSurvivesReopen` |
 | §56 observability and redaction | `TestHTTPFailureLoggingOmitsRequestDetails` |
-| §59/§60 examples and repository deliverables | `TestExampleTableMetadataAndRecords`, `TestMarkdownAndClientRenderingExamplesPublish` |
+| §59/§60 acceptance walkthrough, examples and repository deliverables | `TestSection59AcceptanceWalkthrough`, `TestExampleTableMetadataAndRecords`, `TestMarkdownAndClientRenderingExamplesPublish` |
 | §62 lifecycle and graceful shutdown | `TestServeUntilSignalGracefullyDrainsActiveRequest` |
 | §54 authentication and transport | `TestLoadAuthConfigDefaultsAndValidation`, `TestAuthenticationProtectsAllApplicationRoutes`, `TestHTTPSRequirementAndTrustedNetworks`, `TestForwardedHTTPSOnlyTrustedFromProxy` |
 | §43 ClioJS browser client | `TestClioJSAssetsAndHelp`, `TestClioJSBehaviorWithNode` |
@@ -65,5 +65,16 @@ otherwise.
 
 ## Pending conformance
 
-None: every normative area exercised by this implementation has automated
+None. Every normative area exercised by this implementation has automated
 coverage in the table above.
+
+Two caveats are recorded rather than hidden:
+
+- The ClioJS/browser-rendering test (`TestClioJSBehaviorWithNode`) executes the
+  asset in Node.js when it is installed and skips otherwise; the server-side
+  asset contract (`TestClioJSAssetsAndHelp`, `TestMarkdownAssetContract`) always
+  runs.
+- Section 60 repository deliverables (Dockerfile, container/run documentation,
+  README, examples) are repository artefacts, not runtime behaviour. The
+  examples are exercised by the example tests and the section 59 acceptance
+  walkthrough.

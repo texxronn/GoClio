@@ -632,9 +632,9 @@ Content paths have the separate content-path rules defined above.
 A **table** is the primary structured-data container.
 
 "Collection" is not an API resource in v1. Tables are addressed as `tables` in
-the API. The term survives only in the human-facing data-browser routes under
-`/collections` (section 35) and in UI copy, where a "collection" means a group
-and its tables. It is not a synonym for a table.
+the API. The term survives only in the human-facing data browser at
+`/{project}/data` (section 35, re-scoped by section 66.5) and in UI copy, where a
+"collection" means a group and its tables. It is not a synonym for a table.
 
 Every table belongs to exactly one group.
 
@@ -3285,7 +3285,7 @@ Content, files, search, enrichment, directory and page resources also accept a
 `/api/v1/projects/{project}` scope; unscoped routes address the `default`
 project (section 65.6). Client-side Markdown rendering is exposed as a static browser asset rather than a separate API service.
 
-The optional ClioJS browser client is served at `/assets/clio.js` and `/assets/clio/v1/clio.js`; its contract is specified in section 43. The content filesystem explorer is served at `/files` and uses ClioJS (section 64.14); the collection data browser remains at `/collections` (section 35).
+The optional ClioJS browser client is served at `/assets/clio.js` and `/assets/clio/v1/clio.js`; its contract is specified in section 43. The content filesystem explorer is served at `/{project}/files` and uses ClioJS (section 64.14); the collection data browser is at `/{project}/data` (section 35, re-scoped by section 66.5).
 
 ---
 

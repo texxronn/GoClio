@@ -21,6 +21,7 @@ services:
       CLIO_REQUIRE_HTTPS: ${CLIO_REQUIRE_HTTPS:-true}
       CLIO_TRUST_PROXY: ${CLIO_TRUST_PROXY:-false}
       CLIO_TRUSTED_PROXY_NETWORKS: ${CLIO_TRUSTED_PROXY_NETWORKS:-}
+      CLIO_WEBDAV_ENABLED: ${CLIO_WEBDAV_ENABLED:-false}
     volumes:
       - clio-data:/var/lib/clio
 

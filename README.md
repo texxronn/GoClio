@@ -1,10 +1,24 @@
 # GoClio
 
 GoClio is a Go implementation of the frozen Clio v1 contract in `SPEC.md`
-(specification revision 1.4; product version 1.0.0; API version v1). It uses Go's
+(specification revision 1.7; product version 1.0.0; API version v1). It uses Go's
 standard HTTP server, one SQLite database in WAL mode, and the filesystem for
 published content. `SPEC-CONFORMANCE.md` maps specification areas to automated
 tests.
+
+Feature summary:
+
+- Metadata-driven groups, tables, fields and records, including record and
+  time-series tables, with filtering, sorting, paging, grouping and aggregation.
+- Named **projects** that scope their own structured data and content; the
+  implicit `default` project always exists.
+- Two partitions per project: `data` (groups, tables, records, metadata) and
+  `files` (unified directories, pages and files with stable IDs).
+- Optional full-text search over extracted page/file text (SQLite FTS5, native
+  text and PDF text extraction) with an agent enrichment write-back API.
+- `attachment` fields that link records to files by stable ID.
+- Optional WebDAV, an opt-in one-command backup/restore path, an interactive
+  data browser and file explorer, and a dependency-free browser client.
 
 ## Build and run
 
@@ -113,17 +127,44 @@ publishers should be allowed to create or replace them.
 ## API and content
 
 Open `/help` for human-readable usage or `/api/v1/help` for machine-oriented
-documentation. `/health` and `/api/v1/health` report service status. The
-browser Markdown renderer is `/assets/clio-markdown.js`; the optional browser
-client is served at `/assets/clio.js` (also `/assets/clio/v1/clio.js`). Load the
-script directly in a page and use `new Clio()` for same-origin API access. When
-authentication is enabled, clients use standard HTTP Basic Authentication on
-every route.
+documentation (the format LLMs should consume). `/health` and `/api/v1/health`
+report service status, including the project count. The browser Markdown
+renderer is `/assets/clio-markdown.js`; the optional browser client is served at
+`/assets/clio.js` (also `/assets/clio/v1/clio.js`). Load the script directly in
+a page and use `new Clio()` for same-origin API access. When authentication is
+enabled, clients use standard HTTP Basic Authentication on every route.
 
-Structured tables use `/t/{group}/{table}` in the browser and
-`/api/v1/groups/{group}/tables/{table}` in the API. Content pages and
-directories use the root URL namespace. Refer to `SPEC.md` for the complete
-API and behavior contract.
+Every application route is project-scoped. Bare `/` redirects to `/{default}/`
+and bare `/api/v1` redirects to `/api/v1/default`. The only instance-level
+routes are `/health`, `/help`, `/api/v1/health`, `/api/v1/help`,
+`/api/v1/projects`, `/assets/...` and `/favicon.svg`.
+
+Each project is divided into two partitions:
+
+- **`data`** — structured data. The API lives under
+  `/api/v1/{project}/data/...` (metadata, groups, tables, fields and records);
+  the server-rendered table UI and forms live under
+  `/{project}/data/{group}/{table}`, and the read-only data browser is at
+  `/{project}/data` (group, table and page in the query string).
+- **`files`** — the content tree. The API lives under
+  `/api/v1/{project}/files...` (list, read, create/replace, move, copy, delete,
+  rescan, search, extraction and WebDAV); the human file explorer is at
+  `/{project}/files`, rendered pages and downloads are at their path URLs, and
+  `/{project}/files/id/{id}` is the stable ID link. A human search page is at
+  `/{project}/search`.
+
+Structured tables therefore use
+`/api/v1/{project}/data/groups/{group}/tables/{table}` in the API and
+`/{project}/data/{group}/{table}` in the browser. Content pages and files use
+the files partition. Refer to `SPEC.md` and `/api/v1/help` for the complete API
+and behavior contract.
+
+The full-text search index uses SQLite FTS5 and is exposed at
+`GET /api/v1/{project}/search?q=...`. Native text-like formats and PDF text
+layers are extracted automatically; OCR is out of scope and sidecar agents
+write text back through `PUT /api/v1/{project}/files/extraction` with a
+fingerprint check. WebDAV is opt-in with `CLIO_WEBDAV_ENABLED=true` and mounts a
+project's content tree at `/{project}/files/dav` and `/api/v1/{project}/files/dav`.
 
 Ready-to-post record/time-series table metadata and Markdown publishing
 examples are in [`examples/`](examples/README.md).
@@ -134,7 +175,7 @@ GoClio tracks three independent identifiers, described in `SPEC.md`:
 
 | Identifier | Current | Where it appears |
 | --- | --- | --- |
-| Specification revision | `1.4` | `SPEC.md` header |
+| Specification revision | `1.7` | `SPEC.md` header |
 | Product version | `1.0.0` (source default) | `version` in `/api/v1/health` |
 | API version | `v1` | `/api/v1/` route prefix |
 
