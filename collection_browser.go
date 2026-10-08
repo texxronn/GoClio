@@ -2,33 +2,27 @@ package main
 
 import (
 	"net/http"
-	"strings"
 )
 
 // collectionBrowserUI serves the client-side collection data browser shell.
 // All data and navigation are loaded by ClioJS through the public API.
-func (a *app) collectionBrowserUI(w http.ResponseWriter, r *http.Request) {
+func (a *app) collectionBrowserUI(w http.ResponseWriter, r *http.Request, s []string) {
 	if r.Method != http.MethodGet {
 		writeAPIError(w, methodNotAllowed())
 		return
 	}
-	path := ""
-	if r.URL.Path != "/collections" {
-		path = strings.TrimPrefix(r.URL.Path, "/collections/")
-	}
-	parts := splitPath(path)
-	if r.URL.Path != "/collections" && len(parts) > 2 {
+	if len(s) > 2 {
 		writeAPIError(w, missing("Page"))
 		return
 	}
-	if len(parts) > 0 {
-		if _, err := validIdentifier(parts[0], "group"); err != nil {
+	if len(s) > 0 {
+		if _, err := validIdentifier(s[0], "group"); err != nil {
 			writeErr(w, err)
 			return
 		}
 	}
-	if len(parts) > 1 {
-		if _, err := validIdentifier(parts[1], "table"); err != nil {
+	if len(s) > 1 {
+		if _, err := validIdentifier(s[1], "table"); err != nil {
 			writeErr(w, err)
 			return
 		}

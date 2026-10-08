@@ -19,11 +19,11 @@ func TestAPIErrorCodesAndHeaders(t *testing.T) {
 		status   int
 		errorVal string
 	}{
-		{"validation", http.MethodPost, "/api/v1/groups", `{"name":"Bad.Name"}`, "application/json", http.StatusUnprocessableEntity, "validation_error"},
-		{"not found", http.MethodGet, "/api/v1/groups/missing", nil, "", http.StatusNotFound, "not_found"},
-		{"conflict", http.MethodPost, "/api/v1/groups", `{"name":"errors"}`, "application/json", http.StatusConflict, "conflict"},
+		{"validation", http.MethodPost, "/api/v1/default/data/groups", `{"name":"Bad.Name"}`, "application/json", http.StatusUnprocessableEntity, "validation_error"},
+		{"not found", http.MethodGet, "/api/v1/default/data/groups/missing", nil, "", http.StatusNotFound, "not_found"},
+		{"conflict", http.MethodPost, "/api/v1/default/data/groups", `{"name":"errors"}`, "application/json", http.StatusConflict, "conflict"},
 		{"method not allowed", http.MethodDelete, "/api/v1/health", nil, "", http.StatusMethodNotAllowed, "method_not_allowed"},
-		{"bad request", http.MethodGet, "/api/v1/groups?bad=%zz", nil, "", http.StatusBadRequest, "bad_request"},
+		{"bad request", http.MethodGet, "/api/v1/default/data/groups?bad=%zz", nil, "", http.StatusBadRequest, "bad_request"},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -45,7 +45,7 @@ func TestAPIErrorCodesAndHeaders(t *testing.T) {
 	}
 
 	t.Run("payload too large", func(t *testing.T) {
-		response := testRequest(t, a, http.MethodPost, "/api/v1/groups", strings.Repeat("x", int(bodyLimit+1)), "application/json")
+		response := testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups", strings.Repeat("x", int(bodyLimit+1)), "application/json")
 		if response.Code != http.StatusRequestEntityTooLarge || !strings.Contains(response.Body.String(), `"error":"body_too_large"`) {
 			t.Errorf("oversized body response = %d %s", response.Code, response.Body.String())
 		}
@@ -59,7 +59,7 @@ func TestMetadataShapes(t *testing.T) {
 		map[string]any{"name": "date", "type": "date", "required": true},
 	}})
 
-	root := testRequest(t, a, http.MethodGet, "/api/v1/metadata", nil, "")
+	root := testRequest(t, a, http.MethodGet, "/api/v1/default/data/metadata", nil, "")
 	var rootBody map[string]any
 	testJSON(t, root, &rootBody)
 	if rootBody["base_url"] != "http://clio.test" || rootBody["api_version"] != "v1" {
@@ -69,20 +69,20 @@ func TestMetadataShapes(t *testing.T) {
 		t.Errorf("metadata root groups = %#v", rootBody["groups"])
 	}
 
-	group := testRequest(t, a, http.MethodGet, "/api/v1/groups/vehicle", nil, "")
+	group := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/vehicle", nil, "")
 	var groupBody map[string]any
 	testJSON(t, group, &groupBody)
-	if groupBody["name"] != "vehicle" || groupBody["url"] != "http://clio.test/t/vehicle" || groupBody["api_url"] != "http://clio.test/api/v1/groups/vehicle" {
+	if groupBody["name"] != "vehicle" || groupBody["url"] != "http://clio.test/default/data/vehicle" || groupBody["api_url"] != "http://clio.test/api/v1/default/data/groups/vehicle" {
 		t.Errorf("group metadata = %#v", groupBody)
 	}
 	if tables, ok := groupBody["tables"].([]any); !ok || len(tables) != 1 {
 		t.Errorf("group metadata tables = %#v", groupBody["tables"])
 	}
 
-	table := testRequest(t, a, http.MethodGet, "/api/v1/metadata/groups/vehicle/tables/service", nil, "")
+	table := testRequest(t, a, http.MethodGet, "/api/v1/default/data/metadata/groups/vehicle/tables/service", nil, "")
 	var tableBody map[string]any
 	testJSON(t, table, &tableBody)
-	if tableBody["kind"] != "record" || tableBody["records_url"] != "http://clio.test/api/v1/groups/vehicle/tables/service/records" {
+	if tableBody["kind"] != "record" || tableBody["records_url"] != "http://clio.test/api/v1/default/data/groups/vehicle/tables/service/records" {
 		t.Errorf("table metadata URLs = %#v", tableBody)
 	}
 	if template, ok := tableBody["record_url_template"].(string); !ok || !strings.HasSuffix(template, "/{id}") {
@@ -101,10 +101,10 @@ func TestHealthCountsAndVersion(t *testing.T) {
 		map[string]any{"name": "value", "type": "decimal"},
 	}})
 	createTestRecord(t, a, "pool", "readings", map[string]any{"value": "1"})
-	if w := testRequest(t, a, http.MethodPost, "/api/v1/directories", `{"path":"/reports"}`, "application/json"); w.Code != http.StatusCreated {
+	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories", `{"path":"/reports"}`, "application/json"); w.Code != http.StatusCreated {
 		t.Fatalf("create directory: %d", w.Code)
 	}
-	if w := testRequest(t, a, http.MethodPost, "/api/v1/pages", `{"path":"/reports/summary.md","content_type":"text/markdown","content":"# S"}`, "application/json"); w.Code != http.StatusCreated {
+	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", `{"path":"/reports/summary.md","content_type":"text/markdown","content":"# S"}`, "application/json"); w.Code != http.StatusCreated {
 		t.Fatalf("create page: %d", w.Code)
 	}
 

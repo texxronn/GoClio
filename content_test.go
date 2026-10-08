@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -23,7 +24,7 @@ func newTestApp(t *testing.T) *app {
 	if err := os.MkdirAll(content, 0755); err != nil {
 		t.Fatalf("create test content directory: %v", err)
 	}
-	return &app{db: db, content: content, baseURL: "http://clio.test"}
+	return &app{db: db, content: content, baseURL: "http://clio.test", contentMu: &sync.Mutex{}}
 }
 
 func TestDirectoryUIShowsCreateForm(t *testing.T) {
@@ -32,30 +33,38 @@ func TestDirectoryUIShowsCreateForm(t *testing.T) {
 		t.Fatalf("create test directory: %v", ae)
 	}
 
-	r := httptest.NewRequest(http.MethodGet, "/notes", nil)
+	r := httptest.NewRequest(http.MethodGet, "/default/files/notes", nil)
 	w := httptest.NewRecorder()
 	a.ServeHTTP(w, r)
 
 	if w.Code != http.StatusOK {
-		t.Fatalf("GET /notes status = %d, want %d", w.Code, http.StatusOK)
+		t.Fatalf("GET /default/files/notes status = %d, want %d", w.Code, http.StatusOK)
 	}
-	if !strings.Contains(w.Body.String(), `<form method="post" action="/notes">`) || !strings.Contains(w.Body.String(), `name="name"`) || !strings.Contains(w.Body.String(), `class="content-directory"`) || !strings.Contains(w.Body.String(), `aria-label="Breadcrumb"`) {
+	if !strings.Contains(w.Body.String(), `<form method="post" action="/default/files/notes">`) || !strings.Contains(w.Body.String(), `name="name"`) || !strings.Contains(w.Body.String(), `class="content-directory"`) || !strings.Contains(w.Body.String(), `aria-label="Breadcrumb"`) {
 		t.Fatal("directory page does not contain the create-directory form")
 	}
 }
 
 func TestHomePageAndFavicon(t *testing.T) {
 	a := newTestApp(t)
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "/default/files", nil)
 	w := httptest.NewRecorder()
 	a.ServeHTTP(w, r)
 	if w.Code != http.StatusOK {
-		t.Fatalf("GET / status = %d, want %d", w.Code, http.StatusOK)
+		t.Fatalf("GET /default/files status = %d, want %d", w.Code, http.StatusOK)
 	}
 	for _, want := range []string{"Everything you need", "home-hero", "Open data browser", "Published content", `href='/favicon.svg'`} {
 		if !strings.Contains(w.Body.String(), want) {
 			t.Errorf("home page missing %q", want)
 		}
+	}
+
+	// Bare / redirects to the default project.
+	redirect := httptest.NewRequest(http.MethodGet, "/", nil)
+	redirectRecorder := httptest.NewRecorder()
+	a.ServeHTTP(redirectRecorder, redirect)
+	if redirectRecorder.Code != http.StatusFound || redirectRecorder.Header().Get("Location") != "/default/" {
+		t.Errorf("GET / = %d location=%q, want 302 /default/", redirectRecorder.Code, redirectRecorder.Header().Get("Location"))
 	}
 
 	r = httptest.NewRequest(http.MethodGet, "/favicon.svg", nil)
@@ -101,16 +110,16 @@ func TestDirectoryUIPostCreatesChildAndRedirects(t *testing.T) {
 		t.Fatalf("create test directory: %v", ae)
 	}
 
-	r := httptest.NewRequest(http.MethodPost, "/notes", strings.NewReader(url.Values{"name": {"weekly"}}.Encode()))
+	r := httptest.NewRequest(http.MethodPost, "/default/files/notes", strings.NewReader(url.Values{"name": {"weekly"}}.Encode()))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	a.ServeHTTP(w, r)
 
 	if w.Code != http.StatusSeeOther {
-		t.Fatalf("POST /notes status = %d, want %d: %s", w.Code, http.StatusSeeOther, w.Body.String())
+		t.Fatalf("POST /default/files/notes status = %d, want %d: %s", w.Code, http.StatusSeeOther, w.Body.String())
 	}
-	if got := w.Header().Get("Location"); got != "/notes/weekly" {
-		t.Fatalf("redirect location = %q, want /notes/weekly", got)
+	if got := w.Header().Get("Location"); got != "/default/files/notes/weekly" {
+		t.Fatalf("redirect location = %q, want /default/files/notes/weekly", got)
 	}
 	if info, err := os.Stat(filepath.Join(a.content, "notes", "weekly")); err != nil || !info.IsDir() {
 		t.Fatalf("created child directory missing or not a directory: info=%v err=%v", info, err)
@@ -119,12 +128,12 @@ func TestDirectoryUIPostCreatesChildAndRedirects(t *testing.T) {
 
 func TestDirectoryUIPostCreatesRootChild(t *testing.T) {
 	a := newTestApp(t)
-	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(url.Values{"name": {"garden"}}.Encode()))
+	r := httptest.NewRequest(http.MethodPost, "/default/files", strings.NewReader(url.Values{"name": {"garden"}}.Encode()))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	a.ServeHTTP(w, r)
 
-	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/garden" {
+	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/default/files/garden" {
 		t.Fatalf("root directory POST returned status=%d location=%q", w.Code, w.Header().Get("Location"))
 	}
 	if info, err := os.Stat(filepath.Join(a.content, "garden")); err != nil || !info.IsDir() {
@@ -151,12 +160,12 @@ func TestDirectoryUIPostRejectsInvalidAndExistingNames(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodPost, "/notes", strings.NewReader(url.Values{"name": {test.name}}.Encode()))
+			r := httptest.NewRequest(http.MethodPost, "/default/files/notes", strings.NewReader(url.Values{"name": {test.name}}.Encode()))
 			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			w := httptest.NewRecorder()
 			a.ServeHTTP(w, r)
 			if w.Code != test.want {
-				t.Fatalf("POST /notes name=%q status = %d, want %d", test.name, w.Code, test.want)
+				t.Fatalf("POST /default/files/notes name=%q status = %d, want %d", test.name, w.Code, test.want)
 			}
 		})
 	}
@@ -164,13 +173,13 @@ func TestDirectoryUIPostRejectsInvalidAndExistingNames(t *testing.T) {
 
 func TestDirectoryAPICreationStillWorks(t *testing.T) {
 	a := newTestApp(t)
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/directories", strings.NewReader(`{"path":"/from-api"}`))
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/default/files/directories", strings.NewReader(`{"path":"/from-api"}`))
 	r.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	a.ServeHTTP(w, r)
 
 	if w.Code != http.StatusCreated {
-		t.Fatalf("POST /api/v1/directories status = %d, want %d: %s", w.Code, http.StatusCreated, w.Body.String())
+		t.Fatalf("POST /api/v1/default/files/directories status = %d, want %d: %s", w.Code, http.StatusCreated, w.Body.String())
 	}
 	var got map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {

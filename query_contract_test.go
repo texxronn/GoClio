@@ -36,7 +36,7 @@ func TestQueryDefaultsAndLimits(t *testing.T) {
 		map[string]any{"name": "n", "type": "integer"},
 	}})
 	createTestRecord(t, a, "limits", "items", map[string]any{"tag": "a", "n": 1})
-	base := "/api/v1/groups/limits/tables/items/records"
+	base := "/api/v1/default/data/groups/limits/tables/items/records"
 
 	if got := queryResult(t, a, base)["page"].(map[string]any)["limit"]; got != float64(100) {
 		t.Errorf("record default limit = %v, want 100", got)
@@ -63,7 +63,7 @@ func TestBucketDefaultLimitAndAggregateRequirement(t *testing.T) {
 		map[string]any{"name": "temperature", "type": "decimal"},
 	}})
 	createTestRecord(t, a, "pool", "readings", map[string]any{"timestamp": "2026-09-27T12:00:00Z", "temperature": "20"})
-	base := "/api/v1/groups/pool/tables/readings/records"
+	base := "/api/v1/default/data/groups/pool/tables/readings/records"
 
 	if got := queryResult(t, a, base+"?bucket=day&aggregate=temperature:avg")["page"].(map[string]any)["limit"]; got != float64(1000) {
 		t.Errorf("bucket default limit = %v, want 1000", got)
@@ -78,7 +78,7 @@ func TestDeterministicDefaultOrdering(t *testing.T) {
 	createTestTable(t, a, "ordered", map[string]any{"name": "notes", "fields": []any{
 		map[string]any{"name": "label", "type": "string"},
 	}})
-	base := "/api/v1/groups/ordered/tables/notes/records"
+	base := "/api/v1/default/data/groups/ordered/tables/notes/records"
 	first := createTestRecord(t, a, "ordered", "notes", map[string]any{"label": "first"})
 	time.Sleep(2 * time.Millisecond)
 	second := createTestRecord(t, a, "ordered", "notes", map[string]any{"label": "second"})
@@ -108,7 +108,7 @@ func TestTemporalDefaultOrdering(t *testing.T) {
 	createTestRecord(t, a, "sensors", "readings", map[string]any{"timestamp": "2026-03-03T00:00:00Z", "value": "3"})
 	createTestRecord(t, a, "sensors", "readings", map[string]any{"timestamp": "2026-03-01T00:00:00Z", "value": "1"})
 
-	rows := queryRows(t, a, "/api/v1/groups/sensors/tables/readings/records")
+	rows := queryRows(t, a, "/api/v1/default/data/groups/sensors/tables/readings/records")
 	if len(rows) != 3 {
 		t.Fatalf("temporal list returned %d rows, want 3", len(rows))
 	}
@@ -128,7 +128,7 @@ func TestSortingRules(t *testing.T) {
 	}})
 	createTestRecord(t, a, "sorting", "items", map[string]any{"tag": "b", "n": 2})
 	createTestRecord(t, a, "sorting", "items", map[string]any{"tag": "a", "n": 1})
-	base := "/api/v1/groups/sorting/tables/items/records"
+	base := "/api/v1/default/data/groups/sorting/tables/items/records"
 
 	// order defaults to ascending when sort is supplied.
 	rows := queryRows(t, a, base+"?sort=n")
@@ -157,7 +157,7 @@ func TestFilterOperatorSemantics(t *testing.T) {
 	}})
 	createTestRecord(t, a, "filters", "rows", map[string]any{"name": "100%", "amount": "5", "enabled": true, "n": 1})
 	createTestRecord(t, a, "filters", "rows", map[string]any{"name": "100x", "amount": nil, "enabled": false, "n": 2})
-	base := "/api/v1/groups/filters/tables/rows/records"
+	base := "/api/v1/default/data/groups/filters/tables/rows/records"
 
 	// eq/gt/gte do not match null; ne/lt/lte match null.
 	for query, want := range map[string]float64{
@@ -202,7 +202,7 @@ func TestGroupingContract(t *testing.T) {
 	createTestRecord(t, a, "pool", "readings", map[string]any{"timestamp": "2026-01-05T12:00:00Z", "temperature": "20"})
 	createTestRecord(t, a, "pool", "readings", map[string]any{"timestamp": "2026-01-06T12:00:00Z", "temperature": "22"})
 	createTestRecord(t, a, "pool", "readings", map[string]any{"timestamp": "2026-02-01T00:30:00Z", "temperature": "26"})
-	base := "/api/v1/groups/pool/tables/readings/records"
+	base := "/api/v1/default/data/groups/pool/tables/readings/records"
 
 	// group_by without aggregate defaults to count.
 	groups := queryResult(t, a, base+"?group_by=year")["groups"].([]any)
@@ -232,7 +232,7 @@ func TestVirtualGroupRejectedOnRecordTable(t *testing.T) {
 	createTestTable(t, a, "plain", map[string]any{"name": "records", "fields": []any{
 		map[string]any{"name": "label", "type": "string"},
 	}})
-	base := "/api/v1/groups/plain/tables/records/records"
+	base := "/api/v1/default/data/groups/plain/tables/records/records"
 	assertAPIError(t, testRequest(t, a, http.MethodGet, base+"?group_by=year&aggregate=count", nil, ""), http.StatusUnprocessableEntity)
 }
 
@@ -247,7 +247,7 @@ func TestAggregationWithFilterAndTypes(t *testing.T) {
 	createTestRecord(t, a, "costs", "items", map[string]any{"category": "service", "amount": "10", "count": 1})
 	createTestRecord(t, a, "costs", "items", map[string]any{"category": "service", "amount": "15.5", "count": 2})
 	createTestRecord(t, a, "costs", "items", map[string]any{"category": "repair", "amount": "5", "count": 3})
-	base := "/api/v1/groups/costs/tables/items/records"
+	base := "/api/v1/default/data/groups/costs/tables/items/records"
 
 	subset := queryResult(t, a, base+"?aggregate=amount:sum,count:sum&filter.category=service")["aggregate"].(map[string]any)
 	if subset["amount_sum"] != "25.5" {
@@ -280,7 +280,7 @@ func TestTimeRangePreconditions(t *testing.T) {
 		map[string]any{"name": "temperature", "type": "decimal"},
 	}})
 	createTestRecord(t, a, "pool", "readings", map[string]any{"timestamp": "2026-09-15T00:00:00Z", "temperature": "20"})
-	base := "/api/v1/groups/pool/tables/readings/records"
+	base := "/api/v1/default/data/groups/pool/tables/readings/records"
 
 	assertAPIError(t, testRequest(t, a, http.MethodGet, base+"?from=2026-09-01", nil, ""), http.StatusUnprocessableEntity)
 	assertAPIError(t, testRequest(t, a, http.MethodGet, base+"?to=not-a-time", nil, ""), http.StatusUnprocessableEntity)
@@ -294,6 +294,6 @@ func TestTimeRangePreconditions(t *testing.T) {
 	createTestTable(t, a, "plain", map[string]any{"name": "records", "fields": []any{
 		map[string]any{"name": "label", "type": "string"},
 	}})
-	assertAPIError(t, testRequest(t, a, http.MethodGet, "/api/v1/groups/plain/tables/records/records?from=2026-09-01T00:00:00Z", nil, ""), http.StatusUnprocessableEntity)
-	assertAPIError(t, testRequest(t, a, http.MethodGet, "/api/v1/groups/plain/tables/records/records?bucket=day&aggregate=count", nil, ""), http.StatusUnprocessableEntity)
+	assertAPIError(t, testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/plain/tables/records/records?from=2026-09-01T00:00:00Z", nil, ""), http.StatusUnprocessableEntity)
+	assertAPIError(t, testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/plain/tables/records/records?bucket=day&aggregate=count", nil, ""), http.StatusUnprocessableEntity)
 }

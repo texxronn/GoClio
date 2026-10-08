@@ -138,8 +138,8 @@ func indexJSONPathSQL(field string) string {
 	return "'" + strings.ReplaceAll(indexJSONPath(field), "'", "''") + "'"
 }
 
-func managedIndexName(group, table string, index schemaIndex) string {
-	key := group + "\x00" + table + "\x00" + strings.Join(index.fields, "\x00")
+func managedIndexName(project, group, table string, index schemaIndex) string {
+	key := project + "\x00" + group + "\x00" + table + "\x00" + strings.Join(index.fields, "\x00")
 	if index.unique {
 		key += "\x00unique"
 	}
@@ -161,9 +161,9 @@ func sqlLiteral(value string) string {
 // non-null value for rows of the declaring table. Managed indexes share the
 // single records table; without this scoping a `unique` field in one table
 // would enforce uniqueness across every other table's rows as well.
-func scopedFieldExpression(group, table, field string, def map[string]any) string {
+func scopedFieldExpression(project, group, table, field string, def map[string]any) string {
 	expression, _ := sqlFieldExpression(field, def)
-	return "CASE WHEN group_name=" + sqlLiteral(group) + " AND table_name=" + sqlLiteral(table) +
+	return "CASE WHEN project=" + sqlLiteral(project) + " AND group_name=" + sqlLiteral(group) + " AND table_name=" + sqlLiteral(table) +
 		" THEN " + expression + " ELSE NULL END"
 }
 
@@ -209,13 +209,13 @@ func tableIndexes(fields []map[string]any, declarations []schemaIndex, kind stri
 	return indexes
 }
 
-func reconcileTableIndexes(tx *sql.Tx, group, table, kind string, timestampField any, fields []map[string]any, declarations []schemaIndex) error {
+func reconcileTableIndexes(tx *sql.Tx, project, group, table, kind string, timestampField any, fields []map[string]any, declarations []schemaIndex) error {
 	indexes := tableIndexes(fields, declarations, kind, timestampField)
 	wanted := make(map[string]schemaIndex, len(indexes))
 	for _, index := range indexes {
-		wanted[managedIndexName(group, table, index)] = index
+		wanted[managedIndexName(project, group, table, index)] = index
 	}
-	rows, err := tx.Query(`SELECT name FROM managed_indexes WHERE group_name=? AND table_name=?`, group, table)
+	rows, err := tx.Query(`SELECT name FROM managed_indexes WHERE project=? AND group_name=? AND table_name=?`, project, group, table)
 	if err != nil {
 		return err
 	}
@@ -248,16 +248,16 @@ func reconcileTableIndexes(tx *sql.Tx, group, table, kind string, timestampField
 		if index.unique {
 			unique = "UNIQUE "
 		}
-		expressions := []string{"group_name", "table_name"}
+		expressions := []string{"project", "group_name", "table_name"}
 		definitions := indexFields(fields)
 		for _, field := range index.fields {
-			expressions = append(expressions, scopedFieldExpression(group, table, field, definitions[field]))
+			expressions = append(expressions, scopedFieldExpression(project, group, table, field, definitions[field]))
 		}
 		statement := fmt.Sprintf(`CREATE %sINDEX IF NOT EXISTS "%s" ON records(%s)`, unique, name, strings.Join(expressions, ","))
 		if _, err = tx.Exec(statement); err != nil {
 			return err
 		}
-		if _, err = tx.Exec(`INSERT OR REPLACE INTO managed_indexes(name,group_name,table_name) VALUES(?,?,?)`, name, group, table); err != nil {
+		if _, err = tx.Exec(`INSERT OR REPLACE INTO managed_indexes(name,project,group_name,table_name) VALUES(?,?,?,?)`, name, project, group, table); err != nil {
 			return err
 		}
 	}
@@ -276,19 +276,19 @@ func mapIndexError(err error) *apiError {
 // by a newer Clio release (for example the table-scoped definitions added in
 // v1.2) replace stale ones without requiring special operational steps.
 func reconcileAllTableIndexes(db *sql.DB) error {
-	rows, err := db.Query(`SELECT group_name,name,kind,timestamp_field,indexes FROM tables_meta`)
+	rows, err := db.Query(`SELECT project,group_name,name,kind,timestamp_field,indexes FROM tables_meta`)
 	if err != nil {
 		return err
 	}
 	type tableMeta struct {
-		group, name, kind string
-		timestamp         sql.NullString
-		indexes           string
+		project, group, name, kind string
+		timestamp                  sql.NullString
+		indexes                    string
 	}
 	tables := []tableMeta{}
 	for rows.Next() {
 		var t tableMeta
-		if err = rows.Scan(&t.group, &t.name, &t.kind, &t.timestamp, &t.indexes); err != nil {
+		if err = rows.Scan(&t.project, &t.group, &t.name, &t.kind, &t.timestamp, &t.indexes); err != nil {
 			rows.Close()
 			return err
 		}
@@ -308,7 +308,7 @@ func reconcileAllTableIndexes(db *sql.DB) error {
 	}
 	defer tx.Rollback()
 	for _, t := range tables {
-		fields, err := fieldsInTx(tx, t.group, t.name)
+		fields, err := fieldsInTx(tx, t.project, t.group, t.name)
 		if err != nil {
 			return err
 		}
@@ -320,15 +320,15 @@ func reconcileAllTableIndexes(db *sql.DB) error {
 		if t.timestamp.Valid {
 			timestamp = t.timestamp.String
 		}
-		if err = reconcileTableIndexes(tx, t.group, t.name, t.kind, timestamp, fields, declarations); err != nil {
+		if err = reconcileTableIndexes(tx, t.project, t.group, t.name, t.kind, timestamp, fields, declarations); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
 }
 
-func fieldsInTx(tx *sql.Tx, group, table string) ([]map[string]any, error) {
-	rows, err := tx.Query(`SELECT definition FROM fields_meta WHERE group_name=? AND table_name=? ORDER BY position`, group, table)
+func fieldsInTx(tx *sql.Tx, project, group, table string) ([]map[string]any, error) {
+	rows, err := tx.Query(`SELECT definition FROM fields_meta WHERE project=? AND group_name=? AND table_name=? ORDER BY position`, project, group, table)
 	if err != nil {
 		return nil, err
 	}

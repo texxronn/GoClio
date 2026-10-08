@@ -54,7 +54,7 @@ func TestContentPathValidation(t *testing.T) {
 		"/collections/x.md",
 		"/favicon.svg/x.md",
 	} {
-		assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/pages", pageBody(path), "application/json"), http.StatusUnprocessableEntity)
+		assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", pageBody(path), "application/json"), http.StatusUnprocessableEntity)
 	}
 	for _, body := range []string{
 		`{"path":"relative"}`,
@@ -63,22 +63,22 @@ func TestContentPathValidation(t *testing.T) {
 		`{"path":"/api/private"}`,
 		`{"path":"/collections/private"}`,
 	} {
-		assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/directories", body, "application/json"), http.StatusUnprocessableEntity)
+		assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories", body, "application/json"), http.StatusUnprocessableEntity)
 	}
 }
 
 func TestContentResourceIdentity(t *testing.T) {
 	a := newTestApp(t)
-	if w := testRequest(t, a, http.MethodPost, "/api/v1/directories", `{"path":"/shared.md"}`, "application/json"); w.Code != http.StatusCreated {
+	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories", `{"path":"/shared.md"}`, "application/json"); w.Code != http.StatusCreated {
 		t.Fatalf("create directory named like a page: %d %s", w.Code, w.Body.String())
 	}
 	// A page cannot take the canonical path of an existing directory.
-	assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/pages", `{"path":"/shared.md","content_type":"text/markdown","content":"x"}`, "application/json"), http.StatusConflict)
+	assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", `{"path":"/shared.md","content_type":"text/markdown","content":"x"}`, "application/json"), http.StatusConflict)
 	// A directory cannot take the canonical path of an existing page.
-	if w := testRequest(t, a, http.MethodPost, "/api/v1/pages", `{"path":"/doc.md","content_type":"text/markdown","content":"x"}`, "application/json"); w.Code != http.StatusCreated {
+	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", `{"path":"/doc.md","content_type":"text/markdown","content":"x"}`, "application/json"); w.Code != http.StatusCreated {
 		t.Fatalf("create page: %d %s", w.Code, w.Body.String())
 	}
-	assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/directories", `{"path":"/doc.md"}`, "application/json"), http.StatusConflict)
+	assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories", `{"path":"/doc.md"}`, "application/json"), http.StatusConflict)
 }
 
 func TestZipResponseBodyAndNoTopLevelStripping(t *testing.T) {
@@ -87,7 +87,7 @@ func TestZipResponseBodyAndNoTopLevelStripping(t *testing.T) {
 		{"pool/weekly.md", "# Weekly"},
 		{"pool/measurements/latest.md", "# Latest"},
 	})
-	upload := testRequest(t, a, http.MethodPost, "/api/v1/directories?path=%2Freports", archive, "application/zip")
+	upload := testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories?path=%2Freports", archive, "application/zip")
 	if upload.Code != http.StatusCreated {
 		t.Fatalf("upload status = %d, want 201: %s", upload.Code, upload.Body.String())
 	}
@@ -104,7 +104,7 @@ func TestZipResponseBodyAndNoTopLevelStripping(t *testing.T) {
 	for _, u := range urls {
 		got[u.(string)] = true
 	}
-	if !got["http://clio.test/reports/pool/weekly.md"] || !got["http://clio.test/reports/pool/measurements/latest.md"] {
+	if !got["http://clio.test/default/files/reports/pool/weekly.md"] || !got["http://clio.test/default/files/reports/pool/measurements/latest.md"] {
 		t.Fatalf("upload URLs not relative to destination: %#v", urls)
 	}
 	if _, err := os.Stat(filepath.Join(a.content, "reports", "pool", "weekly.md")); err != nil {
@@ -124,7 +124,7 @@ func TestZipEdgeRejections(t *testing.T) {
 	for name, entries := range cases {
 		t.Run(name, func(t *testing.T) {
 			a := newTestApp(t)
-			response := testRequest(t, a, http.MethodPost, "/api/v1/directories?path=%2F", buildZip(t, entries), "application/zip")
+			response := testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories?path=%2F", buildZip(t, entries), "application/zip")
 			assertAPIError(t, response, http.StatusUnprocessableEntity)
 			contents, err := os.ReadDir(a.content)
 			if err != nil {
@@ -152,11 +152,11 @@ func TestMarkdownSubsetRendering(t *testing.T) {
 		"`inline` **bold** *italic* [link](https://example.com/x)",
 		"[bad](javascript:alert(1))",
 	}, "\n")
-	create := testRequest(t, a, http.MethodPost, "/api/v1/pages", map[string]any{"path": "/md/subset.md", "content_type": "text/markdown", "content": source}, "application/json")
+	create := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", map[string]any{"path": "/md/subset.md", "content_type": "text/markdown", "content": source}, "application/json")
 	if create.Code != http.StatusCreated {
 		t.Fatalf("create Markdown page: %d %s", create.Code, create.Body.String())
 	}
-	view := testRequest(t, a, http.MethodGet, "/md/subset.md", nil, "")
+	view := testRequest(t, a, http.MethodGet, "/default/files/md/subset.md", nil, "")
 	if view.Code != http.StatusOK {
 		t.Fatalf("view Markdown page: %d", view.Code)
 	}
@@ -207,7 +207,7 @@ func TestHiddenFieldsOmittedFromUI(t *testing.T) {
 	}})
 	record := createTestRecord(t, a, "hidden", "items", map[string]any{"shown": "a", "secret": "b"})
 
-	for _, path := range []string{"/t/hidden/items", "/t/hidden/items/new"} {
+	for _, path := range []string{"/default/data/hidden/items", "/default/data/hidden/items/new"} {
 		response := testRequest(t, a, http.MethodGet, path, nil, "")
 		if response.Code != http.StatusOK {
 			t.Fatalf("GET %s status = %d", path, response.Code)
@@ -221,7 +221,7 @@ func TestHiddenFieldsOmittedFromUI(t *testing.T) {
 	}
 
 	// The API still returns hidden field values.
-	get := testRequest(t, a, http.MethodGet, "/api/v1/groups/hidden/tables/items/records/"+record["id"].(string), nil, "")
+	get := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/hidden/tables/items/records/"+record["id"].(string), nil, "")
 	if !strings.Contains(get.Body.String(), `"secret":"b"`) {
 		t.Errorf("API hid a hidden field: %s", get.Body.String())
 	}
@@ -232,7 +232,7 @@ func TestRecordValuesEscapedInUI(t *testing.T) {
 	setupRecordTable(t, a)
 	record := createTestRecord(t, a, "vehicle", "service", map[string]any{"name": "<b>bold</b>", "category": "service"})
 	id := record["id"].(string)
-	for _, path := range []string{"/t/vehicle/service", "/t/vehicle/service/" + id} {
+	for _, path := range []string{"/default/data/vehicle/service", "/default/data/vehicle/service/" + id} {
 		response := testRequest(t, a, http.MethodGet, path, nil, "")
 		if response.Code != http.StatusOK {
 			t.Fatalf("GET %s status = %d", path, response.Code)
@@ -248,20 +248,20 @@ func TestRecordValuesEscapedInUI(t *testing.T) {
 
 func TestDirectoryChildrenAndContentUI(t *testing.T) {
 	a := newTestApp(t)
-	if w := testRequest(t, a, http.MethodPost, "/api/v1/directories", `{"path":"/pool"}`, "application/json"); w.Code != http.StatusCreated {
+	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories", `{"path":"/pool"}`, "application/json"); w.Code != http.StatusCreated {
 		t.Fatalf("create directory: %d %s", w.Code, w.Body.String())
 	}
-	if w := testRequest(t, a, http.MethodPost, "/api/v1/pages", `{"path":"/pool/readme.md","content_type":"text/markdown","content":"# Pool"}`, "application/json"); w.Code != http.StatusCreated {
+	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", `{"path":"/pool/readme.md","content_type":"text/markdown","content":"# Pool"}`, "application/json"); w.Code != http.StatusCreated {
 		t.Fatalf("create markdown page: %d %s", w.Code, w.Body.String())
 	}
-	if w := testRequest(t, a, http.MethodPost, "/api/v1/pages", `{"path":"/pool/report.html","content_type":"text/html","content":"<h1>Report</h1>"}`, "application/json"); w.Code != http.StatusCreated {
+	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", `{"path":"/pool/report.html","content_type":"text/html","content":"<h1>Report</h1>"}`, "application/json"); w.Code != http.StatusCreated {
 		t.Fatalf("create html page: %d %s", w.Code, w.Body.String())
 	}
 	if err := os.WriteFile(filepath.Join(a.content, "pool", "data.csv"), []byte("a,b\n1,2\n"), 0644); err != nil {
 		t.Fatalf("write raw file: %v", err)
 	}
 
-	listing := testRequest(t, a, http.MethodGet, "/api/v1/directories?path=%2Fpool", nil, "")
+	listing := testRequest(t, a, http.MethodGet, "/api/v1/default/files/directories?path=%2Fpool", nil, "")
 	var directory map[string]any
 	testJSON(t, listing, &directory)
 	children := directory["children"].([]any)
@@ -284,15 +284,15 @@ func TestDirectoryChildrenAndContentUI(t *testing.T) {
 	}
 
 	for path, want := range map[string]string{
-		"/":                 "Collections",
-		"/pool":             "Published content",
-		"/pool/readme.md":   "class=\"published-markdown\"",
-		"/pool/report.html": "<h1>Report</h1>",
+		"/default/files":                  "Collections",
+		"/default/files/pool":             "Published content",
+		"/default/files/pool/readme.md":   "class=\"published-markdown\"",
+		"/default/files/pool/report.html": "<h1>Report</h1>",
 	} {
 		response := testRequest(t, a, http.MethodGet, path, nil, "")
 		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), want) {
 			t.Errorf("GET %s status=%d missing %q", path, response.Code, want)
 		}
 	}
-	assertAPIError(t, testRequest(t, a, http.MethodGet, "/pool/missing.md", nil, ""), http.StatusNotFound)
+	assertAPIError(t, testRequest(t, a, http.MethodGet, "/default/files/pool/missing.md", nil, ""), http.StatusNotFound)
 }

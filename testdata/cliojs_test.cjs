@@ -15,7 +15,7 @@ class Element {
   setAttribute(name, value) { this.attributes[name] = String(value); }
   addEventListener(name, handler) { this.handlers[name] = handler; }
 }
-const location = { origin: "https://clio.example", pathname: "/collections/pool/measurements", search: "?page=2" };
+const location = { origin: "https://clio.example", pathname: "/default/collections/pool/measurements", search: "?page=2" };
 const context = {
   URLSearchParams,
   URL,
@@ -131,7 +131,7 @@ async function main() {
   assert.match(browserText, /30\.40/);
   assert.doesNotMatch(browserText, /Hidden/);
   const tableViewLink = browserHost.children[0].children[1];
-  assert.equal(tableViewLink.href, "/t/pool/measurements");
+  assert.equal(tableViewLink.href, "/default/data/pool/measurements");
   assert.equal(tableViewLink.hidden, false);
   const themeToggle = browserHost.children[0].children[2];
   assert.equal(themeToggle.attributes["aria-label"], "Switch to dark theme");
@@ -140,7 +140,7 @@ async function main() {
   assert.equal(storage.get("clio-data-browser-theme"), "dark");
   const browserRequest = requests.find((request) => request.url.includes("/records?") && new URL(request.url).searchParams.get("offset") === "2");
   assert.ok(browserRequest, "browser loads the selected page through ClioJS");
-  assert.equal(location.pathname, "/collections/pool/measurements");
+  assert.equal(location.pathname, "/default/collections/pool/measurements");
   assert.equal(new URLSearchParams(location.search).get("page"), "2");
   browser.destroy();
 

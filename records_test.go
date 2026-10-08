@@ -55,7 +55,7 @@ func testJSON(t *testing.T, w *httptest.ResponseRecorder, out any) {
 
 func createTestGroup(t *testing.T, a *app, name string) {
 	t.Helper()
-	w := testRequest(t, a, http.MethodPost, "/api/v1/groups", map[string]any{"name": name, "label": strings.Title(name)}, "application/json")
+	w := testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups", map[string]any{"name": name, "label": strings.Title(name)}, "application/json")
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create group status = %d, want %d: %s", w.Code, http.StatusCreated, w.Body.String())
 	}
@@ -63,7 +63,7 @@ func createTestGroup(t *testing.T, a *app, name string) {
 
 func createTestTable(t *testing.T, a *app, group string, table map[string]any) {
 	t.Helper()
-	w := testRequest(t, a, http.MethodPost, "/api/v1/groups/"+group+"/tables", table, "application/json")
+	w := testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/"+group+"/tables", table, "application/json")
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create table status = %d, want %d: %s", w.Code, http.StatusCreated, w.Body.String())
 	}
@@ -71,7 +71,7 @@ func createTestTable(t *testing.T, a *app, group string, table map[string]any) {
 
 func createTestRecord(t *testing.T, a *app, group, table string, input map[string]any) map[string]any {
 	t.Helper()
-	w := testRequest(t, a, http.MethodPost, fmt.Sprintf("/api/v1/groups/%s/tables/%s/records", group, table), input, "application/json")
+	w := testRequest(t, a, http.MethodPost, fmt.Sprintf("/api/v1/default/data/groups/%s/tables/%s/records", group, table), input, "application/json")
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create record status = %d, want %d: %s", w.Code, http.StatusCreated, w.Body.String())
 	}
@@ -101,13 +101,13 @@ func TestMetadataAndRecordCRUDValidation(t *testing.T) {
 	a := newTestApp(t)
 	setupRecordTable(t, a)
 
-	metadata := testRequest(t, a, http.MethodGet, "/api/v1/metadata/groups/vehicle/tables/service", nil, "")
+	metadata := testRequest(t, a, http.MethodGet, "/api/v1/default/data/metadata/groups/vehicle/tables/service", nil, "")
 	if metadata.Code != http.StatusOK {
 		t.Fatalf("get table metadata status = %d, want %d", metadata.Code, http.StatusOK)
 	}
 	var table map[string]any
 	testJSON(t, metadata, &table)
-	if table["kind"] != "record" || table["url"] != "http://clio.test/t/vehicle/service" {
+	if table["kind"] != "record" || table["url"] != "http://clio.test/default/data/vehicle/service" {
 		t.Fatalf("unexpected table metadata: %#v", table)
 	}
 	fields, ok := table["fields"].([]any)
@@ -115,19 +115,19 @@ func TestMetadataAndRecordCRUDValidation(t *testing.T) {
 		t.Fatalf("metadata fields = %#v, want six field definitions", table["fields"])
 	}
 
-	missingRequired := testRequest(t, a, http.MethodPost, "/api/v1/groups/vehicle/tables/service/records", map[string]any{"category": "service"}, "application/json")
+	missingRequired := testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/vehicle/tables/service/records", map[string]any{"category": "service"}, "application/json")
 	if missingRequired.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("missing required field status = %d, want 422", missingRequired.Code)
 	}
-	unknownField := testRequest(t, a, http.MethodPost, "/api/v1/groups/vehicle/tables/service/records", map[string]any{"name": "Oil", "category": "service", "extra": true}, "application/json")
+	unknownField := testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/vehicle/tables/service/records", map[string]any{"name": "Oil", "category": "service", "extra": true}, "application/json")
 	if unknownField.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("unknown field status = %d, want 422", unknownField.Code)
 	}
-	readonlyField := testRequest(t, a, http.MethodPost, "/api/v1/groups/vehicle/tables/service/records", map[string]any{"name": "Oil", "category": "service", "internal_code": "x"}, "application/json")
+	readonlyField := testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/vehicle/tables/service/records", map[string]any{"name": "Oil", "category": "service", "internal_code": "x"}, "application/json")
 	if readonlyField.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("readonly field status = %d, want 422", readonlyField.Code)
 	}
-	invalidEnum := testRequest(t, a, http.MethodPost, "/api/v1/groups/vehicle/tables/service/records", map[string]any{"name": "Oil", "category": "other"}, "application/json")
+	invalidEnum := testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/vehicle/tables/service/records", map[string]any{"name": "Oil", "category": "other"}, "application/json")
 	if invalidEnum.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("invalid enum status = %d, want 422", invalidEnum.Code)
 	}
@@ -140,7 +140,7 @@ func TestMetadataAndRecordCRUDValidation(t *testing.T) {
 		t.Fatalf("record lacks system fields: %#v", record)
 	}
 
-	patch := testRequest(t, a, http.MethodPatch, "/api/v1/groups/vehicle/tables/service/records/"+record["id"].(string), map[string]any{"amount": nil}, "application/json")
+	patch := testRequest(t, a, http.MethodPatch, "/api/v1/default/data/groups/vehicle/tables/service/records/"+record["id"].(string), map[string]any{"amount": nil}, "application/json")
 	if patch.Code != http.StatusOK {
 		t.Fatalf("patch record status = %d, want 200: %s", patch.Code, patch.Body.String())
 	}
@@ -149,20 +149,20 @@ func TestMetadataAndRecordCRUDValidation(t *testing.T) {
 	if changed["name"] != "Oil" || changed["amount"] != nil || changed["notes"] != "Annual" {
 		t.Fatalf("PATCH did not preserve omitted fields and clear explicit null: %#v", changed)
 	}
-	readonlyPatch := testRequest(t, a, http.MethodPatch, "/api/v1/groups/vehicle/tables/service/records/"+record["id"].(string), map[string]any{"internal_code": "bad"}, "application/json")
+	readonlyPatch := testRequest(t, a, http.MethodPatch, "/api/v1/default/data/groups/vehicle/tables/service/records/"+record["id"].(string), map[string]any{"internal_code": "bad"}, "application/json")
 	if readonlyPatch.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("readonly PATCH status = %d, want 422", readonlyPatch.Code)
 	}
-	clearRequired := testRequest(t, a, http.MethodPatch, "/api/v1/groups/vehicle/tables/service/records/"+record["id"].(string), map[string]any{"name": nil}, "application/json")
+	clearRequired := testRequest(t, a, http.MethodPatch, "/api/v1/default/data/groups/vehicle/tables/service/records/"+record["id"].(string), map[string]any{"name": nil}, "application/json")
 	if clearRequired.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("clearing required field status = %d, want 422", clearRequired.Code)
 	}
 
-	remove := testRequest(t, a, http.MethodDelete, "/api/v1/groups/vehicle/tables/service/records/"+record["id"].(string), nil, "")
+	remove := testRequest(t, a, http.MethodDelete, "/api/v1/default/data/groups/vehicle/tables/service/records/"+record["id"].(string), nil, "")
 	if remove.Code != http.StatusNoContent {
 		t.Fatalf("delete record status = %d, want 204", remove.Code)
 	}
-	missing := testRequest(t, a, http.MethodGet, "/api/v1/groups/vehicle/tables/service/records/"+record["id"].(string), nil, "")
+	missing := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/vehicle/tables/service/records/"+record["id"].(string), nil, "")
 	if missing.Code != http.StatusNotFound {
 		t.Fatalf("get deleted record status = %d, want 404", missing.Code)
 	}
@@ -175,11 +175,11 @@ func TestTableSchemaUpdateProtectsStoredData(t *testing.T) {
 
 	fields := recordFields()
 	fields = append(fields, map[string]any{"name": "source", "type": "string", "default": "imported"})
-	update := testRequest(t, a, http.MethodPatch, "/api/v1/groups/vehicle/tables/service", map[string]any{"fields": fields}, "application/json")
+	update := testRequest(t, a, http.MethodPatch, "/api/v1/default/data/groups/vehicle/tables/service", map[string]any{"fields": fields}, "application/json")
 	if update.Code != http.StatusOK {
 		t.Fatalf("add field status = %d, want 200: %s", update.Code, update.Body.String())
 	}
-	list := testRequest(t, a, http.MethodGet, "/api/v1/groups/vehicle/tables/service/records", nil, "")
+	list := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/vehicle/tables/service/records", nil, "")
 	var result map[string]any
 	testJSON(t, list, &result)
 	rows := result["data"].([]any)
@@ -194,12 +194,12 @@ func TestTableSchemaUpdateProtectsStoredData(t *testing.T) {
 			f["type"] = "text"
 		}
 	}
-	changedType := testRequest(t, a, http.MethodPatch, "/api/v1/groups/vehicle/tables/service", map[string]any{"fields": typeChange}, "application/json")
+	changedType := testRequest(t, a, http.MethodPatch, "/api/v1/default/data/groups/vehicle/tables/service", map[string]any{"fields": typeChange}, "application/json")
 	if changedType.Code != http.StatusConflict {
 		t.Fatalf("type change with records status = %d, want 409", changedType.Code)
 	}
 
-	removeOccupied := testRequest(t, a, http.MethodPatch, "/api/v1/groups/vehicle/tables/service", map[string]any{"remove_fields": []any{"notes"}}, "application/json")
+	removeOccupied := testRequest(t, a, http.MethodPatch, "/api/v1/default/data/groups/vehicle/tables/service", map[string]any{"remove_fields": []any{"notes"}}, "application/json")
 	if removeOccupied.Code != http.StatusConflict {
 		t.Fatalf("removing populated field status = %d, want 409", removeOccupied.Code)
 	}
@@ -235,7 +235,7 @@ func TestPatchTableFieldsMergesByName(t *testing.T) {
 	}})
 	record := createTestRecord(t, a, "home_utilities", "water_bills", map[string]any{"account": "A-1", "amount": "42.50", "due_date": "2026-10-01"})
 
-	update := testRequest(t, a, http.MethodPatch, "/api/v1/groups/home_utilities/tables/water_bills", map[string]any{"fields": []any{
+	update := testRequest(t, a, http.MethodPatch, "/api/v1/default/data/groups/home_utilities/tables/water_bills", map[string]any{"fields": []any{
 		map[string]any{"name": "notes", "label": "Notes", "type": "text"},
 	}}, "application/json")
 	if update.Code != http.StatusOK {
@@ -248,7 +248,7 @@ func TestPatchTableFieldsMergesByName(t *testing.T) {
 		t.Fatalf("fields after partial PATCH = %q, want %q", got, want)
 	}
 
-	metadata := testRequest(t, a, http.MethodGet, "/api/v1/metadata/groups/home_utilities/tables/water_bills", nil, "")
+	metadata := testRequest(t, a, http.MethodGet, "/api/v1/default/data/metadata/groups/home_utilities/tables/water_bills", nil, "")
 	var table map[string]any
 	testJSON(t, metadata, &table)
 	if got := strings.Join(tableFieldNames(t, table), ","); got != want {
@@ -263,14 +263,14 @@ func TestPatchTableFieldsMergesByName(t *testing.T) {
 		t.Fatalf("existing field definition changed: %#v", account)
 	}
 
-	stored := testRequest(t, a, http.MethodGet, "/api/v1/groups/home_utilities/tables/water_bills/records/"+record["id"].(string), nil, "")
+	stored := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/home_utilities/tables/water_bills/records/"+record["id"].(string), nil, "")
 	var storedRecord map[string]any
 	testJSON(t, stored, &storedRecord)
 	if storedRecord["account"] != "A-1" || storedRecord["amount"] != record["amount"] || storedRecord["due_date"] != "2026-10-01" || storedRecord["notes"] != nil {
 		t.Fatalf("record values after partial schema PATCH: %#v", storedRecord)
 	}
 
-	view := testRequest(t, a, http.MethodGet, "/t/home_utilities/water_bills", nil, "")
+	view := testRequest(t, a, http.MethodGet, "/default/data/home_utilities/water_bills", nil, "")
 	if view.Code != http.StatusOK {
 		t.Fatalf("table view status = %d, want 200", view.Code)
 	}
@@ -281,7 +281,7 @@ func TestPatchTableFieldsMergesByName(t *testing.T) {
 	}
 
 	// Named fields are merged onto the existing definition rather than replaced.
-	relabel := testRequest(t, a, http.MethodPatch, "/api/v1/groups/home_utilities/tables/water_bills", map[string]any{"fields": []any{
+	relabel := testRequest(t, a, http.MethodPatch, "/api/v1/default/data/groups/home_utilities/tables/water_bills", map[string]any{"fields": []any{
 		map[string]any{"name": "account", "label": "Account number"},
 	}}, "application/json")
 	if relabel.Code != http.StatusOK {
@@ -302,7 +302,7 @@ func TestPatchTableFieldsMergesByName(t *testing.T) {
 	}
 
 	// An empty fields list is a no-op rather than a full replacement.
-	noop := testRequest(t, a, http.MethodPatch, "/api/v1/groups/home_utilities/tables/water_bills", map[string]any{"fields": []any{}}, "application/json")
+	noop := testRequest(t, a, http.MethodPatch, "/api/v1/default/data/groups/home_utilities/tables/water_bills", map[string]any{"fields": []any{}}, "application/json")
 	if noop.Code != http.StatusOK {
 		t.Fatalf("empty fields PATCH status = %d, want 200: %s", noop.Code, noop.Body.String())
 	}
@@ -313,7 +313,7 @@ func TestPatchTableFieldsMergesByName(t *testing.T) {
 	}
 
 	// Removing a field is explicit and only allowed without stored values.
-	remove := testRequest(t, a, http.MethodPatch, "/api/v1/groups/home_utilities/tables/water_bills", map[string]any{"remove_fields": []any{"notes"}}, "application/json")
+	remove := testRequest(t, a, http.MethodPatch, "/api/v1/default/data/groups/home_utilities/tables/water_bills", map[string]any{"remove_fields": []any{"notes"}}, "application/json")
 	if remove.Code != http.StatusOK {
 		t.Fatalf("remove unused field status = %d, want 200: %s", remove.Code, remove.Body.String())
 	}
@@ -323,7 +323,7 @@ func TestPatchTableFieldsMergesByName(t *testing.T) {
 		t.Fatalf("fields after remove = %q", got)
 	}
 
-	conflicting := testRequest(t, a, http.MethodPatch, "/api/v1/groups/home_utilities/tables/water_bills", map[string]any{
+	conflicting := testRequest(t, a, http.MethodPatch, "/api/v1/default/data/groups/home_utilities/tables/water_bills", map[string]any{
 		"fields":        []any{map[string]any{"name": "account", "type": "string"}},
 		"remove_fields": []any{"account"},
 	}, "application/json")
@@ -343,15 +343,15 @@ func TestReferencePreventsDeletingReferencedRecord(t *testing.T) {
 	part := createTestRecord(t, a, "vehicle", "parts", map[string]any{"label": "Filter"})
 	service := createTestRecord(t, a, "vehicle", "service", map[string]any{"name": "Oil change", "part": part["id"]})
 
-	blocked := testRequest(t, a, http.MethodDelete, "/api/v1/groups/vehicle/tables/parts/records/"+part["id"].(string), nil, "")
+	blocked := testRequest(t, a, http.MethodDelete, "/api/v1/default/data/groups/vehicle/tables/parts/records/"+part["id"].(string), nil, "")
 	if blocked.Code != http.StatusConflict {
 		t.Fatalf("delete referenced record status = %d, want 409", blocked.Code)
 	}
-	clear := testRequest(t, a, http.MethodPatch, "/api/v1/groups/vehicle/tables/service/records/"+service["id"].(string), map[string]any{"part": nil}, "application/json")
+	clear := testRequest(t, a, http.MethodPatch, "/api/v1/default/data/groups/vehicle/tables/service/records/"+service["id"].(string), map[string]any{"part": nil}, "application/json")
 	if clear.Code != http.StatusOK {
 		t.Fatalf("clear reference status = %d, want 200", clear.Code)
 	}
-	deleted := testRequest(t, a, http.MethodDelete, "/api/v1/groups/vehicle/tables/parts/records/"+part["id"].(string), nil, "")
+	deleted := testRequest(t, a, http.MethodDelete, "/api/v1/default/data/groups/vehicle/tables/parts/records/"+part["id"].(string), nil, "")
 	if deleted.Code != http.StatusNoContent {
 		t.Fatalf("delete unreferenced record status = %d, want 204", deleted.Code)
 	}
@@ -369,7 +369,7 @@ func TestRecordQueriesFilteringSortingPagingDistinctAndAggregates(t *testing.T) 
 	createTestRecord(t, a, "finance", "costs", map[string]any{"category": "repair", "amount": "5"})
 	createTestRecord(t, a, "finance", "costs", map[string]any{"category": "repair"})
 
-	filtered := testRequest(t, a, http.MethodGet, "/api/v1/groups/finance/tables/costs/records?filter.category=service&filter.amount.gte=10", nil, "")
+	filtered := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/finance/tables/costs/records?filter.category=service&filter.amount.gte=10", nil, "")
 	var filteredResult map[string]any
 	testJSON(t, filtered, &filteredResult)
 	filteredRows := filteredResult["data"].([]any)
@@ -377,14 +377,14 @@ func TestRecordQueriesFilteringSortingPagingDistinctAndAggregates(t *testing.T) 
 		t.Fatalf("combined filters returned %d rows, want 2", len(filteredRows))
 	}
 
-	inQuery := testRequest(t, a, http.MethodGet, "/api/v1/groups/finance/tables/costs/records?filter.category.in=service&filter.category.in=repair", nil, "")
+	inQuery := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/finance/tables/costs/records?filter.category.in=service&filter.category.in=repair", nil, "")
 	var inResult map[string]any
 	testJSON(t, inQuery, &inResult)
 	if got := inResult["page"].(map[string]any)["total"]; got != float64(4) {
 		t.Fatalf("repeated in total = %v, want 4", got)
 	}
 
-	nulls := testRequest(t, a, http.MethodGet, "/api/v1/groups/finance/tables/costs/records?filter.amount.isnull=true", nil, "")
+	nulls := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/finance/tables/costs/records?filter.amount.isnull=true", nil, "")
 	var nullResult map[string]any
 	testJSON(t, nulls, &nullResult)
 	if len(nullResult["data"].([]any)) != 1 {
@@ -397,7 +397,7 @@ func TestRecordQueriesFilteringSortingPagingDistinctAndAggregates(t *testing.T) 
 		{"filter.amount.lt=10", 2}, // Null values retain the v1 comparison behavior.
 		{"filter.amount.ne=10", 3},
 	} {
-		filtered := testRequest(t, a, http.MethodGet, "/api/v1/groups/finance/tables/costs/records?"+test.query, nil, "")
+		filtered := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/finance/tables/costs/records?"+test.query, nil, "")
 		var got map[string]any
 		testJSON(t, filtered, &got)
 		if total := got["page"].(map[string]any)["total"].(float64); total != test.want {
@@ -406,7 +406,7 @@ func TestRecordQueriesFilteringSortingPagingDistinctAndAggregates(t *testing.T) 
 	}
 
 	for _, order := range []string{"asc", "desc"} {
-		ordered := testRequest(t, a, http.MethodGet, "/api/v1/groups/finance/tables/costs/records?sort=amount&order="+order, nil, "")
+		ordered := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/finance/tables/costs/records?sort=amount&order="+order, nil, "")
 		var orderedResult map[string]any
 		testJSON(t, ordered, &orderedResult)
 		rows := orderedResult["data"].([]any)
@@ -415,7 +415,7 @@ func TestRecordQueriesFilteringSortingPagingDistinctAndAggregates(t *testing.T) 
 		}
 	}
 
-	page := testRequest(t, a, http.MethodGet, "/api/v1/groups/finance/tables/costs/records?sort=amount&order=asc&limit=1&offset=1", nil, "")
+	page := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/finance/tables/costs/records?sort=amount&order=asc&limit=1&offset=1", nil, "")
 	var pageResult map[string]any
 	testJSON(t, page, &pageResult)
 	pageInfo := pageResult["page"].(map[string]any)
@@ -423,7 +423,7 @@ func TestRecordQueriesFilteringSortingPagingDistinctAndAggregates(t *testing.T) 
 		t.Fatalf("unexpected paging response: %#v", pageResult)
 	}
 
-	distinct := testRequest(t, a, http.MethodGet, "/api/v1/groups/finance/tables/costs/records?distinct=category", nil, "")
+	distinct := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/finance/tables/costs/records?distinct=category", nil, "")
 	var distinctResult map[string]any
 	testJSON(t, distinct, &distinctResult)
 	values := distinctResult["values"].([]any)
@@ -431,21 +431,21 @@ func TestRecordQueriesFilteringSortingPagingDistinctAndAggregates(t *testing.T) 
 		t.Fatalf("unexpected distinct values: %#v", values)
 	}
 
-	aggregate := testRequest(t, a, http.MethodGet, "/api/v1/groups/finance/tables/costs/records?aggregate=count,amount:sum,amount:avg", nil, "")
+	aggregate := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/finance/tables/costs/records?aggregate=count,amount:sum,amount:avg", nil, "")
 	var aggregateResult map[string]any
 	testJSON(t, aggregate, &aggregateResult)
 	aggs := aggregateResult["aggregate"].(map[string]any)
 	if aggs["count"] != float64(4) || aggs["amount_sum"] != "35" || aggs["amount_avg"] != "11.6666666667" {
 		t.Fatalf("unexpected aggregate result: %#v", aggs)
 	}
-	minMax := testRequest(t, a, http.MethodGet, "/api/v1/groups/finance/tables/costs/records?aggregate=amount:min,amount:max", nil, "")
+	minMax := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/finance/tables/costs/records?aggregate=amount:min,amount:max", nil, "")
 	var minMaxResult map[string]any
 	testJSON(t, minMax, &minMaxResult)
 	if got := minMaxResult["aggregate"].(map[string]any); got["amount_min"] != "5" || got["amount_max"] != "20" {
 		t.Fatalf("unexpected min/max result: %#v", got)
 	}
 
-	grouped := testRequest(t, a, http.MethodGet, "/api/v1/groups/finance/tables/costs/records?group_by=category&aggregate=count,amount:sum", nil, "")
+	grouped := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/finance/tables/costs/records?group_by=category&aggregate=count,amount:sum", nil, "")
 	var groupedResult map[string]any
 	testJSON(t, grouped, &groupedResult)
 	groups := groupedResult["groups"].([]any)
@@ -471,7 +471,7 @@ func TestQueryPageKeepsCorrectTopRowsAndOrdering(t *testing.T) {
 	}
 	createTestRecord(t, a, "ranking", "scores", map[string]any{})
 
-	response := testRequest(t, a, http.MethodGet, "/api/v1/groups/ranking/tables/scores/records?sort=score&order=desc&limit=3&offset=1", nil, "")
+	response := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/ranking/tables/scores/records?sort=score&order=desc&limit=3&offset=1", nil, "")
 	var result map[string]any
 	testJSON(t, response, &result)
 	rows := result["data"].([]any)
@@ -483,7 +483,7 @@ func TestQueryPageKeepsCorrectTopRowsAndOrdering(t *testing.T) {
 		t.Fatalf("total = %v, want 7", page["total"])
 	}
 
-	ascending := testRequest(t, a, http.MethodGet, "/api/v1/groups/ranking/tables/scores/records?sort=score&order=asc&limit=10", nil, "")
+	ascending := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/ranking/tables/scores/records?sort=score&order=asc&limit=10", nil, "")
 	var ascendingResult map[string]any
 	testJSON(t, ascending, &ascendingResult)
 	ascendingRows := ascendingResult["data"].([]any)
@@ -506,7 +506,7 @@ func TestSQLQueriesPreserveExactNumericSemantics(t *testing.T) {
 	}
 	ids := make([]string, len(bodies))
 	for i, body := range bodies {
-		response := testRequest(t, a, http.MethodPost, "/api/v1/groups/exact/tables/values/records", body, "application/json")
+		response := testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/exact/tables/values/records", body, "application/json")
 		if response.Code != http.StatusCreated {
 			t.Fatalf("create exact-number record status = %d: %s", response.Code, response.Body.String())
 		}
@@ -515,7 +515,7 @@ func TestSQLQueriesPreserveExactNumericSemantics(t *testing.T) {
 		ids[i] = record["id"].(string)
 	}
 
-	ordered := testRequest(t, a, http.MethodGet, "/api/v1/groups/exact/tables/values/records?sort=score&limit=3", nil, "")
+	ordered := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/exact/tables/values/records?sort=score&limit=3", nil, "")
 	var orderedResult map[string]any
 	testJSON(t, ordered, &orderedResult)
 	rows := orderedResult["data"].([]any)
@@ -525,7 +525,7 @@ func TestSQLQueriesPreserveExactNumericSemantics(t *testing.T) {
 		}
 	}
 
-	filtered := testRequest(t, a, http.MethodGet, "/api/v1/groups/exact/tables/values/records?filter.score.gt=900719925474099312345678900", nil, "")
+	filtered := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/exact/tables/values/records?filter.score.gt=900719925474099312345678900", nil, "")
 	var filteredResult map[string]any
 	testJSON(t, filtered, &filteredResult)
 	filteredRows := filteredResult["data"].([]any)
@@ -537,12 +537,12 @@ func TestSQLQueriesPreserveExactNumericSemantics(t *testing.T) {
 		t.Fatalf("exact integer filter returned %#v", filteredRows)
 	}
 
-	aggregate := testRequest(t, a, http.MethodGet, "/api/v1/groups/exact/tables/values/records?aggregate=score:sum", nil, "")
+	aggregate := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/exact/tables/values/records?aggregate=score:sum", nil, "")
 	if aggregate.Code != http.StatusOK || !strings.Contains(aggregate.Body.String(), `"score_sum":2702159776422297937037036703`) {
 		t.Fatalf("exact integer sum response = %d: %s", aggregate.Code, aggregate.Body.String())
 	}
 
-	decimalSort := testRequest(t, a, http.MethodGet, "/api/v1/groups/exact/tables/values/records?sort=price&limit=3", nil, "")
+	decimalSort := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/exact/tables/values/records?sort=price&limit=3", nil, "")
 	var decimalResult map[string]any
 	testJSON(t, decimalSort, &decimalResult)
 	decimalRows := decimalResult["data"].([]any)
@@ -642,10 +642,10 @@ func TestSQLQueryPagesBoundApplicationAllocations(t *testing.T) {
 		t.Fatalf("%s response has no bounded result page: %#v", name, result)
 	}
 
-	assertBoundedAllocations("grouped", "/api/v1/groups/bounded/tables/events/records?group_by=category&aggregate=count,amount:sum&limit=2", rowCount)
-	assertBoundedAllocations("distinct", "/api/v1/groups/bounded/tables/events/records?distinct=category&limit=2", rowCount)
-	assertBoundedAllocations("filtered page", "/api/v1/groups/bounded/tables/events/records?filter.category=group-09999&limit=2", 1)
-	assertBoundedAllocations("contains filter", "/api/v1/groups/bounded/tables/events/records?filter.category.contains=GROUP-09999&limit=2", 1)
+	assertBoundedAllocations("grouped", "/api/v1/default/data/groups/bounded/tables/events/records?group_by=category&aggregate=count,amount:sum&limit=2", rowCount)
+	assertBoundedAllocations("distinct", "/api/v1/default/data/groups/bounded/tables/events/records?distinct=category&limit=2", rowCount)
+	assertBoundedAllocations("filtered page", "/api/v1/default/data/groups/bounded/tables/events/records?filter.category=group-09999&limit=2", 1)
+	assertBoundedAllocations("contains filter", "/api/v1/default/data/groups/bounded/tables/events/records?filter.category.contains=GROUP-09999&limit=2", 1)
 
 	createTestGroup(t, a, "bucketed")
 	createTestTable(t, a, "bucketed", map[string]any{"name": "days", "kind": "timeseries", "timestamp_field": "timestamp", "fields": []any{
@@ -676,7 +676,7 @@ func TestSQLQueryPagesBoundApplicationAllocations(t *testing.T) {
 	if err = tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	assertBoundedAllocations("bucket aggregate", "/api/v1/groups/bucketed/tables/days/records?bucket=day&aggregate=amount:sum&limit=2", rowCount)
+	assertBoundedAllocations("bucket aggregate", "/api/v1/default/data/groups/bucketed/tables/days/records?bucket=day&aggregate=amount:sum&limit=2", rowCount)
 }
 
 func TestTimeseriesNormalizesUTCAndBucketsWeeks(t *testing.T) {
@@ -695,14 +695,14 @@ func TestTimeseriesNormalizesUTCAndBucketsWeeks(t *testing.T) {
 		t.Fatalf("timestamp not normalized to UTC: %v", first["timestamp"])
 	}
 
-	ranged := testRequest(t, a, http.MethodGet, "/api/v1/groups/pool/tables/measurements/records?from=2026-01-05T02:00:00Z&to=2026-01-11T23:59:59Z", nil, "")
+	ranged := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/pool/tables/measurements/records?from=2026-01-05T02:00:00Z&to=2026-01-11T23:59:59Z", nil, "")
 	var rangeResult map[string]any
 	testJSON(t, ranged, &rangeResult)
 	if got := rangeResult["page"].(map[string]any)["total"]; got != float64(1) {
 		t.Fatalf("half-open time range total = %v, want 1 (the upper-bound record is excluded)", got)
 	}
 
-	bucketed := testRequest(t, a, http.MethodGet, "/api/v1/groups/pool/tables/measurements/records?bucket=week&aggregate=count,temperature:avg", nil, "")
+	bucketed := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/pool/tables/measurements/records?bucket=week&aggregate=count,temperature:avg", nil, "")
 	var bucketResult map[string]any
 	testJSON(t, bucketed, &bucketResult)
 	buckets := bucketResult["buckets"].([]any)
@@ -713,7 +713,7 @@ func TestTimeseriesNormalizesUTCAndBucketsWeeks(t *testing.T) {
 		t.Fatalf("weeks are not bucketed from Monday UTC: %#v", buckets)
 	}
 	for unit, want := range map[string]int{"hour": 4, "day": 4, "month": 2} {
-		response := testRequest(t, a, http.MethodGet, "/api/v1/groups/pool/tables/measurements/records?bucket="+unit+"&aggregate=count", nil, "")
+		response := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/pool/tables/measurements/records?bucket="+unit+"&aggregate=count", nil, "")
 		var result map[string]any
 		testJSON(t, response, &result)
 		if got := len(result["buckets"].([]any)); got != want {
@@ -724,11 +724,11 @@ func TestTimeseriesNormalizesUTCAndBucketsWeeks(t *testing.T) {
 
 func TestPageAPIRoundTripAndPathSafety(t *testing.T) {
 	a := newTestApp(t)
-	created := testRequest(t, a, http.MethodPost, "/api/v1/pages", map[string]any{"path": "/reports/latest.md", "content_type": "text/markdown", "content": "# Report\n\n<script>alert(1)</script>"}, "application/json")
+	created := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", map[string]any{"path": "/reports/latest.md", "content_type": "text/markdown", "content": "# Report\n\n<script>alert(1)</script>"}, "application/json")
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create page status = %d, want 201: %s", created.Code, created.Body.String())
 	}
-	read := testRequest(t, a, http.MethodGet, "/api/v1/pages?path="+url.QueryEscape("/reports/latest.md"), nil, "")
+	read := testRequest(t, a, http.MethodGet, "/api/v1/default/files/pages?path="+url.QueryEscape("/reports/latest.md"), nil, "")
 	if read.Code != http.StatusOK {
 		t.Fatalf("read page status = %d, want 200", read.Code)
 	}
@@ -738,24 +738,24 @@ func TestPageAPIRoundTripAndPathSafety(t *testing.T) {
 		t.Fatalf("page API did not return original source: %#v", page)
 	}
 
-	rendered := testRequest(t, a, http.MethodGet, "/reports/latest.md", nil, "")
+	rendered := testRequest(t, a, http.MethodGet, "/default/files/reports/latest.md", nil, "")
 	if rendered.Code != http.StatusOK || !strings.Contains(rendered.Body.String(), `class="published-markdown"`) || !strings.Contains(rendered.Body.String(), "&lt;script&gt;") || strings.Contains(rendered.Body.String(), "<script>alert(1)</script>") {
 		t.Fatalf("Markdown page was not safely rendered: status=%d body=%s", rendered.Code, rendered.Body.String())
 	}
-	traversal := testRequest(t, a, http.MethodPost, "/api/v1/pages", map[string]any{"path": "/../escape.md", "content_type": "text/markdown", "content": "bad"}, "application/json")
+	traversal := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", map[string]any{"path": "/../escape.md", "content_type": "text/markdown", "content": "bad"}, "application/json")
 	if traversal.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("page traversal status = %d, want 422", traversal.Code)
 	}
-	tooLarge := testRequest(t, a, http.MethodPost, "/api/v1/pages", strings.Repeat("x", int(bodyLimit+1)), "application/json")
+	tooLarge := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", strings.Repeat("x", int(bodyLimit+1)), "application/json")
 	if tooLarge.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversized request status = %d, want 413", tooLarge.Code)
 	}
 
-	htmlPage := testRequest(t, a, http.MethodPost, "/api/v1/pages", map[string]any{"path": "/reports/trusted.html", "content_type": "text/html", "content": "<h1>Trusted</h1><script>run()</script>"}, "application/json")
+	htmlPage := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", map[string]any{"path": "/reports/trusted.html", "content_type": "text/html", "content": "<h1>Trusted</h1><script>run()</script>"}, "application/json")
 	if htmlPage.Code != http.StatusCreated {
 		t.Fatalf("create HTML page status = %d, want 201", htmlPage.Code)
 	}
-	htmlView := testRequest(t, a, http.MethodGet, "/reports/trusted.html", nil, "")
+	htmlView := testRequest(t, a, http.MethodGet, "/default/files/reports/trusted.html", nil, "")
 	if htmlView.Code != http.StatusOK || !strings.Contains(htmlView.Body.String(), "<script>run()</script>") {
 		t.Fatalf("trusted HTML was not served as published: status=%d body=%s", htmlView.Code, htmlView.Body.String())
 	}
@@ -777,7 +777,7 @@ func TestDirectoryZipUploadPreservesPathsAndRejectsTraversal(t *testing.T) {
 	if err := zw.Close(); err != nil {
 		t.Fatalf("close ZIP: %v", err)
 	}
-	upload := testRequest(t, a, http.MethodPost, "/api/v1/directories?path=%2Fpool%2Freports", buffer.Bytes(), "application/zip")
+	upload := testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories?path=%2Fpool%2Freports", buffer.Bytes(), "application/zip")
 	if upload.Code != http.StatusCreated {
 		t.Fatalf("directory upload status = %d, want 201: %s", upload.Code, upload.Body.String())
 	}
@@ -804,11 +804,11 @@ func TestDirectoryZipUploadPreservesPathsAndRejectsTraversal(t *testing.T) {
 		}
 		return archive.Bytes()
 	}
-	conflict := testRequest(t, a, http.MethodPost, "/api/v1/directories?path=%2Fpool%2Freports", makeSingleFileZip("replacement"), "application/zip")
+	conflict := testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories?path=%2Fpool%2Freports", makeSingleFileZip("replacement"), "application/zip")
 	if conflict.Code != http.StatusConflict {
 		t.Fatalf("default ZIP overwrite status = %d, want 409", conflict.Code)
 	}
-	replaced := testRequest(t, a, http.MethodPost, "/api/v1/directories?path=%2Fpool%2Freports&overwrite=true", makeSingleFileZip("# Replaced"), "application/zip")
+	replaced := testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories?path=%2Fpool%2Freports&overwrite=true", makeSingleFileZip("# Replaced"), "application/zip")
 	if replaced.Code != http.StatusCreated {
 		t.Fatalf("explicit ZIP overwrite status = %d, want 201: %s", replaced.Code, replaced.Body.String())
 	}
@@ -825,7 +825,7 @@ func TestDirectoryZipUploadPreservesPathsAndRejectsTraversal(t *testing.T) {
 	}
 	_, _ = badFile.Write([]byte("bad"))
 	_ = badZip.Close()
-	rejected := testRequest(t, a, http.MethodPost, "/api/v1/directories?path=%2Fpool%2Freports", badBuffer.Bytes(), "application/zip")
+	rejected := testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories?path=%2Fpool%2Freports", badBuffer.Bytes(), "application/zip")
 	if rejected.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("traversal upload status = %d, want 422", rejected.Code)
 	}
@@ -840,11 +840,11 @@ func TestDirectoryAPIListAndDelete(t *testing.T) {
 	if _, ae := a.createDirectory("/pool"); ae != nil {
 		t.Fatalf("create test directory: %v", ae)
 	}
-	created := testRequest(t, a, http.MethodPost, "/api/v1/pages", map[string]any{"path": "/pool/note.md", "content_type": "text/markdown", "content": "note"}, "application/json")
+	created := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", map[string]any{"path": "/pool/note.md", "content_type": "text/markdown", "content": "note"}, "application/json")
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create page status = %d, want 201", created.Code)
 	}
-	listing := testRequest(t, a, http.MethodGet, "/api/v1/directories?path=%2Fpool", nil, "")
+	listing := testRequest(t, a, http.MethodGet, "/api/v1/default/files/directories?path=%2Fpool", nil, "")
 	if listing.Code != http.StatusOK {
 		t.Fatalf("list directory status = %d, want 200", listing.Code)
 	}
@@ -854,7 +854,7 @@ func TestDirectoryAPIListAndDelete(t *testing.T) {
 	if len(children) != 1 || children[0].(map[string]any)["name"] != "note.md" {
 		t.Fatalf("unexpected directory children: %#v", children)
 	}
-	deleted := testRequest(t, a, http.MethodDelete, "/api/v1/directories?path=%2Fpool", nil, "")
+	deleted := testRequest(t, a, http.MethodDelete, "/api/v1/default/files/directories?path=%2Fpool", nil, "")
 	if deleted.Code != http.StatusNoContent {
 		t.Fatalf("delete directory status = %d, want 204", deleted.Code)
 	}
@@ -867,25 +867,25 @@ func TestGenericTableFormsAndOperationalPages(t *testing.T) {
 	a := newTestApp(t)
 	setupRecordTable(t, a)
 
-	listing := testRequest(t, a, http.MethodGet, "/t/vehicle/service", nil, "")
-	if listing.Code != http.StatusOK || !strings.Contains(listing.Body.String(), "/t/vehicle/service/new") {
+	listing := testRequest(t, a, http.MethodGet, "/default/data/vehicle/service", nil, "")
+	if listing.Code != http.StatusOK || !strings.Contains(listing.Body.String(), "/default/data/vehicle/service/new") {
 		t.Fatalf("table view missing form link: status=%d", listing.Code)
 	}
-	newForm := testRequest(t, a, http.MethodGet, "/t/vehicle/service/new", nil, "")
+	newForm := testRequest(t, a, http.MethodGet, "/default/data/vehicle/service/new", nil, "")
 	if newForm.Code != http.StatusOK || !strings.Contains(newForm.Body.String(), `name="category"`) || !strings.Contains(newForm.Body.String(), `class="record-form-card"`) || !strings.Contains(newForm.Body.String(), "Save record") {
 		t.Fatalf("new-record form missing fields: status=%d", newForm.Code)
 	}
 	form := url.Values{"name": {"Engine service"}, "category": {"service"}, "amount": {"45.50"}}
-	created := testRequest(t, a, http.MethodPost, "/t/vehicle/service/new", form.Encode(), "application/x-www-form-urlencoded")
-	if created.Code != http.StatusSeeOther || !strings.HasPrefix(created.Header().Get("Location"), "/t/vehicle/service/") {
+	created := testRequest(t, a, http.MethodPost, "/default/data/vehicle/service/new", form.Encode(), "application/x-www-form-urlencoded")
+	if created.Code != http.StatusSeeOther || !strings.HasPrefix(created.Header().Get("Location"), "/default/data/vehicle/service/") {
 		t.Fatalf("new-record form submission status=%d location=%q", created.Code, created.Header().Get("Location"))
 	}
-	id := strings.TrimPrefix(created.Header().Get("Location"), "/t/vehicle/service/")
-	edit := testRequest(t, a, http.MethodPost, "/t/vehicle/service/"+id+"/edit", url.Values{"name": {"Engine service 2"}, "category": {"repair"}}.Encode(), "application/x-www-form-urlencoded")
+	id := strings.TrimPrefix(created.Header().Get("Location"), "/default/data/vehicle/service/")
+	edit := testRequest(t, a, http.MethodPost, "/default/data/vehicle/service/"+id+"/edit", url.Values{"name": {"Engine service 2"}, "category": {"repair"}}.Encode(), "application/x-www-form-urlencoded")
 	if edit.Code != http.StatusSeeOther {
 		t.Fatalf("edit form submission status = %d, want 303", edit.Code)
 	}
-	recordPage := testRequest(t, a, http.MethodGet, "/t/vehicle/service/"+id, nil, "")
+	recordPage := testRequest(t, a, http.MethodGet, "/default/data/vehicle/service/"+id, nil, "")
 	if recordPage.Code != http.StatusOK || !strings.Contains(recordPage.Body.String(), "Engine service 2") || !strings.Contains(recordPage.Body.String(), `class="record-detail-page"`) || !strings.Contains(recordPage.Body.String(), "Edit record") {
 		t.Fatalf("record page did not show patched value: status=%d", recordPage.Code)
 	}
@@ -912,7 +912,7 @@ func TestDirectoryZipRejectsExpandedFileLimit(t *testing.T) {
 	if err = zw.Close(); err != nil {
 		t.Fatalf("close ZIP: %v", err)
 	}
-	response := testRequest(t, a, http.MethodPost, "/api/v1/directories?path=%2F", buffer.Bytes(), "application/zip")
+	response := testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories?path=%2F", buffer.Bytes(), "application/zip")
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expanded file limit status = %d, want 422: %s", response.Code, response.Body.String())
 	}
@@ -929,7 +929,7 @@ func TestDirectoryZipRejectsExpandedFileLimit(t *testing.T) {
 	}
 	_, _ = deepFile.Write([]byte("deep"))
 	_ = deepZip.Close()
-	tooDeep := testRequest(t, a, http.MethodPost, "/api/v1/directories", deepBuffer.Bytes(), "application/zip")
+	tooDeep := testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories", deepBuffer.Bytes(), "application/zip")
 	if tooDeep.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("directory depth limit status = %d, want 422", tooDeep.Code)
 	}

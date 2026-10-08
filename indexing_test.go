@@ -22,12 +22,12 @@ func TestAutomaticAndExplicitIndexesAreAppliedAndReconciled(t *testing.T) {
 
 	first := createTestRecord(t, a, "fleet", "service", map[string]any{"serial": "A-1", "category": "repair", "serviced_at": "2026-03-01T00:00:00Z"})
 	createTestRecord(t, a, "fleet", "service", map[string]any{"serial": "B-1", "category": "repair", "serviced_at": "2026-04-01T00:00:00Z"})
-	duplicate := testRequest(t, a, http.MethodPost, "/api/v1/groups/fleet/tables/service/records", map[string]any{"serial": "A-1", "category": "maintenance", "serviced_at": "2026-05-01T00:00:00Z"}, "application/json")
+	duplicate := testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/fleet/tables/service/records", map[string]any{"serial": "A-1", "category": "maintenance", "serviced_at": "2026-05-01T00:00:00Z"}, "application/json")
 	if duplicate.Code != http.StatusConflict {
 		t.Fatalf("duplicate unique value status = %d, want 409: %s", duplicate.Code, duplicate.Body.String())
 	}
 
-	listed := testRequest(t, a, http.MethodGet, "/api/v1/groups/fleet/tables/service/records", nil, "")
+	listed := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/fleet/tables/service/records", nil, "")
 	var result map[string]any
 	testJSON(t, listed, &result)
 	rows := result["data"].([]any)
@@ -36,7 +36,7 @@ func TestAutomaticAndExplicitIndexesAreAppliedAndReconciled(t *testing.T) {
 	}
 
 	var plan string
-	rowsPlan, err := a.db.Query(`EXPLAIN QUERY PLAN SELECT id FROM records WHERE group_name='fleet' AND table_name='service' AND json_extract(data, '$."serial"')='A-1'`)
+	rowsPlan, err := a.db.Query(`EXPLAIN QUERY PLAN SELECT id FROM records WHERE project='default' AND group_name='fleet' AND table_name='service' AND json_extract(data, '$."serial"')='A-1'`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestAutomaticAndExplicitIndexesAreAppliedAndReconciled(t *testing.T) {
 	if !strings.Contains(plan, "clio_data_") {
 		t.Fatalf("unique field query did not use managed index: %s", plan)
 	}
-	rowsPlan, err = a.db.Query(`EXPLAIN QUERY PLAN SELECT id FROM records WHERE group_name='fleet' AND table_name='service' AND json_extract(data, '$."category"')='repair'`)
+	rowsPlan, err = a.db.Query(`EXPLAIN QUERY PLAN SELECT id FROM records WHERE project='default' AND group_name='fleet' AND table_name='service' AND json_extract(data, '$."category"')='repair'`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,14 +70,14 @@ func TestAutomaticAndExplicitIndexesAreAppliedAndReconciled(t *testing.T) {
 		t.Fatalf("explicit compound index was not usable for its leading field: %s", plan)
 	}
 
-	metadata := testRequest(t, a, http.MethodGet, "/api/v1/groups/fleet/tables/service", nil, "")
+	metadata := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/fleet/tables/service", nil, "")
 	var table map[string]any
 	testJSON(t, metadata, &table)
 	if got := len(table["indexes"].([]any)); got != 1 {
 		t.Fatalf("metadata indexes = %d, want explicit declaration", got)
 	}
 
-	updated := testRequest(t, a, http.MethodPatch, "/api/v1/groups/fleet/tables/service", map[string]any{"indexes": []any{}}, "application/json")
+	updated := testRequest(t, a, http.MethodPatch, "/api/v1/default/data/groups/fleet/tables/service", map[string]any{"indexes": []any{}}, "application/json")
 	if updated.Code != http.StatusOK {
 		t.Fatalf("remove explicit index status = %d: %s", updated.Code, updated.Body.String())
 	}
@@ -99,7 +99,7 @@ func TestAddingUniqueConstraintWithDuplicatesRollsBackSchemaUpdate(t *testing.T)
 	createTestTable(t, a, "lookup", map[string]any{"name": "values", "fields": []any{map[string]any{"name": "code", "type": "string"}}})
 	createTestRecord(t, a, "lookup", "values", map[string]any{"code": "same"})
 	createTestRecord(t, a, "lookup", "values", map[string]any{"code": "same"})
-	update := testRequest(t, a, http.MethodPatch, "/api/v1/groups/lookup/tables/values", map[string]any{"fields": []any{map[string]any{"name": "code", "type": "string", "unique": true}}}, "application/json")
+	update := testRequest(t, a, http.MethodPatch, "/api/v1/default/data/groups/lookup/tables/values", map[string]any{"fields": []any{map[string]any{"name": "code", "type": "string", "unique": true}}}, "application/json")
 	if update.Code != http.StatusConflict {
 		t.Fatalf("unique schema update status = %d, want 409: %s", update.Code, update.Body.String())
 	}

@@ -85,7 +85,7 @@ func TestAuthenticationProtectsAllApplicationRoutes(t *testing.T) {
 	a.auth = authConfig{enabled: true, username: "admin", passwordHash: testPasswordHash(t), requireHTTPS: true}
 
 	var missingCredentialsBody string
-	for _, route := range []string{"/api/v1/metadata", "/help", "/health", "/assets/clio-markdown.js", "/assets/clio.js", "/assets/clio/v1/clio.js", "/published.md"} {
+	for _, route := range []string{"/api/v1/default/data/metadata", "/help", "/health", "/assets/clio-markdown.js", "/assets/clio.js", "/assets/clio/v1/clio.js", "/published.md"} {
 		response := authRequest(t, a, route, "127.0.0.1:1234", false)
 		if response.Code != http.StatusUnauthorized {
 			t.Errorf("GET %s without credentials status=%d, want 401", route, response.Code)
@@ -117,7 +117,7 @@ func TestAuthenticationProtectsAllApplicationRoutes(t *testing.T) {
 		t.Fatalf("authentication response revealed credential state: missing=%q invalid=%q", missingCredentialsBody, badResponse.Body.String())
 	}
 
-	for _, route := range []string{"/api/v1/metadata", "/help", "/health", "/assets/clio-markdown.js", "/assets/clio.js", "/assets/clio/v1/clio.js"} {
+	for _, route := range []string{"/api/v1/default/data/metadata", "/help", "/health", "/assets/clio-markdown.js", "/assets/clio.js", "/assets/clio/v1/clio.js"} {
 		response := authRequest(t, a, route, "127.0.0.1:1234", true)
 		if response.Code != http.StatusOK {
 			t.Errorf("GET %s with valid credentials status=%d: %s", route, response.Code, response.Body.String())

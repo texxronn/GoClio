@@ -10,11 +10,11 @@
 - **Last updated:** 2026-10-08
 - **Spec:** `SPEC.md` v1.7 (sections 64, 65, 66 are new; earlier URL sections carry supersession notes)
 - **Plan:** `IMPLEMENTATION-PLAN.md`
-- **Code baseline:** Phase 1 implemented; data tables are project-scoped; routing is still unscoped (Phase 2)
+- **Code baseline:** Phase 2 implemented; routing is project-first, data queries scoped by project, and the legacy page/directory operations are re-homed under the files partition (content storage is not yet partitioned per project)
 - **Branch:** `master`
 - **Last merged commit:** `719f063` (Phase 1, PR #5)
-- **Current phase:** Phase 1 complete (this commit)
-- **Next action:** Phase 2 — rework `ServeHTTP`/`api` for instance routes and `/api/v1/{project}/data/...`, resolve and validate `{project}` on every scoped request, thread `project` through every SQL query, move the table UI under `/{project}/data/...`, add `/` and `/api/v1` redirects, and mechanically update every test URL through a shared helper.
+- **Current phase:** Phase 2 complete (this commit)
+- **Next action:** Phase 3 — replace `content_page_times` with `content_entries` (`id`, `project`, `path`, `kind`, `content_type`, `size`, `sha256`, `created_at`, `updated_at`; unique `(project, path)`), migrate existing rows to `default` entries with new IDs, generate opaque IDs, reconcile the on-disk tree at startup and on rescan (keep an ID for an existing path, assign one to a new path, drop vanished rows), and partition the content root into one subtree per project.
 - **Blockers:** none
 
 ## Decision log (locked — do not relitigate)
@@ -37,6 +37,10 @@ Design decisions already fixed by `SPEC.md` v1.5–v1.7:
 - **Project scope is a storage-key change, not a column add.** Phase 1 rebuilds `groups_meta`, `tables_meta`, `fields_meta` and `records` with `(project, …)` primary keys and project-scoped foreign keys, so names are unique per project. A legacy database migrates on open with every row assigned to `default`; no stored data is rewritten.
 - **Backup must capture the database and content root together;** the database is mandatory (IDs, timestamps, agent text).
 - **No migration/compatibility layer** for the old unscoped routes; update tests instead.
+- **Routing (Phase 2):** `ServeHTTP` resolves the project before dispatch. Instance routes are `/health`, `/help`, `/api/v1/health`, `/api/v1/help`, `/api/v1/projects[/{project}]`, `/assets/...` and `/favicon.svg`. Bare `/` and `/api/v1` return `302` to `/{default}/` and `/api/v1/{default}`; `/{project}` returns `302` to `/{project}/data`. The data partition is `/api/v1/{project}/data/...` and `/{project}/data/...`; the collection browser is `/{project}/collections/...`.
+- **Per-request scope is a shallow `app` copy.** `app.contentMu` is a pointer so `withProject` can copy the handler safely; data functions read `a.project` instead of taking a project argument. Every group/table/field/record query and every managed index includes `project`.
+- **Temporary files-partition placement (until Phase 4/10):** the legacy directory and page operations are served at `/api/v1/{project}/files/directories` and `.../files/pages`, and the content UI at `/{project}/files/...`. Content storage is still one shared root; per-project subtrees arrive in Phase 3. ClioJS is project-aware and defaults to `default`.
+- **Help, README and `examples/README.md` still describe the pre-Phase-2 routes.** Bringing them current is Phase 14; do not treat them as the routing contract in the meantime.
 
 ## Open questions (decide before the relevant phase)
 
@@ -45,13 +49,12 @@ Design decisions already fixed by `SPEC.md` v1.5–v1.7:
 - **Human search surface:** search box in the explorer, a `/{project}/search` page, or both. Phase 11.
 - **`clio backup` / `restore` command:** ship in Phase 13 or document stop-copy only.
 - **Data listing convenience:** whether `/{project}/data` also exposes a flat table list. Phase 11.
-- **Project-scoped managed indexes:** Phase 1 introduced project-scoped primary keys but left `managed_indexes` (and the index name/expression helpers in `indexing.go`) unscoped. Phase 2 must add `project` to the managed index names, expressions and `managed_indexes` rows, or a `unique` field could enforce uniqueness across projects.
 
 ## Progress
 
 - [x] **Phase 0** — scaffolding and baseline
 - [x] **Phase 1** — projects registry and instance routes
-- [ ] **Phase 2** — project scope, routing, `data` partition
+- [x] **Phase 2** — project scope, routing, `data` partition
 - [ ] **Phase 3** — content entries and identity
 - [ ] **Phase 4** — files REST API
 - [ ] **Phase 5** — serving and stable URLs
@@ -97,3 +100,4 @@ Design decisions already fixed by `SPEC.md` v1.5–v1.7:
 - **2026-10-08** — Spec v1.5 (content filesystem), v1.6 (namespaces/projects) and v1.7 (project-scoped URL scheme and partitions) drafted, merged to `master` via PRs #1–#3. No application code changed. Created `IMPLEMENTATION-PLAN.md` and this context file. Next: Phase 0.
 - **2026-10-08** — Phase 0: baseline verified green (`go test -count=1 ./...` 1.7s, `go vet ./...`, `go build -buildvcs=false`). 79 tests, 67.1% coverage. Plan and context files committed. Next: Phase 1.
 - **2026-10-08** — Phase 1: added the `projects` table and seeded `default`; rebuilt `groups_meta`, `tables_meta`, `fields_meta` and `records` with project-scoped primary/foreign keys and migrated legacy databases on open (all rows assigned to `default`); added the projects API (`GET`/`POST /api/v1/projects`, `GET`/`DELETE /api/v1/projects/{project}`), reserved project names, and a `projects` health count. New tests: `projects_test.go` (5). All checks green. Next: Phase 2.
+- **2026-10-08** — Phase 2: made routing project-first (`ServeHTTP`/`api` resolve `{project}`; instance routes stay unscoped); bare `/` and `/api/v1` redirect to `default`; `/api/v1/{project}/data/...` and `/{project}/data/...` for metadata/groups/tables/records; the legacy directory/page operations re-homed under `/api/v1/{project}/files/{directories,pages}` and the content UI under `/{project}/files/...`; collection browser at `/{project}/collections/...`. Threaded project through every data query and managed index (added `managed_indexes.project`), and made ClioJS project-aware. Introduced per-request app scoping via `withProject` (pointer content mutex). Updated every test URL. New tests: `TestBareRoutesRedirectToDefaultProject`, `TestUnknownProjectReturnsNotFound`, `TestProjectDataIsolation`, `TestProjectScopedHumanAndAPIRoutes`. All checks green. Next: Phase 3.

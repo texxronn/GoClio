@@ -9,7 +9,7 @@ import (
 
 func postRecordRaw(t *testing.T, a *app, group, table, body string) map[string]any {
 	t.Helper()
-	w := testRequest(t, a, http.MethodPost, "/api/v1/groups/"+group+"/tables/"+table+"/records", body, "application/json")
+	w := testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/"+group+"/tables/"+table+"/records", body, "application/json")
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create raw record status=%d body=%s", w.Code, w.Body.String())
 	}
@@ -20,7 +20,7 @@ func postRecordRaw(t *testing.T, a *app, group, table, body string) map[string]a
 
 func createRawTable(t *testing.T, a *app, group, body string) {
 	t.Helper()
-	w := testRequest(t, a, http.MethodPost, "/api/v1/groups/"+group+"/tables", body, "application/json")
+	w := testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/"+group+"/tables", body, "application/json")
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create raw table status=%d body=%s", w.Code, w.Body.String())
 	}
@@ -58,7 +58,7 @@ func TestValueCoercionRejections(t *testing.T) {
 		{"name":"u","type":"url"},
 		{"name":"e","type":"enum","values":["a","b"]}
 	]}`)
-	base := "/api/v1/groups/types/tables/values/records"
+	base := "/api/v1/default/data/groups/types/tables/values/records"
 
 	// Accepted coercions.
 	record := postRecordRaw(t, a, "types", "values", `{"i":1.0,"d":"5","b":true,"dt":"2026-09-27T22:30:00+10:00","day":"2026-09-27","u":"https://example.com/x","e":"a"}`)
@@ -86,7 +86,7 @@ func TestFieldNameRules(t *testing.T) {
 	createTestGroup(t, a, "naming")
 	// Mixed case is normalized to lowercase.
 	createRawTable(t, a, "naming", `{"name":"mixed","fields":[{"name":"Label","type":"string"}]}`)
-	metadata := testRequest(t, a, http.MethodGet, "/api/v1/metadata/groups/naming/tables/mixed", nil, "")
+	metadata := testRequest(t, a, http.MethodGet, "/api/v1/default/data/metadata/groups/naming/tables/mixed", nil, "")
 	var table map[string]any
 	testJSON(t, metadata, &table)
 	fields := table["fields"].([]any)
@@ -102,7 +102,7 @@ func TestFieldNameRules(t *testing.T) {
 		`{"name":"dupe","fields":[{"name":"x","type":"string"},{"name":"X","type":"string"}]}`,
 		`{"name":"empty","fields":[{"name":"","type":"string"}]}`,
 	} {
-		assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/groups/naming/tables", body, "application/json"), http.StatusUnprocessableEntity)
+		assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/naming/tables", body, "application/json"), http.StatusUnprocessableEntity)
 	}
 }
 
@@ -112,7 +112,7 @@ func TestValidationConstraints(t *testing.T) {
 	createRawTable(t, a, "rules", `{"name":"strings","fields":[
 		{"name":"code","type":"string","min_length":2,"max_length":3,"pattern":"^[a-z]+$"}
 	]}`)
-	base := "/api/v1/groups/rules/tables/strings/records"
+	base := "/api/v1/default/data/groups/rules/tables/strings/records"
 	if w := testRequest(t, a, http.MethodPost, base, `{"code":"ab"}`, "application/json"); w.Code != http.StatusCreated {
 		t.Errorf("valid string status=%d body=%s", w.Code, w.Body.String())
 	}
@@ -121,7 +121,7 @@ func TestValidationConstraints(t *testing.T) {
 	}
 
 	createRawTable(t, a, "rules", `{"name":"numbers","fields":[{"name":"n","type":"integer","min":1,"max":5}]}`)
-	numBase := "/api/v1/groups/rules/tables/numbers/records"
+	numBase := "/api/v1/default/data/groups/rules/tables/numbers/records"
 	if w := testRequest(t, a, http.MethodPost, numBase, `{"n":3}`, "application/json"); w.Code != http.StatusCreated {
 		t.Errorf("valid integer status=%d body=%s", w.Code, w.Body.String())
 	}
@@ -138,7 +138,7 @@ func TestValidationConstraints(t *testing.T) {
 		`{"name":"bad5","fields":[{"name":"x","type":"integer","default":"5"}]}`,
 		`{"name":"bad6","fields":[{"name":"x","type":"decimal","default":5}]}`,
 	} {
-		assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/groups/rules/tables", body, "application/json"), http.StatusUnprocessableEntity)
+		assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/rules/tables", body, "application/json"), http.StatusUnprocessableEntity)
 	}
 }
 
@@ -153,7 +153,7 @@ func TestRecordIdentifierRules(t *testing.T) {
 		t.Fatalf("record IDs are not distinct and opaque: %#v %#v", left["id"], right["id"])
 	}
 	for _, body := range []string{`{"label":"a","id":"chosen"}`, `{"label":"a","created_at":"2026-01-01T00:00:00Z"}`, `{"label":"a","updated_at":"2026-01-01T00:00:00Z"}`} {
-		assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/groups/ids/tables/left/records", body, "application/json"), http.StatusUnprocessableEntity)
+		assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/ids/tables/left/records", body, "application/json"), http.StatusUnprocessableEntity)
 	}
 }
 
@@ -168,14 +168,14 @@ func TestUniqueSemantics(t *testing.T) {
 	}})
 	createTestRecord(t, a, "uniq", "one", map[string]any{"code": "shared"})
 	// A different table may reuse the same value; uniqueness is per table.
-	if w := testRequest(t, a, http.MethodPost, "/api/v1/groups/uniq/tables/two/records", `{"code":"shared"}`, "application/json"); w.Code != http.StatusCreated {
+	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/uniq/tables/two/records", `{"code":"shared"}`, "application/json"); w.Code != http.StatusCreated {
 		t.Errorf("cross-table unique value status=%d body=%s", w.Code, w.Body.String())
 	}
 	// Duplicate non-null value in the same table is a conflict.
-	assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/groups/uniq/tables/one/records", `{"code":"shared"}`, "application/json"), http.StatusConflict)
+	assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/uniq/tables/one/records", `{"code":"shared"}`, "application/json"), http.StatusConflict)
 	// Multiple nulls are allowed because SQL treats nulls as distinct.
 	for i := 0; i < 2; i++ {
-		if w := testRequest(t, a, http.MethodPost, "/api/v1/groups/uniq/tables/one/records", `{"code":null}`, "application/json"); w.Code != http.StatusCreated {
+		if w := testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/uniq/tables/one/records", `{"code":null}`, "application/json"); w.Code != http.StatusCreated {
 			t.Errorf("null unique value %d status=%d body=%s", i, w.Code, w.Body.String())
 		}
 	}
@@ -185,7 +185,7 @@ func TestUniqueSemantics(t *testing.T) {
 	}})
 	createTestRecord(t, a, "uniq", "dupes", map[string]any{"code": "x"})
 	createTestRecord(t, a, "uniq", "dupes", map[string]any{"code": "x"})
-	enable := testRequest(t, a, http.MethodPatch, "/api/v1/groups/uniq/tables/dupes", `{"fields":[{"name":"code","type":"string","unique":true}]}`, "application/json")
+	enable := testRequest(t, a, http.MethodPatch, "/api/v1/default/data/groups/uniq/tables/dupes", `{"fields":[{"name":"code","type":"string","unique":true}]}`, "application/json")
 	assertAPIError(t, enable, http.StatusConflict)
 }
 
@@ -199,10 +199,10 @@ func TestDeclaredIndexesAreNonUniqueAndValidated(t *testing.T) {
 	}})
 	// A declared index is not a uniqueness constraint.
 	createTestRecord(t, a, "indexed", "items", map[string]any{"code": "dup"})
-	if w := testRequest(t, a, http.MethodPost, "/api/v1/groups/indexed/tables/items/records", `{"code":"dup"}`, "application/json"); w.Code != http.StatusCreated {
+	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/indexed/tables/items/records", `{"code":"dup"}`, "application/json"); w.Code != http.StatusCreated {
 		t.Errorf("declared index rejected duplicate value: status=%d", w.Code)
 	}
-	metadata := testRequest(t, a, http.MethodGet, "/api/v1/groups/indexed/tables/items", nil, "")
+	metadata := testRequest(t, a, http.MethodGet, "/api/v1/default/data/groups/indexed/tables/items", nil, "")
 	var table map[string]any
 	testJSON(t, metadata, &table)
 	if indexes, ok := table["indexes"].([]any); !ok || len(indexes) != 1 {
@@ -213,7 +213,7 @@ func TestDeclaredIndexesAreNonUniqueAndValidated(t *testing.T) {
 		`{"name":"badindex2","indexes":[{"fields":["code"]},{"fields":["code"]}],"fields":[{"name":"code","type":"string"}]}`,
 		`{"name":"badindex3","indexes":"nope","fields":[{"name":"code","type":"string"}]}`,
 	} {
-		assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/groups/indexed/tables", body, "application/json"), http.StatusUnprocessableEntity)
+		assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/indexed/tables", body, "application/json"), http.StatusUnprocessableEntity)
 	}
 }
 
@@ -224,9 +224,9 @@ func TestReferenceRules(t *testing.T) {
 		map[string]any{"name": "label", "type": "string"},
 	}})
 	// A reference field requires group and table.
-	assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/groups/refs/tables", `{"name":"bad","fields":[{"name":"target","type":"reference"}]}`, "application/json"), http.StatusUnprocessableEntity)
+	assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/refs/tables", `{"name":"bad","fields":[{"name":"target","type":"reference"}]}`, "application/json"), http.StatusUnprocessableEntity)
 	// A default reference must resolve.
-	assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/groups/refs/tables", `{"name":"bad2","fields":[{"name":"target","type":"reference","group":"refs","table":"parts","default":"missing"}]}`, "application/json"), http.StatusUnprocessableEntity)
+	assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/refs/tables", `{"name":"bad2","fields":[{"name":"target","type":"reference","group":"refs","table":"parts","default":"missing"}]}`, "application/json"), http.StatusUnprocessableEntity)
 
 	createTestTable(t, a, "refs", map[string]any{"name": "service", "fields": []any{
 		map[string]any{"name": "name", "type": "string", "required": true},
@@ -234,10 +234,10 @@ func TestReferenceRules(t *testing.T) {
 	}})
 	part := createTestRecord(t, a, "refs", "parts", map[string]any{"label": "Filter"})
 	// Unknown target ID is rejected.
-	assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/groups/refs/tables/service/records", `{"name":"x","part":"nope"}`, "application/json"), http.StatusUnprocessableEntity)
+	assertAPIError(t, testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/refs/tables/service/records", `{"name":"x","part":"nope"}`, "application/json"), http.StatusUnprocessableEntity)
 	createTestRecord(t, a, "refs", "service", map[string]any{"name": "Oil", "part": part["id"]})
 	// A table with records cannot be deleted.
-	assertAPIError(t, testRequest(t, a, http.MethodDelete, "/api/v1/groups/refs/tables/parts", nil, ""), http.StatusConflict)
+	assertAPIError(t, testRequest(t, a, http.MethodDelete, "/api/v1/default/data/groups/refs/tables/parts", nil, ""), http.StatusConflict)
 	// An empty table referenced by another table's field cannot be deleted either.
 	createTestTable(t, a, "refs", map[string]any{"name": "spares", "fields": []any{
 		map[string]any{"name": "label", "type": "string"},
@@ -245,14 +245,14 @@ func TestReferenceRules(t *testing.T) {
 	createTestTable(t, a, "refs", map[string]any{"name": "orders", "fields": []any{
 		map[string]any{"name": "spare", "type": "reference", "group": "refs", "table": "spares"},
 	}})
-	assertAPIError(t, testRequest(t, a, http.MethodDelete, "/api/v1/groups/refs/tables/spares", nil, ""), http.StatusConflict)
+	assertAPIError(t, testRequest(t, a, http.MethodDelete, "/api/v1/default/data/groups/refs/tables/spares", nil, ""), http.StatusConflict)
 
 	// Cross-group references are permitted.
 	createTestGroup(t, a, "other")
 	createTestTable(t, a, "other", map[string]any{"name": "links", "fields": []any{
 		map[string]any{"name": "part", "type": "reference", "group": "refs", "table": "parts"},
 	}})
-	if w := testRequest(t, a, http.MethodPost, "/api/v1/groups/other/tables/links/records", `{"part":"`+part["id"].(string)+`"}`, "application/json"); w.Code != http.StatusCreated {
+	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/data/groups/other/tables/links/records", `{"part":"`+part["id"].(string)+`"}`, "application/json"); w.Code != http.StatusCreated {
 		t.Errorf("cross-group reference status=%d body=%s", w.Code, w.Body.String())
 	}
 }
@@ -290,10 +290,10 @@ func TestIndexReconciliationSurvivesReopen(t *testing.T) {
 	}
 	defer reopened.Close()
 	b := &app{db: reopened, content: content, baseURL: "http://clio.test"}
-	if w := testRequest(t, b, http.MethodPost, "/api/v1/groups/uniq/tables/two/records", `{"code":"a"}`, "application/json"); w.Code != http.StatusCreated {
+	if w := testRequest(t, b, http.MethodPost, "/api/v1/default/data/groups/uniq/tables/two/records", `{"code":"a"}`, "application/json"); w.Code != http.StatusCreated {
 		t.Errorf("duplicate in unrelated table after reopen status=%d body=%s", w.Code, w.Body.String())
 	}
-	assertAPIError(t, testRequest(t, b, http.MethodPost, "/api/v1/groups/uniq/tables/one/records", `{"code":"a"}`, "application/json"), http.StatusConflict)
+	assertAPIError(t, testRequest(t, b, http.MethodPost, "/api/v1/default/data/groups/uniq/tables/one/records", `{"code":"a"}`, "application/json"), http.StatusConflict)
 }
 
 func TestPatchSystemFieldRejected(t *testing.T) {
@@ -304,6 +304,6 @@ func TestPatchSystemFieldRejected(t *testing.T) {
 	}})
 	record := createTestRecord(t, a, "patch", "records", map[string]any{"label": "a"})
 	for _, body := range []string{`{"id":"x"}`, `{"created_at":"2026-01-01T00:00:00Z"}`, `{"updated_at":"2026-01-01T00:00:00Z"}`} {
-		assertAPIError(t, testRequest(t, a, http.MethodPatch, "/api/v1/groups/patch/tables/records/records/"+record["id"].(string), body, "application/json"), http.StatusUnprocessableEntity)
+		assertAPIError(t, testRequest(t, a, http.MethodPatch, "/api/v1/default/data/groups/patch/tables/records/records/"+record["id"].(string), body, "application/json"), http.StatusUnprocessableEntity)
 	}
 }

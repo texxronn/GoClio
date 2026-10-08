@@ -18,7 +18,7 @@ func benchmarkRecordApp(b *testing.B, count int) *app {
 		b.Fatal(err)
 	}
 	b.Cleanup(func() { _ = db.Close() })
-	a := &app{db: db}
+	a := &app{db: db, project: defaultProject}
 	if _, err = db.Exec(`INSERT INTO groups_meta(name,label) VALUES('bench','Benchmark')`); err != nil {
 		b.Fatal(err)
 	}
