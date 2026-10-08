@@ -31,6 +31,13 @@ than the product.
 
 ### Changed
 
+- The file-explorer folder tree now indents one clear step per level and draws
+  classic vertical tree guides, uses larger accent-coloured expand/collapse
+  chevrons, and shows a fixed spacer for folders with no subfolders so labels
+  align. Presentation only; no behaviour or API change.
+
+### Changed
+
 - Only the default project exposes cross-project navigation (section 66.1). The
   projects manager on the overview (`Clio.Projects.mount`), the server-rendered
   project list and the data-browser/file-explorer project switchers are now
