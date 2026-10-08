@@ -8,7 +8,11 @@ tests.
 
 ## Build and run
 
-Requires Go 1.25 and a C toolchain for `github.com/mattn/go-sqlite3`.
+Requires Go 1.25 and a C toolchain for `github.com/mattn/go-sqlite3`. Builds and
+tests must pass `-tags sqlite_fts5`: the full-text index (section 64.6) uses
+SQLite FTS5, which the driver only compiles in under that tag. `make` applies it
+for you; a binary built without it fails at startup when it creates the search
+index.
 
 ```sh
 make build            # builds ./clio, version injected from the git tag
@@ -18,11 +22,11 @@ CLIO_BASE_URL=http://localhost:8080 \
 ./clio
 ```
 
-`make check` runs the tests, `go vet ./...`, and a build. Without `make`, build
-directly and pass the version yourself:
+`make check` runs the tests, `go vet`, and a build (all with the tag). Without
+`make`, build directly and pass the version yourself:
 
 ```sh
-CGO_ENABLED=1 go build -buildvcs=false -ldflags="-X main.version=1.0.0" -o clio .
+CGO_ENABLED=1 go build -tags sqlite_fts5 -buildvcs=false -ldflags="-X main.version=1.0.0" -o clio .
 ```
 
 The default listener is `0.0.0.0:8080`; the default data directory is

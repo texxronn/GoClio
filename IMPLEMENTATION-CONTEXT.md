@@ -10,11 +10,11 @@
 - **Last updated:** 2026-10-08
 - **Spec:** `SPEC.md` v1.7 (sections 64, 65, 66 are new; earlier URL sections carry supersession notes)
 - **Plan:** `IMPLEMENTATION-PLAN.md`
-- **Code baseline:** Phase 5 implemented; the filesystem is fully manipulable through `/api/v1/{project}/files` and content is served with stable URLs. Non-page content always downloads (`Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`) via `http.ServeContent` (HEAD, byte ranges); `/{project}/files/id/{id}` and `/api/v1/{project}/files/{id}/content` stream an entry's raw bytes (even a page), while Markdown/HTML pages still render at their path URLs. The legacy directory/page operations remain at `/files/{directories,pages}` until Phase 10.
-- **Branch:** `master`
+- **Code baseline:** Phase 6 implemented; native text extraction feeds a project-scoped SQLite FTS5 index. Text-like content (`text/*`, `.md`, `.txt`, `.csv`, `.json`, `.html`, and similar) and PDF text layers are indexed natively, HTML with markup stripped, capped at 1 MiB per entry, in `content_search` (`id`, `project`, `path`, `kind`, `source`, `title`, `body`). The index is written on create/replace (files API, pages, ZIP uploads, copy), re-homed on move, rebuilt by rescan (without clobbering agent rows), and dropped on delete. Builds and tests now need `-tags sqlite_fts5` (see Environment). Search API and enrichment remain Phase 7/8.
+- **Branch:** `phase-6-extraction-fts5`
 - **Last merged commit:** `8584d73` (Phase 5, PR #9)
-- **Current phase:** Phase 5 complete (this commit)
-- **Next action:** Phase 6 — native extraction and FTS5: add `-tags sqlite_fts5` to `Makefile`, `Dockerfile` and CI; add a `content_search` FTS5 table; native extraction for text-like formats and PDF text (cap 1 MiB); populate on write and rescan; drop on delete. Tests: extraction per type, cap, rebuild by rescan, FTS5 build.
+- **Current phase:** Phase 6 complete (pre-merge)
+- **Next action:** Phase 7 — search API: `GET /api/v1/{project}/search?q=...` with paging, literal quoted terms AND-combined, optional prefix, results (`id`, `path`, `kind`, `content_type`, `source`, escaped `snippet`, `score`), project isolation.
 - **Blockers:** none
 
 ## Decision log (locked — do not relitigate)
@@ -46,10 +46,16 @@ Design decisions already fixed by `SPEC.md` v1.5–v1.7:
 - **Files REST API (Phase 4):** `files_api.go` implements section 64.4 under `/api/v1/{project}/files`. `GET /files` returns `{"data":[...],"page":{...}}` (paged, `prefix`/`content_type`/`kind` filters); `GET /files?path=` returns a content-entry representation or a directory representation (`path`,`kind`,`url`,`children`,`page`). Directory listing is filesystem-authoritative and self-heals: a raw file found without an entry is adopted into `content_entries` with a new ID. `POST /files/directories` and the `/files/{directories,pages}` legacy facades are unchanged. `PUT` is atomic, caps at 16 MiB (`413`), forces page media types from the extension and honors the request `Content-Type` for files; replacing preserves the ID and `created_at` and returns `200`, a new path `201`. `DELETE` by path removes a subtree; deleting the root is `409`. `move` preserves IDs (including descendants), `copy` assigns new IDs (`201`); both reject a conflicting destination `409` and a missing source `404`. `rescan` returns `{"added","removed","refreshed"}`; a refresh updates `size`/`kind`/`content_type` and clears `sha256` when the size changed. `stable_url` is `{base}/{project}/files/id/{id}` (section 66.9) rather than the superseded `/f/{id}`; serving that URL and `/files/{id}/content` is implemented in Phase 5.
 - **Reserved content segment `id`:** `canonicalContentPath` rejects a content path whose first segment is `id`, so it cannot shadow the human stable URL `/{project}/files/id/{id}` (section 66.5). The API shape `/api/v1/{project}/files/{id}` addresses an opaque entry ID. Attachment-reference delete integrity (`409`) waits for the attachment field type in Phase 9.
 - **Serving and stable URLs (Phase 5):** content is streamed through `serveDownload`, which sets `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff` before calling `http.ServeContent`, so `HEAD`, byte ranges and conditional requests work. The entry's stored content type is sent (extension detection is the fallback). `/{project}/files/id/{id}` and `/api/v1/{project}/files/{id}/content` serve an entry's raw bytes for any entry, including a page; pages render only at their path URL. Non-page files at a path URL now download instead of being served with `writeText`. `contentUI` intercepts a first segment of `id` before content-path canonicalisation; a missing ID is `404`.
+- **Extraction and the text index (Phase 6):** `content_search` is an FTS5 virtual table (`id`, `project`, `path`, `kind`, `source`, `title`, `body`, `tokenize='unicode61'`), scoped by the `project` column. Text-like formats (`text/*` plus `.md`, `.txt`, `.csv`, `.json`, `.html`, `.xml`, `.yaml` and similar) are indexed natively; HTML is stripped of tags, `<script>` and `<style>` content, with entities decoded; PDF text layers are extracted with `github.com/ledongthuc/pdf`, a small dependency-free pure-Go fork of `rsc.io/pdf` (the chosen extractor). A row's title is the entry's base name; the body is the extracted text capped at 1 MiB (`indexedTextLimit`, section 64.12), truncated on a UTF-8 boundary. Content with no extracted text (binary files and image-only or malformed PDFs) leaves no row, so "no native text" means "not searchable natively". `source` is `native`; Phase 8 adds `agent:<provider>`, and a native rescan leaves an agent row in place. Rows are keyed by entry ID, re-homed on move, dropped on delete (exact path and subtree), and the whole index is derived and rebuildable by rescan. Reporting a real `indexed` field in the files representation is deferred to Phase 7/11 (it is still hardcoded `false`).
+- **FTS5 build tag:** the cgo SQLite driver exposes FTS5 only under `-tags sqlite_fts5`, so every test, vet and build needs it (`Makefile` `TAGS`, `Dockerfile`, `.github/workflows/ci.yml`). A binary built without the tag still compiles but fails at startup when `migrateSchema` creates `content_search`.
 
 ## Open questions (decide before the relevant phase)
 
-- **PDF extractor:** which small pure-Go library (e.g. `rsc.io/pdf` vs `pdfcpu`); confirm it builds under cgo/SQLite constraints. Needed in Phase 6.
+- **PDF extractor (resolved Phase 6):** `github.com/ledongthuc/pdf`
+  `v0.0.0-20260907135840-6c8c28e0e8a0` — a small, dependency-free, pure-Go fork
+  of `rsc.io/pdf` under a BSD (Go Authors) licence. It extracts a PDF text layer
+  from an `io.ReaderAt`, builds under cgo/SQLite, and is used only for native
+  text (no OCR).
 - **Project home page** (`/{project}/`): overview page linking `data` and `files`, or redirect to `/{project}/files`. Needed in Phase 11.
 - **Human search surface:** search box in the explorer, a `/{project}/search` page, or both. Phase 11.
 - **`clio backup` / `restore` command:** ship in Phase 13 or document stop-copy only.
@@ -63,7 +69,7 @@ Design decisions already fixed by `SPEC.md` v1.5–v1.7:
 - [x] **Phase 3** — content entries and identity
 - [x] **Phase 4** — files REST API
 - [x] **Phase 5** — serving and stable URLs
-- [ ] **Phase 6** — native extraction and FTS5
+- [x] **Phase 6** — native extraction and FTS5
 - [ ] **Phase 7** — search API
 - [ ] **Phase 8** — enrichment API
 - [ ] **Phase 9** — `attachment` field type
@@ -78,12 +84,13 @@ Design decisions already fixed by `SPEC.md` v1.5–v1.7:
 ## Environment and verification
 
 - Go 1.25; cgo build needs a C toolchain for the SQLite driver.
-- After Phase 6, builds and tests need `-tags sqlite_fts5`.
+- Builds, tests and vet need `-tags sqlite_fts5` (the FTS5 index; section 64.6).
+  A binary built without it fails at startup creating `content_search`.
 - Verification:
   ```sh
-  go test ./...
-  go vet ./...
-  go build -buildvcs=false -o /tmp/gocl-clio-check .
+  go test -tags sqlite_fts5 ./...
+  go vet -tags sqlite_fts5 ./...
+  go build -tags sqlite_fts5 -buildvcs=false -o /tmp/gocl-clio-check .
   ```
 - Tests use temporary SQLite databases and content directories; no external services.
 
@@ -109,3 +116,4 @@ Design decisions already fixed by `SPEC.md` v1.5–v1.7:
 - **2026-10-08** — Phase 3: replaced `content_page_times` with `content_entries` (stable opaque IDs, `kind`/`content_type`/`size`/`sha256`/timestamps, unique `(project, path)`); migrated legacy rows to `default` with new IDs; partitioned the content root into `content/{project}` with a one-time move of legacy root content into `content/default`; added reconciliation (startup and a reusable method for rescan) that keeps existing IDs, adds new ones, removes vanished paths and skips symlinks; updated the page/directory/zip write paths to record entries; a project with content can no longer be deleted. New tests: `TestContentEntryIdentityStableAcrossReplace`, `TestContentReconciliationAddsAndRemoves`, `TestContentIsolationBetweenProjects`, `TestContentEntriesMigrationFromPageTimes`, `TestContentLayoutMigrationMovesLegacyRoot`. All checks green. Next: Phase 4.
 - **2026-10-08** — Phase 4: added the files REST API in `files_api.go` under `/api/v1/{project}/files` — paged flat catalog with `prefix`/`content_type`/`kind` filters and `?path=` node/directory listing, `GET /files/{id}`, atomic `PUT /files?path=` (16 MiB, ID-preserving replace, declared content type for files), `POST /files/directories`, `DELETE /files?path=` and `/files/{id}`, `POST /files/move` (descendant IDs preserved) and `/files/copy` (new IDs) and `/files/rescan` with an added/removed/refreshed summary. Reserved the `id` content-path segment; adopted raw on-disk files into entries during listing; kept the legacy `/files/{directories,pages}` facades and all existing content tests green. New tests: `TestFilesCRUDByPathAndID`, `TestFilesDirectoryListingAndPageKind`, `TestFilesListFiltersAndPaging`, `TestFilesMoveAndCopy`, `TestFilesConflictsAndReservedSegment`, `TestFilesDeleteByPathRemovesSubtree`, `TestFilesUploadLimitAndTraversal`, `TestFilesRescanSummary`, `TestFilesProjectIsolation`. All checks green. Next: Phase 5.
 - **2026-10-08** — Phase 5: served content with stable URLs and safe downloads. Added `serveFileContent` and `serveDownload` (files_api.go): `GET`/`HEAD /api/v1/{project}/files/{id}/content` and the human `/{project}/files/id/{id}` stream an entry's raw bytes with `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff` via `http.ServeContent` (byte ranges, conditional requests, missing ID `404`). `contentUI` intercepts the reserved `id` segment before content-path canonicalisation and permits `HEAD`; non-page files at a path URL now download instead of `writeText`, while Markdown still renders (sanitised) and HTML stays trusted executable content at path URLs. New tests: `TestFileContentDownloadHeadersAndRanges`, `TestFileContentMissingIDReturnsNotFound`, `TestFileContentIsProjectScoped`, `TestStableHumanURLDownloadsRawPageBytes`, `TestPathURLNonPageDownloads`, `TestStableHumanURLMissingAndMethodRestrictions`. All checks green. Next: Phase 6.
+- **2026-10-08** — Phase 6: native extraction and the FTS5 text index. Added `content_search` (`id`, `project`, `path`, `kind`, `source`, `title`, `body`) as a project-scoped FTS5 virtual table created in `migrateSchema`; native extraction in `extraction.go` (text-like formats and a 1 MiB cap; HTML stripped of tags/script/style with entities decoded; PDF text layers via the chosen pure-Go `github.com/ledongthuc/pdf`) feeding index helpers in `content_search.go`. `saveContentEntryExec` now indexes every create/replace (files API, pages, ZIP uploads, copy); rescan rebuilds native text without clobbering agent rows; move re-homes index paths transactionally; delete drops rows by exact path and subtree; project scope is carried in the table. Added the mandatory `-tags sqlite_fts5` to `Makefile`, `Dockerfile` and a new `.github/workflows/ci.yml`, and documented that a tagless binary fails at startup. New tests: `TestNativeExtractionPerType`, `TestNativeExtractionCapsIndexedText`, `TestFTS5Available`, `TestContentSearchIndexesWritesAndDrops`, `TestContentSearchRebuiltByRescan`, `TestContentSearchMoveKeepsIDAndPath`, `TestContentSearchProjectScoped`. All checks green. Next: Phase 7.

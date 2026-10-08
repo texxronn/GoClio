@@ -78,6 +78,20 @@ than the product.
     nosniff headers instead of being served inline. Markdown pages still render
     (sanitised) and HTML pages remain trusted executable content at their path
     URLs. A missing ID returns `404`.
+- Native extraction and the full-text index (spec v1.7 §64.6): text-like content
+  (`text/*` as well as `.md`, `.txt`, `.csv`, `.json`, `.html` and similar
+  formats) is indexed natively — HTML with markup removed — and PDF text layers
+  are extracted with the small pure-Go `github.com/ledongthuc/pdf` library.
+  Image-only or malformed PDFs yield no native text; OCR remains out of scope
+  and is handled by sidecar agents (section 64.8). Extracted text is capped at
+  1 MiB per entry and stored in the project-scoped `content_search` FTS5 table
+  (`id`, `project`, `path`, `kind`, `source`, `title`, `body`). The index is
+  populated on create/replace (files API, pages, ZIP uploads and copy), updated
+  on move, rebuilt by rescan and dropped on delete. This adds a
+  `github.com/ledongthuc/pdf` module dependency.
+- Builds and tests require `-tags sqlite_fts5` so the cgo SQLite driver compiles
+  in FTS5. The `Makefile`, `Dockerfile` and CI apply it; a binary built without
+  the tag fails at startup when it creates `content_search`.
 
 ### Documentation
 

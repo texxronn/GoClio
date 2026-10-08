@@ -8,7 +8,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/clio .
+RUN CGO_ENABLED=1 go build -tags sqlite_fts5 -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/clio .
 
 FROM debian:bookworm-slim
 

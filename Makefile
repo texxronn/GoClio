@@ -12,18 +12,23 @@ VERSION := $(patsubst v%,%,$(VERSION))
 
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
+# The full-text index uses SQLite FTS5 (SPEC.md section 64.6), which the
+# mattn/go-sqlite3 driver only compiles in under this build tag. Tests and
+# builds are unsupported without it: the driver has no "fts5" module at runtime.
+TAGS ?= sqlite_fts5
+
 .PHONY: build test vet check
 
 # Build ./clio with the version derived from the git tag.
 build:
-	CGO_ENABLED=1 go build -buildvcs=false -trimpath -ldflags="$(LDFLAGS)" -o clio .
+	CGO_ENABLED=1 go build -tags $(TAGS) -buildvcs=false -trimpath -ldflags="$(LDFLAGS)" -o clio .
 
 test:
-	go test ./...
+	go test -tags $(TAGS) ./...
 
 vet:
-	go vet ./...
+	go vet -tags $(TAGS) ./...
 
 # The full verification sequence referenced by AGENTS.md.
 check: test vet
-	CGO_ENABLED=1 go build -buildvcs=false -ldflags="$(LDFLAGS)" -o /tmp/gocl-clio-check .
+	CGO_ENABLED=1 go build -tags $(TAGS) -buildvcs=false -ldflags="$(LDFLAGS)" -o /tmp/gocl-clio-check .

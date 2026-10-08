@@ -18,12 +18,17 @@ contract without updating the specification deliberately.
 Run the relevant checks after code changes:
 
 ```sh
-go test ./...
-go vet ./...
-go build -buildvcs=false -o /tmp/gocl-clio-check .
+go test -tags sqlite_fts5 ./...
+go vet -tags sqlite_fts5 ./...
+go build -tags sqlite_fts5 -buildvcs=false -o /tmp/gocl-clio-check .
 ```
 
 `make check` runs the same sequence and injects the git-derived product version.
+
+The `sqlite_fts5` tag is mandatory for running: the full-text index uses SQLite
+FTS5 (section 64.6), which the cgo driver only compiles in under that tag. A
+binary built without it still compiles but fails at startup when it creates the
+`content_search` table.
 
 Tests should exercise behavior through HTTP where practical and use temporary
 SQLite databases and content directories. Add regression tests for fixes and

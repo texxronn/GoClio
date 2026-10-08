@@ -80,6 +80,7 @@ func (a *app) contentEntryWhere(where string, args ...any) (contentEntry, bool, 
 // sqlExecer is satisfied by *sql.DB and *sql.Tx.
 type sqlExecer interface {
 	Exec(query string, args ...any) (sql.Result, error)
+	QueryRow(query string, args ...any) *sql.Row
 }
 
 // saveContentEntry records the bytes of a page or file. The entry ID and
@@ -106,22 +107,50 @@ func saveContentEntryExec(exec sqlExecer, project, path string, data []byte, cre
 	}
 	sum := sha256.Sum256(data)
 	sha := hex.EncodeToString(sum[:])
-	_, err := exec.Exec(
+	if _, err := exec.Exec(
 		`INSERT INTO content_entries(id,project,path,kind,content_type,size,sha256,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)
 		 ON CONFLICT(project,path) DO UPDATE SET kind=excluded.kind,content_type=excluded.content_type,size=excluded.size,sha256=excluded.sha256,updated_at=excluded.updated_at`,
 		newID(), project, path, contentKind(path), contentType, len(data), sha, createdAt, now,
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	id, err := contentEntryIDExec(exec, project, path)
+	if err != nil {
+		return err
+	}
+	title, body := nativeExtraction(path, contentType, data)
+	return indexNativeText(exec, project, id, path, contentKind(path), title, body)
 }
 
+// contentEntryIDExec resolves the entry ID for a path after an upsert.
+func contentEntryIDExec(exec sqlExecer, project, path string) (string, error) {
+	var id string
+	err := exec.QueryRow(`SELECT id FROM content_entries WHERE project=? AND path=?`, project, path).Scan(&id)
+	return id, err
+}
+
+// deleteContentEntry removes an entry and its derived search row (section 64.6).
 func (a *app) deleteContentEntry(path string) error {
+	if _, err := a.db.Exec(`DELETE FROM content_search WHERE project=? AND path=?`, a.project, path); err != nil {
+		return err
+	}
 	_, err := a.db.Exec(`DELETE FROM content_entries WHERE project=? AND path=?`, a.project, path)
 	return err
 }
 
+// deleteContentEntriesUnder removes a subtree of entries and their search rows.
 func (a *app) deleteContentEntriesUnder(path string) error {
 	prefix := path + "/"
-	_, err := a.db.Exec(`DELETE FROM content_entries WHERE project=? AND (path=? OR substr(path,1,length(?))=?)`, a.project, path, prefix, prefix)
+	if _, err := a.db.Exec(
+		`DELETE FROM content_search WHERE project=? AND (path=? OR substr(path,1,length(?))=?)`,
+		a.project, path, prefix, prefix,
+	); err != nil {
+		return err
+	}
+	_, err := a.db.Exec(
+		`DELETE FROM content_entries WHERE project=? AND (path=? OR substr(path,1,length(?))=?)`,
+		a.project, path, prefix, prefix,
+	)
 	return err
 }
 
@@ -144,7 +173,9 @@ func (a *app) reconcileContent() error {
 // rescanContent reconciles the catalog with the filesystem and reports how many
 // entries were added, removed and refreshed (section 64.4). A refreshed entry
 // is one whose stored size or content type no longer matches the file on disk;
-// its bytes are not re-hashed, so a stale sha256 is cleared.
+// its bytes are not re-hashed, so a stale sha256 is cleared. Native extracted
+// text is rebuilt for entries that are new, refreshed or missing an index row
+// (section 64.6); agent-supplied rows (section 64.8) are left in place.
 func (a *app) rescanContent() (contentRescan, error) {
 	summary := contentRescan{}
 	existing := map[string]contentEntry{}
@@ -165,6 +196,27 @@ func (a *app) rescanContent() (contentRescan, error) {
 		return summary, err
 	}
 	rows.Close()
+
+	// Index provenance by entry ID, so a rebuild neither forgets which entries
+	// already have text nor clobbers agent-supplied text (sections 64.6, 64.8).
+	indexed := map[string]bool{}
+	indexRows, err := a.db.Query(`SELECT id FROM content_search WHERE project=?`, a.project)
+	if err != nil {
+		return summary, err
+	}
+	for indexRows.Next() {
+		var id string
+		if err = indexRows.Scan(&id); err != nil {
+			indexRows.Close()
+			return summary, err
+		}
+		indexed[id] = true
+	}
+	if err = indexRows.Err(); err != nil {
+		indexRows.Close()
+		return summary, err
+	}
+	indexRows.Close()
 
 	root := a.contentRoot()
 	seen := map[string]bool{}
@@ -197,6 +249,12 @@ func (a *app) rescanContent() (contentRescan, error) {
 		kind, contentType := contentKind(clean), contentMediaType(clean)
 		if entry, ok := existing[clean]; ok {
 			if entry.Size == info.Size() && entry.Kind == kind && entry.ContentType == contentType {
+				// Unchanged: rebuild the derived text only when it is missing.
+				if !indexed[entry.ID] {
+					if err = a.indexContentFile(entry.ID, clean, kind, contentType, p); err != nil {
+						return err
+					}
+				}
 				return nil
 			}
 			_, err = a.db.Exec(
@@ -207,18 +265,29 @@ func (a *app) rescanContent() (contentRescan, error) {
 				return err
 			}
 			summary.Refreshed++
-			return nil
+			return a.indexContentFile(entry.ID, clean, kind, contentType, p)
 		}
+		id := newID()
 		now := formatUTC(time.Now())
 		result, err := a.db.Exec(
 			`INSERT OR IGNORE INTO content_entries(id,project,path,kind,content_type,size,sha256,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`,
-			newID(), a.project, clean, kind, contentType, info.Size(), "", now, now,
+			id, a.project, clean, kind, contentType, info.Size(), "", now, now,
 		)
 		if err != nil {
 			return err
 		}
-		if affected, err := result.RowsAffected(); err == nil && affected > 0 {
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if affected > 0 {
 			summary.Added++
+		} else if id, err = contentEntryIDExec(a.db, a.project, clean); err != nil {
+			// Lost a race with another writer; adopt the winning ID.
+			return err
+		}
+		if !indexed[id] {
+			return a.indexContentFile(id, clean, kind, contentType, p)
 		}
 		return nil
 	})
@@ -233,6 +302,14 @@ func (a *app) rescanContent() (contentRescan, error) {
 			return summary, err
 		}
 		summary.Removed++
+	}
+	// Drop index rows for entries that no longer exist (removed or renamed
+	// on disk); the index is derived and must not outlive its entry.
+	if _, err = a.db.Exec(
+		`DELETE FROM content_search WHERE project=? AND id NOT IN (SELECT id FROM content_entries WHERE project=?)`,
+		a.project, a.project,
+	); err != nil {
+		return summary, err
 	}
 	return summary, nil
 }
