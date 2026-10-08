@@ -72,6 +72,10 @@ than the product.
   when mounted outside `default` and then offers only the Home link. No routes
   changed.
 
+### Fixed
+
+- File downloads now send `Content-Disposition: attachment; filename="<name>"`, so the stable ID URL saves under the real file name instead of the opaque ID. An `?inline=1` request on a stable/API content URL previews types that are safe to display (images other than SVG, `application/pdf`, plain text, CSV and Markdown, audio and video) with `Content-Disposition: inline`; active content (HTML, SVG, scripts) and every other type still download. The file explorer's **Open in new tab** uses the inline preview for files and the rendered path URL for pages.
+
 ## [2.0.0] - 2026-10-08
 
 ### Added

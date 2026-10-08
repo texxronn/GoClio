@@ -388,17 +388,54 @@ func (a *app) serveFileContent(w http.ResponseWriter, r *http.Request, id string
 		writeErr(w, ae)
 		return
 	}
-	if ae = serveDownload(w, r, target, entry.ContentType); ae != nil {
+	if ae = serveDownload(w, r, target, entry.ContentType, wantsInline(r)); ae != nil {
 		writeErr(w, ae)
 	}
 }
 
-// serveDownload streams a regular file as an attachment (section 64.5). The
-// download disposition and nosniff are set before http.ServeContent, which
-// supplies HEAD support and byte ranges. A zero modification time is passed so
-// no Last-Modified header (and therefore no If-Modified-Since/304 conditional
-// requests) is exposed, matching section 3.1; ranges and HEAD still work.
-func serveDownload(w http.ResponseWriter, r *http.Request, target, contentType string) *apiError {
+// wantsInline reports whether the request asked for an inline preview
+// (section 64.5), e.g. GET /{project}/files/id/{id}?inline=1.
+func wantsInline(r *http.Request) bool {
+	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("inline"))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
+// inlinePreviewSafe reports whether a content type may be rendered inline by the
+// browser without executing active content in Clio's origin (section 64.5).
+// HTML, SVG, XHTML and scripts are never safe; images/PDF/plain text/CSV/
+// Markdown/audio/video are.
+func inlinePreviewSafe(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return false
+	}
+	mediaType = strings.ToLower(mediaType)
+	switch mediaType {
+	case "application/pdf", "text/plain", "text/csv", "text/markdown", "text/tab-separated-values":
+		return true
+	}
+	switch {
+	case strings.HasPrefix(mediaType, "image/"):
+		return mediaType != "image/svg+xml"
+	case strings.HasPrefix(mediaType, "audio/"), strings.HasPrefix(mediaType, "video/"):
+		return true
+	}
+	return false
+}
+
+// serveDownload streams a regular file (section 64.5). The disposition and
+// nosniff are set before http.ServeContent, which supplies HEAD support and byte
+// ranges. The download disposition always carries the entry's file name so the
+// browser saves it as the real name; an explicit inline request (inline true)
+// uses "inline" for content types that are safe to display and stays
+// "attachment" for active content and everything else. A zero modification time
+// is passed so no Last-Modified header (and therefore no If-Modified-Since/304
+// conditional requests) is exposed, matching section 3.1; ranges and HEAD still
+// work.
+func serveDownload(w http.ResponseWriter, r *http.Request, target, contentType string, inline bool) *apiError {
 	f, err := os.Open(target)
 	if os.IsNotExist(err) {
 		return missing("File")
@@ -414,7 +451,11 @@ func serveDownload(w http.ResponseWriter, r *http.Request, target, contentType s
 	if !info.Mode().IsRegular() {
 		return missing("File")
 	}
-	w.Header().Set("Content-Disposition", "attachment")
+	disposition := "attachment"
+	if inline && inlinePreviewSafe(contentType) {
+		disposition = "inline"
+	}
+	w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": info.Name()}))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if contentType != "" {
 		w.Header().Set("Content-Type", contentType)

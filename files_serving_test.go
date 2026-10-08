@@ -27,7 +27,7 @@ func TestFileContentDownloadHeadersAndRanges(t *testing.T) {
 	if full.Code != http.StatusOK {
 		t.Fatalf("GET content status = %d: %s", full.Code, full.Body.String())
 	}
-	if got := full.Header().Get("Content-Disposition"); got != "attachment" {
+	if got := full.Header().Get("Content-Disposition"); !strings.HasPrefix(got, "attachment") {
 		t.Errorf("Content-Disposition = %q, want attachment", got)
 	}
 	if got := full.Header().Get("X-Content-Type-Options"); got != "nosniff" {
@@ -63,7 +63,7 @@ func TestFileContentDownloadHeadersAndRanges(t *testing.T) {
 	if head.Code != http.StatusOK {
 		t.Fatalf("HEAD status = %d: %s", head.Code, head.Body.String())
 	}
-	if got := head.Header().Get("Content-Disposition"); got != "attachment" {
+	if got := head.Header().Get("Content-Disposition"); !strings.HasPrefix(got, "attachment") {
 		t.Errorf("HEAD Content-Disposition = %q", got)
 	}
 	if got := head.Header().Get("Content-Length"); got != "10" {
@@ -93,7 +93,7 @@ func TestFileContentDownloadOmitsModificationConditionals(t *testing.T) {
 	if got := full.Header().Get("ETag"); got != "" {
 		t.Errorf("ETag = %q, want empty", got)
 	}
-	if got := full.Header().Get("Content-Disposition"); got != "attachment" {
+	if got := full.Header().Get("Content-Disposition"); !strings.HasPrefix(got, "attachment") {
 		t.Errorf("Content-Disposition = %q, want attachment", got)
 	}
 	if got := full.Header().Get("X-Content-Type-Options"); got != "nosniff" {
@@ -189,7 +189,7 @@ func TestStableHumanURLDownloadsRawPageBytes(t *testing.T) {
 			if w.Code != http.StatusOK {
 				t.Fatalf("%s %s status = %d: %s", name, label, w.Code, w.Body.String())
 			}
-			if got := w.Header().Get("Content-Disposition"); got != "attachment" {
+			if got := w.Header().Get("Content-Disposition"); !strings.HasPrefix(got, "attachment") {
 				t.Errorf("%s %s Content-Disposition = %q, want attachment", name, label, got)
 			}
 			if got := w.Header().Get("X-Content-Type-Options"); got != "nosniff" {
@@ -216,7 +216,7 @@ func TestPathURLNonPageDownloads(t *testing.T) {
 	if download.Code != http.StatusOK {
 		t.Fatalf("file path URL status = %d: %s", download.Code, download.Body.String())
 	}
-	if got := download.Header().Get("Content-Disposition"); got != "attachment" {
+	if got := download.Header().Get("Content-Disposition"); !strings.HasPrefix(got, "attachment") {
 		t.Errorf("Content-Disposition = %q, want attachment", got)
 	}
 	if got := download.Header().Get("X-Content-Type-Options"); got != "nosniff" {
@@ -242,5 +242,47 @@ func TestStableHumanURLMissingAndMethodRestrictions(t *testing.T) {
 	assertAPIError(t, testRequest(t, a, http.MethodGet, "/default/files/id", nil, ""), http.StatusNotFound)
 	if w := testRequest(t, a, http.MethodPost, "/default/files/id/anything", nil, ""); w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST stable URL status = %d, want 405", w.Code)
+	}
+}
+
+func TestFileDownloadFilenameAndInlinePreview(t *testing.T) {
+	a := newTestApp(t)
+	pdf := putFile(t, a, "default", "/docs/Electric_Bill.pdf", "%PDF-1.4 fake", "application/pdf")
+	id := pdf["id"].(string)
+
+	// The download disposition carries the real file name at both URLs.
+	for label, url := range map[string]string{
+		"path": "/default/files/docs/Electric_Bill.pdf",
+		"id":   "/default/files/id/" + id,
+	} {
+		w := testRequest(t, a, http.MethodGet, url, nil, "")
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s status = %d: %s", label, w.Code, w.Body.String())
+		}
+		disp := w.Header().Get("Content-Disposition")
+		if !strings.HasPrefix(disp, "attachment") || !strings.Contains(disp, "Electric_Bill.pdf") {
+			t.Errorf("%s Content-Disposition = %q, want attachment with the file name", label, disp)
+		}
+	}
+
+	// An inline request previews a safe type and still names the file.
+	inline := testRequest(t, a, http.MethodGet, "/default/files/id/"+id+"?inline=1", nil, "")
+	if got := inline.Header().Get("Content-Disposition"); !strings.HasPrefix(got, "inline") || !strings.Contains(got, "Electric_Bill.pdf") {
+		t.Errorf("inline Content-Disposition = %q, want inline with the file name", got)
+	}
+	if got := inline.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("inline X-Content-Type-Options = %q, want nosniff", got)
+	}
+
+	// Plain text previews inline; HTML is active content and always downloads.
+	txt := putFile(t, a, "default", "/docs/notes.txt", "hello", "text/plain")
+	txtInline := testRequest(t, a, http.MethodGet, "/default/files/id/"+txt["id"].(string)+"?inline=1", nil, "")
+	if got := txtInline.Header().Get("Content-Disposition"); !strings.HasPrefix(got, "inline") {
+		t.Errorf("text inline Content-Disposition = %q, want inline", got)
+	}
+	html := putFile(t, a, "default", "/docs/page.html", "<h1>x</h1>", "text/html")
+	forced := testRequest(t, a, http.MethodGet, "/default/files/id/"+html["id"].(string)+"?inline=1", nil, "")
+	if got := forced.Header().Get("Content-Disposition"); !strings.HasPrefix(got, "attachment") {
+		t.Errorf("html inline Content-Disposition = %q, want attachment", got)
 	}
 }
