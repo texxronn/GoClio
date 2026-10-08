@@ -1,11 +1,11 @@
 # Clio
 
-## Consolidated Specification v1.4 — Go implementation contract
+## Consolidated Specification v1.5 — Go implementation contract
 
 **Status: FROZEN**
 
 This specification is the implementation contract for Clio v1. It is a single
-consolidated document: sections 1–63 are the complete, equally normative contract.
+consolidated document: sections 1–64 are the complete, equally normative contract.
 The former v1.1 clarifications and addenda have been merged into the topical
 sections rather than appended, so there are no separate clarification or appendix
 parts. Where two statements appear to conflict, the conflict is a defect in this
@@ -63,6 +63,14 @@ Example payloads are illustrative unless a rule references them explicitly.
   so record reads can return decimal fields as JSON numbers for consumers that
   cannot handle string decimals, while the default string representation and all
   existing responses are unchanged.
+- **v1.5** — added the content filesystem (section 64): stable content-entry
+  identifiers, the files API and `/f/{id}` stable URLs, the `attachment` field
+  type, native text extraction with a bounded SQLite full-text index, the search
+  and enrichment APIs, optional WebDAV exposure at `/dav`, and the corresponding
+  backup requirements. Added `attachment` to the field types (section 13),
+  reserved `/f` and `/dav` (section 32.3), added a files count to health
+  (section 47), and removed the prohibition on renaming or moving published
+  content (section 3.1).
 
 ### Table of contents
 
@@ -186,6 +194,7 @@ Example payloads are illustrative unless a rule references them explicitly.
 - [62. Definition of done](#62-definition-of-done)
   - [62.1 v1 scope](#621-v1-scope)
 - [63. Final product boundary](#63-final-product-boundary)
+- [64. Content filesystem, attachments, search, and WebDAV](#64-content-filesystem-attachments-search-and-webdav)
 <!-- /TOC -->
 
 ---
@@ -298,7 +307,9 @@ must not be assumed by clients:
 * `ETag`/`Last-Modified` conditional requests and all other caching headers;
 * CORS headers or cross-origin browser access (v1 is same-origin);
 * group update or delete endpoints (section 17);
-* renaming or moving a published page or directory;
+* file versioning, and per-file sharing or permissions beyond section 54;
+  explicit rename and move of content entries are supported through the content
+  filesystem (section 64);
 * record or table import/export endpoints beyond the ZIP directory upload.
 
 ---
@@ -724,6 +735,7 @@ datetime
 enum
 url
 reference
+attachment
 ```
 
 A field may have:
@@ -798,6 +810,9 @@ reserved: a field may not use those names.
   table. The stored value is the target record ID (section 14.1), and Clio
   validates that the target exists on create, update and default application.
   References are enforced as described in section 13.4.
+- An `attachment` field stores a content-entry ID (section 64.9). Clio validates
+  that the target entry exists on create, update and default application, and a
+  referenced entry cannot be deleted until the referencing value is cleared.
 - `min`/`max` apply to ordered types: `string`, `text`, `url`, `enum`,
   `integer`, `decimal`, `date` and `datetime`. `min_length`/`max_length` apply to
   `string`, `text`, `url` and `enum`, and are measured in Unicode code points.
@@ -885,6 +900,7 @@ The structured-data API uses the following JSON representations.
 | enum      | JSON string                                       |
 | url       | JSON string                                       |
 | reference | JSON string containing target record ID           |
+| attachment | JSON string containing a content-entry ID        |
 
 Example:
 
@@ -2201,6 +2217,9 @@ The following root paths are reserved by Clio:
 /assets
 /t
 /collections
+/files
+/f
+/dav
 /favicon.svg
 ```
 
@@ -2256,6 +2275,7 @@ datetime     → datetime input
 enum         → select
 url          → URL input
 reference    → select/search control
+attachment   → file link/picker control
 ```
 
 Server-side validation is authoritative.
@@ -2312,7 +2332,8 @@ maps to `limit=50` and `offset=(page-1)*50` and uses the API response's total.
 
 The browser is for inspection and navigation only. Record creation and editing
 remain in the existing `/t/` forms or API. Collection paths are reserved from
-published content so they cannot shadow the browser routes.
+published content so they cannot shadow the browser routes. The content
+filesystem has a parallel explorer at `/files` (section 64.14).
 
 Tests cover browser route handling and methods, loading ClioJS, group/table
 navigation, metadata-ordered visible columns, safe text rendering, URL/page
@@ -2341,6 +2362,9 @@ Directories may contain:
 * files
 * links to tables
 * links to records
+
+Pages and files are content entries with stable identifiers; identity, the
+files API, and stable file URLs are defined in section 64.
 
 ## 36.1 Content-path rules
 
@@ -2442,6 +2466,9 @@ GET    /api/v1/directories?path=/...
 POST   /api/v1/directories
 DELETE /api/v1/directories?path=/...
 ```
+
+The directory API is a compatibility facade over the filesystem REST API
+(section 64.4).
 
 `GET` must return directory metadata and children.
 
@@ -2559,6 +2586,11 @@ Pages have stable URLs.
 ---
 
 # 41. Page API
+
+Pages are entries in the content filesystem (section 64). The Page API remains
+available and behaves as before; it is a compatibility facade over the same
+entries used by the files API (section 64.4), so a page created through either
+interface has the same path and stable ID.
 
 Create/update page:
 
@@ -2773,9 +2805,10 @@ become an ORM, application framework, state store, persistence layer, or cache.
 The server remains authoritative; the client introduces no alternate query,
 validation, time-series, or concurrency semantics.
 
-`Clio.DataBrowser.mount(element)` is the sole built-in UI component in the
-ClioJS asset. It is narrowly scoped to the read-only collection browser in
-section 35 and does not establish a general application framework or state
+ClioJS provides two built-in UI components: `Clio.DataBrowser.mount(element)`,
+the read-only collection browser in section 35, and
+`Clio.FileBrowser.mount(element)`, the content filesystem explorer in
+section 64.14. Neither establishes a general application framework or state
 store.
 
 ## 43.2 Client operations
@@ -2786,7 +2819,8 @@ client exposes convenient access to metadata and groups, and a table handle
 obtained with `clio.table(group, table)`. Table handles support metadata,
 record listing/querying, get/create/update/delete, and the lightweight
 `list`, `first`, `count`, `distinct`, and `aggregate` conveniences. The client
-also supports creating groups/tables and accessing page source and directories.
+also supports creating groups/tables, accessing page source and directories,
+listing and mutating content entries, search, and the file explorer.
 
 Record query options map predictably to the documented API query parameters:
 `limit`, `offset`, `sort`, `order`, filters, time bounds, buckets, grouping,
@@ -2821,8 +2855,9 @@ Markdown safety requirements remain those in sections 44 and 42.1.
 available client capabilities so browser users and generated pages can discover
 ClioJS without a separate package. Tests cover its static routes, metadata,
 table and record operations, query encoding, paging/async iteration, errors,
-decimal preservation, page/directory access, cancellation where implemented,
-and Markdown integration. The asset must work in an ordinary browser page.
+decimal preservation, page/directory access, content files and search, the
+file explorer, cancellation where implemented, and Markdown integration. The
+asset must work in an ordinary browser page.
 
 ---
 
@@ -3037,6 +3072,11 @@ The help must include:
 * HTML
 * client-side Markdown rendering
 * directory-tree uploads
+* files and stable file IDs
+* full-text search
+* attachments
+* WebDAV
+* file-system browsing at `/files`
 * URL conventions
 * health
 * errors
@@ -3088,7 +3128,8 @@ Example:
   "tables": 12,
   "records": 1842,
   "pages": 32,
-  "directories": 11
+  "directories": 11,
+  "files": 57
 }
 ```
 
@@ -3106,6 +3147,7 @@ Health should answer:
 * Number of records?
 * Number of pages?
 * Number of directories?
+* Number of files?
 
 `database.status` is `ok` only when a SQLite integrity check (`PRAGMA
 quick_check`) returns `ok`; otherwise it is `error` and the top-level `status`
@@ -3166,11 +3208,29 @@ DELETE /api/v1/directories?path=/...
 GET    /api/v1/pages?path=/...
 POST   /api/v1/pages
 DELETE /api/v1/pages?path=/...
+
+GET    /api/v1/files
+GET    /api/v1/files?path=/...
+GET    /api/v1/files/{id}
+GET    /api/v1/files/{id}/content
+PUT    /api/v1/files?path=/...
+POST   /api/v1/files/directories
+DELETE /api/v1/files?path=/...
+DELETE /api/v1/files/{id}
+POST   /api/v1/files/move
+POST   /api/v1/files/copy
+POST   /api/v1/files/rescan
+
+GET    /api/v1/search?q=...
+
+GET    /api/v1/files/extraction?path=/...
+PUT    /api/v1/files/extraction?path=/...
+DELETE /api/v1/files/extraction?path=/...
 ```
 
 Client-side Markdown rendering is exposed as a static browser asset rather than a separate API service.
 
-The optional ClioJS browser client is served at `/assets/clio.js` and `/assets/clio/v1/clio.js`; its contract is specified in section 43.
+The optional ClioJS browser client is served at `/assets/clio.js` and `/assets/clio/v1/clio.js`; its contract is specified in section 43. The content filesystem explorer is served at `/files` and uses ClioJS (section 64.14); the collection data browser remains at `/collections` (section 35).
 
 ---
 
@@ -3268,7 +3328,7 @@ record ordering is defined in section 23. Offset/limit pagination remains
 sufficient for v1. Query operations continue to execute in SQLite and must not
 load whole tables into application memory.
 
-Index configuration is optional for ordinary use, invisible in the primary UI, and requires no index-administration endpoint. Clio does not provide full-text/spatial indexes, index hints, workload-driven index creation, or query-plan analysis in v1.
+Index configuration is optional for ordinary use, invisible in the primary UI, and requires no index-administration endpoint. Clio provides a bounded full-text index over extracted content using SQLite's full-text capability (section 64.6); it does not introduce an external search engine or a separate search database. Spatial indexes, index hints, workload-driven index creation, and query-plan analysis remain out of scope.
 
 ---
 
@@ -3466,6 +3526,11 @@ Therefore:
 
 Markdown and Clio-generated HTML views must still escape/sanitize untrusted data appropriately.
 
+Non-page content is served as a download with `Content-Disposition: attachment`
+and `X-Content-Type-Options: nosniff`, including through `/f/{id}` (section
+64.5). Because WebDAV allows a publisher to write `.html` into the content tree,
+the trusted-publisher boundary applies to WebDAV as well (section 64.10).
+
 This boundary must be clearly documented in the README and `/help`.
 
 ---
@@ -3482,7 +3547,9 @@ Log at least:
 * HTTP failures
 * database errors
 * content publication failures
+* extraction failures
 * archive upload failures
+* WebDAV failures
 
 No external metrics system is required.
 
@@ -3503,8 +3570,11 @@ Documentation must describe:
 * database integrity expectations
 
 A consistent backup captures the SQLite database, its WAL sidecar files
-(`-wal`/`-shm`) and the published content directory together. The documented
-procedure may stop the service before copying, which is always correct. Clio
+(`-wal`/`-shm`) and the published content directory together. The database is
+mandatory: it holds durable state that the filesystem cannot reproduce —
+content-entry IDs, entry timestamps, and agent-supplied extracted text
+(section 64.11). The documented procedure may stop the service before copying,
+which is always correct. Clio
 need not implement an online backup API in v1; operators who require a hot copy
 may use SQLite's own `VACUUM INTO` or `.backup` tooling and then copy the content
 tree.
@@ -3583,6 +3653,12 @@ Test:
 * stable URL generation
 * traversal rejection
 * client-side Markdown rendering for representative Markdown content
+* content-entry identity and stable IDs across rename and move
+* the files API, `/f/{id}` serving, and download headers
+* text extraction, search, and agent enrichment
+* `attachment` field validation and delete integrity
+* WebDAV methods and the opt-in flag
+* the `/files` explorer and ClioJS file browser
 
 ## HTTP/API
 
@@ -3969,6 +4045,11 @@ Clio v1 is complete when:
 * API v1 is usable by an LLM
 * no CORS configuration is required
 * automated tests pass
+* files are first-class with stable IDs
+* text extraction and search work
+* `attachment` fields link records to files
+* WebDAV can be enabled
+* the content filesystem is browsable at `/files`
 * the implementation remains small and understandable
 
 ## 62.1 v1 scope
@@ -4024,4 +4105,393 @@ Metadata
 ```
 
 Everything else should be built from those primitives.
+
+---
+
+# 64. Content filesystem, attachments, search, and WebDAV
+
+## 64.1 Framing and scope
+
+The content tree (section 36) is a filesystem. Its entries are directories, pages
+and files. Pages are files with rendering semantics. Every page or file is a
+**content entry** with a stable identifier. This section is additive: it does
+not change the semantics of sections 1–63 except where it explicitly says so
+(section 64.2 replaces the restriction on renaming or moving published content
+in section 3.1).
+
+## 64.2 Content entries and identity
+
+A content entry is a page or a file and has:
+
+```text
+id
+path
+kind
+content_type
+size
+sha256 (optional)
+created_at
+updated_at
+```
+
+- `id` is opaque, generated by Clio, globally unique across the instance,
+  immutable, and stable across rename and move. Its concrete format is an
+  implementation detail; clients must treat it as an opaque string and must not
+  parse, sort, or assume a length.
+- `kind` is `page` or `file`. A path whose final segment ends in `.md` or
+  `.html` is a `page`; every other regular file is a `file`. The extension
+  determines the kind; Clio must not silently add or remove extensions.
+- `path` is the canonical content path (section 36.1). It is mutable through an
+  explicit rename or move.
+- `content_type` is the media type served for the entry. For pages it is
+  determined by the extension (`text/markdown`, `text/html`); for files it is
+  inferred from the extension or the upload's declared type.
+- `sha256`, when present, is the lowercase hexadecimal SHA-256 of the stored
+  bytes. It may be absent for entries discovered by reconciliation.
+- `created_at` and `updated_at` are system-managed RFC 3339 UTC timestamps.
+- Directories do not have content entries; they are structural and addressed by
+  path. Moving a directory updates the `path` of every descendant entry and
+  preserves each descendant's `id`.
+- The set of content entries is durable, authoritative state: IDs cannot be
+  derived from the filesystem, so it must be preserved by backup (section 57).
+
+Reconciliation: at startup and on rescan (section 64.4), Clio reconciles entries
+with the filesystem. An existing path keeps its ID; a new path receives a new
+ID; a row whose path no longer exists is removed. A file renamed directly on the
+filesystem (outside Clio) is observed as a removal and an addition and therefore
+receives a new ID; supported rename and move are performed through the files API
+(section 64.4) or WebDAV (section 64.10). Symbolic links are never followed.
+
+## 64.3 Stable file URLs
+
+Every content entry has two URLs:
+
+- its canonical path URL, for example `https://clio.example.com/bills/2026-03.pdf`;
+- its stable ID URL, `/f/{id}`.
+
+`/f/{id}` serves or redirects to the entry's current bytes regardless of its
+current path; an optional cosmetic name segment, `/f/{id}/{name}`, is accepted
+and ignored for resolution. The path URL changes when the entry is moved; the ID
+URL does not. `/f` is a reserved root (section 32.3). `/f` responses use the
+serving rules of section 64.5.
+
+Pages are rendered at their path URL (section 41); `/f/{id}` serves the raw
+stored bytes for any entry, including a page.
+
+## 64.4 Filesystem REST API
+
+The content filesystem is exposed as a REST API under `/api/v1/files`. It
+addresses filesystem nodes — directories, pages and files — and unifies the
+operations that the directory API (section 38) and page API (section 41) expose
+as compatibility facades. In this API, "files" names the filesystem resource;
+directories are nodes of it.
+
+```text
+GET    /api/v1/files                          # list entries (flat catalog)
+GET    /api/v1/files?path=/...                # node metadata; directory listing
+GET    /api/v1/files/{id}                     # file/page entry by id
+GET    /api/v1/files/{id}/content             # download bytes (HEAD, ranges)
+PUT    /api/v1/files?path=/...                # create/replace a file (raw bytes)
+POST   /api/v1/files/directories              # create a directory
+DELETE /api/v1/files?path=/...                # delete a file, page or directory
+DELETE /api/v1/files/{id}                     # delete a file/page entry by id
+POST   /api/v1/files/move                     # rename/move a node
+POST   /api/v1/files/copy                     # copy a node
+POST   /api/v1/files/rescan                   # reconcile catalog with disk
+```
+
+Conventions and behavior:
+
+- Content paths are carried in the `path` query parameter (section 20.1); IDs
+  are path parameters. Paths obey section 36.1.
+- `GET /api/v1/files?path=...` returns the node at that path. For a directory it
+  returns the directory and its children (paged); for a page or file it returns
+  the content-entry representation. A missing path returns `404 Not Found`.
+- `GET /api/v1/files` (no `path`) lists content entries across the whole
+  filesystem. It accepts `limit` and `offset` (section 23 defaults) and optional
+  `prefix`, `content_type` and `kind` filters.
+- `PUT /api/v1/files?path=...` creates or replaces a file. The request body is
+  the raw bytes; the media type is taken from the `Content-Type` header,
+  defaulting to `application/octet-stream`. It returns `201 Created` for a new
+  path and `200 OK` when an existing file is replaced. Replacing preserves the
+  ID. A path that names a directory returns `409 Conflict`. Writes are atomic
+  (section 41) and subject to the limits of section 64.12.
+- `POST /api/v1/files/directories` accepts `{"path": "/bills/archive"}` and
+  creates a directory, returning `201 Created`. Creating over an existing node
+  returns `409 Conflict`, and the root cannot be created. This is the same
+  operation as the directory API (section 38), which remains available.
+- `DELETE /api/v1/files?path=...` deletes the node at that path; for a directory
+  it deletes the subtree. It returns `204 No Content`. Deleting the root, or
+  deleting a page/file (or a directory containing one) referenced by an
+  `attachment` field, returns `409 Conflict` (section 64.9). `DELETE
+  /api/v1/files/{id}` deletes a file or page by ID.
+- `POST /api/v1/files/move` accepts `{"from": "/old", "to": "/new"}` and
+  renames or moves a file, page or directory. IDs are preserved, including for
+  every descendant of a moved directory. The operation is atomic; a conflicting
+  destination returns `409 Conflict`, an invalid path `422 Unprocessable
+  Entity`, and a missing source `404 Not Found`.
+- `POST /api/v1/files/copy` accepts `{"from": "/old", "to": "/new"}` and copies
+  a file, page or directory. Copies receive new IDs; enrichment (section 64.8)
+  is not copied. Status codes match `move`.
+- `POST /api/v1/files/rescan` reconciles the catalog with the filesystem and
+  returns a summary of added, removed and refreshed entries.
+
+A content-entry representation is:
+
+```json
+{
+  "id": "9f2c4e8a1b3d4f5061728394a5b6c7d8",
+  "path": "/bills/2026-03.pdf",
+  "kind": "file",
+  "content_type": "application/pdf",
+  "size": 184320,
+  "sha256": "9f2c...",
+  "created_at": "2026-09-27T12:00:00Z",
+  "updated_at": "2026-09-27T12:00:00Z",
+  "url": "https://clio.example.com/bills/2026-03.pdf",
+  "stable_url": "https://clio.example.com/f/9f2c4e8a1b3d4f5061728394a5b6c7d8",
+  "indexed": true
+}
+```
+
+A directory representation is:
+
+```json
+{
+  "path": "/bills",
+  "kind": "directory",
+  "url": "https://clio.example.com/bills",
+  "children": [
+    {
+      "path": "/bills/2026-03.pdf",
+      "kind": "file",
+      "id": "9f2c4e8a1b3d4f5061728394a5b6c7d8",
+      "content_type": "application/pdf",
+      "size": 184320,
+      "updated_at": "2026-09-27T12:00:00Z",
+      "url": "https://clio.example.com/bills/2026-03.pdf",
+      "stable_url": "https://clio.example.com/f/9f2c4e8a1b3d4f5061728394a5b6c7d8"
+    },
+    {
+      "path": "/bills/archive",
+      "kind": "directory",
+      "url": "https://clio.example.com/bills/archive"
+    }
+  ],
+  "page": { "limit": 100, "offset": 0, "count": 2, "total": 2 }
+}
+```
+
+Directories are structural and do not have IDs (section 64.2); they are still
+nodes of the REST API. File and page entries are addressed by path or ID.
+`GET /api/v1/files/{id}/content` serves the raw bytes with the disposition and
+headers of section 64.5, supports `HEAD` and byte ranges, and returns
+`404 Not Found` for a missing ID.
+
+The directory API (section 38) and page API (section 41) remain available and
+are compatibility facades over the same tree; they produce and address the same
+nodes and IDs.
+
+## 64.5 File serving
+
+Non-page content is served with:
+
+```text
+Content-Disposition: attachment
+X-Content-Type-Options: nosniff
+```
+
+This applies to `/f/{id}` for every entry and to direct path URLs for files. HTML
+pages continue to be served as trusted executable content at their path URL
+(section 55.1). A file download must not execute active content in Clio's
+origin. GET responses support byte ranges.
+
+## 64.6 Extraction and the text index
+
+Clio maintains a full-text index of extracted text over content entries.
+
+- Text-like content (for example `text/*`, `.md`, `.txt`, `.csv`, `.json`,
+  `.html`) is indexed natively. HTML is indexed as text with markup removed.
+- PDF text is extracted natively when a text layer is present. Image-only or
+  scanned content yields no native text; OCR is out of scope for the executable
+  and is handled by sidecar agents (section 64.8).
+- Extracted text is capped per entry (default 1 MiB) and never replaces the
+  stored bytes.
+- The index is an implementation detail built on SQLite. It must not introduce
+  an external service or a separate database, and it is a SQLite index rather
+  than an application cache (section 4.5).
+- The metadata catalog and the native text index are derived and can be rebuilt
+  by rescan. Agent-supplied text (section 64.8) is not reproducible and is
+  preserved by backup (section 57).
+
+## 64.7 Search API
+
+```text
+GET /api/v1/search?q=<terms>
+```
+
+Search covers pages and files in one result set, is paged (`limit`, `offset`;
+section 23), and orders results by relevance. A result is:
+
+```json
+{
+  "id": "9f2c...",
+  "path": "/bills/2026-03.pdf",
+  "kind": "file",
+  "content_type": "application/pdf",
+  "source": "native",
+  "snippet": "...amount due \u27e6184.20\u27e7 on 2026-03-15...",
+  "score": 1.42
+}
+```
+
+- `q` is a set of whitespace-separated terms. Clio treats each term as a
+  literal and combines terms with AND; it does not expose a raw search-engine
+  query syntax. An empty or oversized query returns `422 Unprocessable Entity`.
+- `snippet` contains matched terms delimited by private sentinel characters and
+  is otherwise plain text. It is untrusted and must be escaped before markup is
+  applied; the built-in UI escapes first, then substitutes its own highlight
+  element.
+- `source` identifies the text's provenance: `native` or an agent identifier
+  (section 64.8).
+
+## 64.8 Agent enrichment API
+
+Sidecar agents may contribute extracted text (for example OCR or deeper PDF
+parsing) so that it becomes searchable:
+
+```text
+GET    /api/v1/files/extraction?path=/...
+PUT    /api/v1/files/extraction?path=/...
+DELETE /api/v1/files/extraction?path=/...
+```
+
+`PUT` accepts:
+
+```json
+{
+  "fingerprint": "184320:2026-09-27T12:00:00Z",
+  "text": "Invoice 4421 ... total due 184.20",
+  "provider": "ocr:tesseract",
+  "title": "Invoice 4421"
+}
+```
+
+- The enclosing entry may be given by `path` or by file ID.
+- `fingerprint` must match the current entry fingerprint (size and modified
+  time, or `sha256` when known); a mismatch returns `409 Conflict`. This
+  prevents a stale extraction from shadowing changed content.
+- Enrichment is keyed by entry ID, so it survives rename and move.
+- `DELETE` removes the agent-provided text; the entry then falls back to any
+  native text.
+
+## 64.9 Attachment fields
+
+`attachment` is a field type (section 13). A field definition may declare:
+
+```json
+{"name": "invoice", "type": "attachment", "required": false}
+```
+
+An optional `accept` property may list accepted extensions or media types as a UI
+hint; it does not replace validation.
+
+- The stored value is a content-entry ID (section 64.2), returned in the record
+  representation as a JSON string, analogous to a `reference` field returning a
+  target record ID.
+- Clio validates on create, update and default application that the ID names an
+  existing content entry; otherwise the request fails with
+  `422 Unprocessable Entity`.
+- Filtering, sorting and `distinct` operate on the ID string.
+- A record that references an entry prevents deletion of that entry (or of a
+  directory containing it) with `409 Conflict`, until the referencing values are
+  cleared. There is no cascade deletion. Replacing the bytes at the same path is
+  permitted and keeps the ID.
+- Clients resolve an attachment to a URL through the files API or by linking to
+  `/f/{id}`.
+
+## 64.10 WebDAV
+
+Clio may expose the content filesystem over WebDAV (RFC 4918) at `/dav`, mapping
+`/dav/<path>` to content `<path>`. `/dav` is a reserved root (section 32.3).
+
+- WebDAV is optional and disabled by default. It is enabled with
+  `CLIO_WEBDAV_ENABLED=true`. When enabled it is subject to the transport and
+  authentication policy of section 54 and is protected exactly like every other
+  route.
+- Supported methods include `OPTIONS`, `PROPFIND`, `PROPPATCH`, `GET`, `HEAD`,
+  `PUT`, `DELETE`, `MKCOL`, `COPY`, `MOVE`, `LOCK` and `UNLOCK`. Responses use
+  standard WebDAV status codes.
+- All mutations flow through the same validation, indexing and timestamps as the
+  files API. In particular:
+  - `PUT` creates or replaces an entry, preserving the ID on replace.
+  - `MOVE` renames or moves an entry or directory, preserving IDs.
+  - `COPY` creates a new entry with a new ID.
+  - `DELETE` enforces the same `409 Conflict` for referenced entries.
+  - Writing `.md` or `.html` creates or replaces a page with page timestamps.
+- Locking is provided but is not persistent across restarts.
+- WebDAV exposes the entire content tree, including pages. Because a publisher
+  can write `.html` through WebDAV, the trusted-publisher boundary of
+  section 55.1 applies.
+
+## 64.11 Backup and restore
+
+Content-entry IDs, entry timestamps, and agent-supplied text are durable state
+that the filesystem cannot reproduce. A consistent backup therefore captures the
+SQLite database (with its `-wal`/`-shm` sidecars) and the content directory
+together, as required by section 57. Restoring a backup preserves IDs, so
+`/f/{id}` URLs and `attachment` values remain valid; a rescan rebuilds the
+derived catalog and native text. The content directory alone is not a complete
+backup.
+
+## 64.12 Limits
+
+```text
+Maximum individual file upload: 16 MiB
+Maximum extracted text per entry: 1 MiB
+```
+
+These are safety limits and may be implemented as constants. Exceeding the
+upload limit returns `413 Payload Too Large`.
+
+## 64.13 API and product versioning
+
+The files, search and enrichment endpoints are additive under `/api/v1/`.
+Adding the `attachment` field type and enabling WebDAV do not change existing
+`/api/v1/` semantics. Removing the Page API (section 41) or otherwise making an
+incompatible change requires a future `/api/v2/` (section 48).
+
+## 64.14 Web-based file explorer
+
+The content filesystem must be browsable in a browser through a dedicated
+explorer at `/files`, analogous to the collection data browser (section 35).
+`/files` is a reserved root (section 32.3) and cannot be shadowed by content.
+This is in addition to the directory pages served at content paths
+(section 37), which remain browsable.
+
+- The explorer is a server-served shell that loads `/assets/clio.js` and uses
+  the ClioJS component `Clio.FileBrowser.mount(element)` over the files and
+  search APIs. It introduces no new endpoint, frontend dependency, package
+  installation, or build step (section 43).
+- It presents the content tree using content-entry metadata (section 64.2):
+  directories, pages and files with kind, size, content type and modified time.
+  Files link to `/f/{id}` for stable downloads and to their path URL; pages link
+  to their rendered path URL.
+- Navigation uses breadcrumbs, and the current directory is reflected in the URL
+  so browser history works and locations are shareable.
+- It exposes the light actions of the files API: create folder, upload, rename
+  or move, and delete. Failures surface the API status and code, including
+  `409 Conflict` when an entry is referenced by an attachment field
+  (section 64.9).
+- It provides search over `GET /api/v1/search` (section 64.7). Snippets are
+  untrusted: the explorer escapes them before applying its own highlight mark.
+- Entry names and record values are rendered as text, never as executable HTML.
+- WebDAV (section 64.10) remains the mechanism for bulk and drag-and-drop file
+  operations; the explorer is a browsing and light-administration surface.
+
+Security note: the explorer's mutating actions are ordinary same-origin requests
+protected by the authentication policy of section 54. Cross-site request forgery
+protection is not part of v1; when authentication is enabled, deployments should
+rely on the same-origin policy and network controls and may front Clio with a
+proxy that enforces CSRF protection.
 

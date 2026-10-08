@@ -46,3 +46,23 @@ go build -buildvcs=false -o /tmp/gocl-clio-check .
 Building requires Go 1.25 and a C toolchain for the cgo SQLite driver. The
 ClioJS behaviour test additionally runs Node.js when it is available and skips
 otherwise.
+
+## Pending conformance (spec v1.5)
+
+Section 64 of [`SPEC.md`](SPEC.md) is normative but not yet implemented. The
+areas below have no automated coverage yet; each row must move into the table
+above as its tests land. Until then, the implementation does not conform to
+spec v1.5.
+
+| Spec area | Planned tests |
+| --- | --- |
+| §64.2 file identity and reconciliation | stable IDs across replace, rename and move; rescan add/remove/refresh; an on-disk rename yields a new ID |
+| §64.3/§64.5 stable URLs and serving | `/f/{id}` and `/f/{id}/{name}`; download disposition and nosniff; byte ranges |
+| §64.4 filesystem REST API | list and directory listing; create/replace (`PUT`), directory create, delete, `move`, `copy`, `rescan`; content transfer and ranges; conflict rules; size limit |
+| §64.6 extraction and text index | text-like extraction; PDF text; size cap; rebuild by rescan |
+| §64.7 search API | ranking and snippets; literal-term safety; paging; empty/oversized query |
+| §64.8 agent enrichment | fingerprint match/mismatch; survives move; delete falls back to native |
+| §64.9 attachment fields | validation on create/update/default; delete-integrity `409`; record representation |
+| §64.10 WebDAV | optional flag; method set including MOVE/COPY; ID preservation; auth enforcement |
+| §64.11 backup and restore | restored database plus content reproduces IDs, timestamps and agent text |
+| §64.14 web file explorer | `/files` shell and reserved route; ClioJS `Clio.FileBrowser`; breadcrumbs and URL state; upload/rename/delete actions; referenced-entry `409`; escaped search snippets |
