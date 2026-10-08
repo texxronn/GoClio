@@ -899,6 +899,12 @@
         return items;
       }
 
+      function treeIndent(level) {
+        const indent = element("span", null, "fb-tree-indent");
+        for (let i = 1; i < level; i++) indent.appendChild(element("span", null, "fb-tree-guide"));
+        return indent;
+      }
+
       function renderTree() {
         treeContainer.replaceChildren();
         const items = visibleTreeItems();
@@ -915,6 +921,7 @@
           row.tabIndex = index === focusIndex ? 0 : -1;
           row.setAttribute("tabindex", String(index === focusIndex ? 0 : -1));
           if (index === focusIndex) lastFocused = row;
+          row.appendChild(treeIndent(item.level));
           if (item.more) {
             const more = element("button", "Load more…", "fb-tree-more-button");
             more.type = "button";
@@ -926,13 +933,18 @@
           } else {
             row.setAttribute("data-path", item.path);
             row.setAttribute("aria-expanded", node.expanded ? "true" : "false");
-            const chevron = element("button", node.loading ? "…" : (node.expanded ? "▾" : "▸"), "fb-tree-toggle" + (node.loading ? " fb-tree-loading" : ""));
-            chevron.type = "button";
-            chevron.setAttribute("aria-label", `${node.loading ? "Loading" : (node.expanded ? "Collapse" : "Expand")} ${node.name}`);
-            chevron.addEventListener("click", (event) => {
-              if (event && event.preventDefault) event.preventDefault();
-              toggleTreeNode(item.path);
-            });
+            if (node.loaded && node.children.length === 0) {
+              row.appendChild(element("span", null, "fb-tree-spacer"));
+            } else {
+              const chevron = element("button", node.loading ? "…" : (node.expanded ? "▼" : "▶"), "fb-tree-toggle" + (node.loading ? " fb-tree-loading" : ""));
+              chevron.type = "button";
+              chevron.setAttribute("aria-label", `${node.loading ? "Loading" : (node.expanded ? "Collapse" : "Expand")} ${node.name}`);
+              chevron.addEventListener("click", (event) => {
+                if (event && event.preventDefault) event.preventDefault();
+                toggleTreeNode(item.path);
+              });
+              row.appendChild(chevron);
+            }
             const label = element("button", node.name, "fb-tree-label");
             label.type = "button";
             label.setAttribute("aria-label", `Open ${node.name}`);
@@ -940,7 +952,7 @@
               if (event && event.preventDefault) event.preventDefault();
               requestNavigate(item.path, false);
             });
-            row.append(chevron, label);
+            row.appendChild(label);
           }
           treeContainer.appendChild(row);
         });
