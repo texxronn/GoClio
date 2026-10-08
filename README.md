@@ -11,14 +11,17 @@ Feature summary:
 - Metadata-driven groups, tables, fields and records, including record and
   time-series tables, with filtering, sorting, paging, grouping and aggregation.
 - Named **projects** that scope their own structured data and content; the
-  implicit `default` project always exists.
+  implicit `default` project always exists. The project overview at
+  `/{project}/` lists, creates and deletes projects through the public projects
+  API, and server-renders the project list without JavaScript.
 - Two partitions per project: `data` (groups, tables, records, metadata) and
   `files` (unified directories, pages and files with stable IDs).
 - Optional full-text search over extracted page/file text (SQLite FTS5, native
   text and PDF text extraction) with an agent enrichment write-back API.
 - `attachment` fields that link records to files by stable ID.
 - Optional WebDAV, an opt-in one-command backup/restore path, an interactive
-  data browser and file explorer, and a dependency-free browser client.
+  data browser, file explorer and project manager, and a dependency-free
+  browser client (ClioJS 1.2.0).
 
 ## Build and run
 
@@ -143,6 +146,18 @@ Every application route is project-scoped. Bare `/` redirects to `/{default}/`
 and bare `/api/v1` redirects to `/api/v1/default`. The only instance-level
 routes are `/health`, `/help`, `/api/v1/health`, `/api/v1/help`,
 `/api/v1/projects`, `/assets/...` and `/favicon.svg`.
+
+The project overview at `/{project}/` is the human projects manager. It lists
+the projects, links to each `/{name}/`, and creates and deletes projects through
+the public `GET`/`POST /api/v1/projects` and
+`DELETE /api/v1/projects/{project}` API; `default` is never deletable and a
+non-empty project returns `409`. Without JavaScript the overview server-renders
+the project list with project-scoped links. There is deliberately no human
+`/projects` route (section 66.3): the manager lives inside the existing
+project-scoped pages, and every URL it generates is `/{name}/`. The browser
+client exposes it as `Clio.Projects.mount(element)` (ClioJS 1.2.0), and the data
+browser and file explorer toolbars carry a compact project switcher that
+navigates the same sub-path under the chosen project.
 
 Each project is divided into two partitions:
 

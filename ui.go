@@ -628,7 +628,34 @@ func (a *app) projectOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	children, _ := d["children"].([]map[string]any)
-	writeHTML(w, http.StatusOK, a.homeHTML(children))
+	writeHTML(w, http.StatusOK, a.homeHTML(children, a.projectsPanelHTML()))
+}
+
+// projectHref is the human URL of a project overview: /{name}/. It is absolute
+// (not based on the current project) and keeps every generated URL
+// project-scoped, so the projects UI never links to an instance route.
+func projectHref(name string) string { return "/" + urlPath(name) + "/" }
+
+// projectsPanelHTML renders the project manager mounted on the project overview
+// /{project}/ (section 65.5 and section 66.5). The list is server-rendered
+// inside a <noscript> fallback from listProjects so the overview stays useful
+// without JavaScript, and Clio.Projects.mount drives create and delete through
+// the existing public projects API. No human projects route is introduced
+// (section 66.3): every link points at /{name}/.
+func (a *app) projectsPanelHTML() string {
+	projects, _ := a.listProjects()
+	var b strings.Builder
+	b.WriteString(`<style>.projects-panel{max-width:1120px;margin:2rem auto 4rem;padding:clamp(1.2rem,3vw,2rem);border:1px solid #e3e9f1;border-radius:14px;background:#fff;color:#192a41}.projects-panel h2{margin:0 0 .35rem;font-size:1.3rem;letter-spacing:-.03em}.projects-panel-intro{margin:0 0 1rem;color:#718394;font-size:.9rem}.projects-list{list-style:none;margin:0 0 1.25rem;padding:0;display:grid;gap:.4rem}.projects-item{display:flex;align-items:center;gap:.55rem;padding:.5rem .65rem;border:1px solid #edf0f4;border-radius:8px}.projects-item a{font-weight:650;color:#216b82;text-decoration:none}.projects-item a:hover{text-decoration:underline}.projects-slug{color:#8192a2;font: .78rem ui-monospace,SFMono-Regular,monospace}.projects-current{color:#26704d;font-size:.78rem;font-weight:650}.projects-danger{margin-left:auto;padding:.35rem .6rem;border:1px solid #f0caca;border-radius:6px;background:#fff;color:#9a3732;font:inherit;font-size:.8rem;cursor:pointer}.projects-danger:hover{background:#fff5f4}.projects-status{margin:.5rem 0;color:#718394;font-size:.85rem}.projects-status.projects-error{color:#9a4541;font-weight:600}.projects-create{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,13rem),1fr));gap:.6rem;align-items:end;padding-top:1rem;border-top:1px solid #edf0f4}.projects-create label{display:flex;flex-direction:column;gap:.3rem;margin:0;color:#52677b;font-size:.78rem;font-weight:600}.projects-create input{box-sizing:border-box;width:100%;padding:.5rem .6rem;border:1px solid #dce5eb;border-radius:6px}.projects-create button{padding:.55rem .8rem;border:0;border-radius:6px;background:#215f78;color:#fff;font:inherit;font-weight:650;cursor:pointer}.projects-create button:hover{background:#174d63}</style><section class="projects-panel"><h2>Projects</h2><p class="projects-panel-intro">Create, switch to, or delete a project. Deleting removes only an empty project.</p><div id="clio-projects" aria-live="polite"></div><noscript><ul class="projects-noscript">`)
+	for _, project := range projects {
+		name := fmt.Sprint(project["name"])
+		label := fmt.Sprint(project["label"])
+		if label == "" {
+			label = name
+		}
+		b.WriteString(`<li><a href="` + htmlAttr(projectHref(name)) + `">` + esc(label) + `</a> <span class="projects-slug">` + esc(name) + `</span></li>`)
+	}
+	b.WriteString(`</ul></noscript></section><script src="/assets/clio.js"></script><script>Clio.Projects.mount(document.getElementById("clio-projects"));</script>`)
+	return b.String()
 }
 
 // projectName is the active project for URL building. The zero value (an

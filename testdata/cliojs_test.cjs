@@ -21,7 +21,13 @@ function collectByTag(element, tag) {
   for (const child of element.children || []) found.push(...collectByTag(child, tag));
   return found;
 }
-const location = { origin: "https://clio.example", pathname: "/default/data", search: "?group=pool&table=measurements&page=2" };
+const navigation = [];
+const location = {
+  origin: "https://clio.example",
+  pathname: "/default/data",
+  search: "?group=pool&table=measurements&page=2",
+  assign(value) { navigation.push(String(value)); }
+};
 const context = {
   URLSearchParams,
   URL,
@@ -46,7 +52,28 @@ const context = {
     const method = options.method || "GET";
     let body;
     let status = 200;
-    if (parsed.pathname.endsWith("/records") && method === "GET") {
+    if (parsed.pathname === "/api/v1/projects" && method === "GET") {
+      body = [
+        { name: "default", label: "Default", url: "https://clio.example/default/", api_url: "https://clio.example/api/v1/projects/default" },
+        { name: "bills", label: "Bills", url: "https://clio.example/bills/", api_url: "https://clio.example/api/v1/projects/bills" }
+      ];
+    } else if (parsed.pathname === "/api/v1/projects" && method === "POST") {
+      body = JSON.parse(options.body);
+      body.name = String(body.name).toLowerCase();
+      status = 201;
+    } else if (parsed.pathname.startsWith("/api/v1/projects/") && method === "DELETE") {
+      const name = decodeURIComponent(parsed.pathname.slice("/api/v1/projects/".length));
+      if (name === "busy") {
+        status = 409;
+        body = { error: "conflict", message: "Project is not empty" };
+      } else if (name === "default") {
+        status = 422;
+        body = { error: "validation_error", message: "The default project cannot be deleted" };
+      } else {
+        status = 204;
+        body = null;
+      }
+    } else if (parsed.pathname.endsWith("/records") && method === "GET") {
       const offset = Number(parsed.searchParams.get("offset") || 0);
       body = offset === 0
         ? { data: [{ id: "1", amount: "10.20" }, { id: "2", amount: "20.30" }], page: { limit: 2, offset: 0, count: 2, total: 3 } }
@@ -113,10 +140,11 @@ vm.runInNewContext(source, context, { filename: "clio.js" });
 
 async function main() {
   const Clio = context.Clio;
-  assert.equal(Clio.version, "1.1.0");
+  assert.equal(Clio.version, "1.2.0");
   assert.equal(Clio.apiVersion, "v1");
   assert.equal(typeof Clio.DataBrowser.mount, "function");
   assert.equal(typeof Clio.FileBrowser.mount, "function");
+  assert.equal(typeof Clio.Projects.mount, "function");
   assert.equal(Clio.Markdown.render("Hello"), "<p>Hello</p>");
 
   const clio = new Clio();
@@ -186,10 +214,12 @@ async function main() {
   assert.match(browserText, /Measurements/);
   assert.match(browserText, /30\.40/);
   assert.doesNotMatch(browserText, /Hidden/);
-  const tableViewLink = browserHost.children[0].children[1];
+  const toolbar = browserHost.children[0];
+  assert.equal(toolbar.children[0].className, "project-switcher", "the project switcher is first in the toolbar");
+  const tableViewLink = toolbar.children[2];
   assert.equal(tableViewLink.href, "/default/data/pool/measurements");
   assert.equal(tableViewLink.hidden, false);
-  const themeToggle = browserHost.children[0].children[2];
+  const themeToggle = toolbar.children[3];
   assert.equal(themeToggle.attributes["aria-label"], "Switch to dark theme");
   themeToggle.handlers.click();
   assert.equal(context.document.documentElement.attributes["data-theme"], "dark");
@@ -250,6 +280,63 @@ async function main() {
   assert.match(fileHost.textContent, /needle/);
   assert.equal(collectByTag(fileHost, "mark").length, 1, "the search snippet highlights the matched term");
   fileBrowser.destroy();
+
+  // Projects manager over the instance-level projects API.
+  location.pathname = "/default/";
+  location.search = "";
+  const projectsHost = new Element("div");
+  const manager = Clio.Projects.mount(projectsHost, { client: new Clio() });
+  await manager.ready;
+  assert.match(projectsHost.textContent, /Default/);
+  assert.match(projectsHost.textContent, /Bills/);
+  const listRequest = requests.filter((request) => request.url.endsWith("/api/v1/projects") && (request.options.method || "GET") === "GET").at(-1);
+  assert.ok(listRequest, "the project list comes from GET /api/v1/projects");
+  const projectLinks = collectByTag(projectsHost, "a").map((link) => link.href);
+  assert.ok(projectLinks.includes("/default/"), "default links to /default/");
+  assert.ok(projectLinks.includes("/bills/"), "a project links to /{name}/");
+  const defaultRow = collectByTag(projectsHost, "li").find((item) => item.attributes["data-project"] === "default");
+  assert.ok(defaultRow, "default is listed");
+  assert.equal(collectByTag(defaultRow, "button").filter((button) => button.className === "projects-danger").length, 0, "default has no delete action");
+  assert.equal(collectByTag(projectsHost, "button").filter((button) => button.className === "projects-danger").length, 1, "only a non-default project offers delete");
+
+  await manager.create({ name: "bills", label: "Bills Two", order: 2 });
+  const createProjectRequest = requests.filter((request) => request.url.endsWith("/api/v1/projects") && request.options.method === "POST").at(-1);
+  assert.ok(createProjectRequest, "create uses POST /api/v1/projects");
+  assert.deepEqual(JSON.parse(createProjectRequest.options.body), { name: "bills", label: "Bills Two", order: 2 });
+  assert.match(projectsHost.textContent, /Created bills/);
+
+  await manager.remove("busy");
+  const deleteProjectRequest = requests.filter((request) => request.options.method === "DELETE" && request.url.endsWith("/api/v1/projects/busy")).at(-1);
+  assert.ok(deleteProjectRequest, "delete uses DELETE /api/v1/projects/{name}");
+  assert.match(projectsHost.textContent, /not empty/, "a 409 delete error is surfaced");
+  manager.destroy();
+
+  // The data browser toolbar carries a project switcher that preserves the query.
+  location.pathname = "/default/data";
+  location.search = "?group=pool&table=measurements&page=2";
+  const dataSwitchHost = new Element("div");
+  const dataSwitchBrowser = Clio.DataBrowser.mount(dataSwitchHost, { pageSize: 2 });
+  await dataSwitchBrowser.ready;
+  const dataProjectSelect = collectByTag(dataSwitchHost, "select")[0];
+  assert.ok(dataProjectSelect, "the data browser toolbar has a project switcher");
+  dataProjectSelect.value = "bills";
+  dataProjectSelect.handlers.change();
+  assert.equal(navigation.at(-1), "/bills/data?group=pool&table=measurements&page=2", "the switcher preserves the data-browser query");
+  dataSwitchBrowser.destroy();
+
+  // The file browser toolbar carries a project switcher that keeps the sub-path.
+  location.pathname = "/default/files";
+  location.search = "";
+  const fileSwitchHost = new Element("div");
+  const fileSwitchBrowser = Clio.FileBrowser.mount(fileSwitchHost, { path: "/" });
+  await fileSwitchBrowser.ready;
+  await fileSwitchBrowser.navigate("/docs");
+  const fileProjectSelect = collectByTag(fileSwitchHost, "select")[0];
+  assert.ok(fileProjectSelect, "the file browser toolbar has a project switcher");
+  fileProjectSelect.value = "bills";
+  fileProjectSelect.handlers.change();
+  assert.equal(navigation.at(-1), "/bills/files/docs", "the switcher keeps the file sub-path");
+  fileSwitchBrowser.destroy();
 
   let error;
   try {

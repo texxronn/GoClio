@@ -151,6 +151,20 @@ than the product.
   as text; the search snippet is escaped before its private sentinels become
   highlight markup. `Clio.version` is now `1.1.0`; the file helpers gain
   `files`, `search`, `getFile`, `moveFile`, `copyFile` and `putFile`.
+- Projects UI (spec v1.7 §65.5/§66.3/§66.5): the project overview at
+  `/{project}/` now manages projects. It lists each project with a
+  project-scoped link to `/{name}/`, highlights the current project, creates
+  projects from `name`, optional `label`, `description` and `order`, and deletes
+  empty projects, never offering delete for `default`. It is driven by the
+  public `GET`/`POST /api/v1/projects` and `DELETE /api/v1/projects/{project}`
+  API and surfaces API errors (`409` non-empty, `422` reserved/default) without
+  crashing. A `<noscript>` fallback server-renders the project list with links,
+  so the overview stays useful without JavaScript. No human `/projects` route is
+  added (section 66.3): the manager lives inside the existing project-scoped
+  pages and every URL it generates is `/{name}/`. `Clio.Projects.mount(element)`
+  implements the manager, and the data browser and file explorer toolbars gain a
+  compact project switcher that navigates the same sub-path (and query string)
+  under the chosen project. `Clio.version` is now `1.2.0`.
 - WebDAV (spec v1.7 §64.10/§66.8), opt-in with `CLIO_WEBDAV_ENABLED=true`
   (default off). When enabled, a project's content tree is mounted read/write at
   `/api/v1/{project}/files/dav/...` and `/{project}/files/dav/...` with the
