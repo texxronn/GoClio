@@ -11,8 +11,8 @@
 - **Spec:** `SPEC.md` v1.7 (sections 64, 65, 66 are new; earlier URL sections carry supersession notes)
 - **Plan:** `IMPLEMENTATION-PLAN.md`
 - **Code baseline:** Phase 4 implemented; the filesystem is fully manipulable through `/api/v1/{project}/files` (list/dir, read by ID, `PUT` create/replace, directory create, delete by path and ID, move/copy/rescan). The legacy directory/page operations remain at `/files/{directories,pages}` until Phase 10.
-- **Branch:** `phase-4-files-api`
-- **Last merged commit:** `662c225` (Phase 3, PR #7)
+- **Branch:** `master`
+- **Last merged commit:** `a8da7b7` (Phase 4, PR #8)
 - **Current phase:** Phase 4 complete (this commit)
 - **Next action:** Phase 5 — serving and stable URLs: `GET /api/v1/{project}/files/{id}/content` (stream bytes with `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff` via `http.ServeContent`, byte ranges and `HEAD`) and the human path URL `/{project}/files/id/{id}`; render `.md`/`.html` at path URLs and download everything else. Tests: disposition/nosniff, ranges, missing ID `404`, page vs file.
 - **Blockers:** none
