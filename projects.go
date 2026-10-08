@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -172,14 +174,23 @@ func (a *app) deleteProject(name string) *apiError {
 		return e
 	}
 	var used int
-	e := a.db.QueryRow(`SELECT (SELECT count(*) FROM groups_meta WHERE project=?) + (SELECT count(*) FROM tables_meta WHERE project=?)`, name, name).Scan(&used)
+	e := a.db.QueryRow(`SELECT (SELECT count(*) FROM groups_meta WHERE project=?) + (SELECT count(*) FROM tables_meta WHERE project=?) + (SELECT count(*) FROM content_entries WHERE project=?)`, name, name, name).Scan(&used)
 	if e != nil {
 		return errAPI(e)
 	}
 	if used > 0 {
 		return conflict("Project is not empty")
 	}
+	root := filepath.Join(a.content, name)
+	if entries, readErr := os.ReadDir(root); readErr == nil && len(entries) > 0 {
+		return conflict("Project is not empty")
+	} else if readErr != nil && !os.IsNotExist(readErr) {
+		return errAPI(readErr)
+	}
 	if _, e = a.db.Exec(`DELETE FROM projects WHERE name=?`, name); e != nil {
+		return errAPI(e)
+	}
+	if e = os.RemoveAll(root); e != nil {
 		return errAPI(e)
 	}
 	return nil

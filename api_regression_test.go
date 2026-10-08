@@ -272,7 +272,7 @@ func TestDirectoryZipRejectsTotalExpandedSize(t *testing.T) {
 	response := testRequest(t, a, http.MethodPost, "/api/v1/default/files/directories", archive.Bytes(), "application/zip")
 	assertAPIError(t, response, http.StatusUnprocessableEntity)
 	for i := 0; i < 17; i++ {
-		if _, err := os.Stat(filepath.Join(a.content, fmt.Sprintf("expanded-%02d.bin", i))); !os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(a.content, "default", fmt.Sprintf("expanded-%02d.bin", i))); !os.IsNotExist(err) {
 			t.Fatalf("total-size rejection published entry %d: %v", i, err)
 		}
 	}

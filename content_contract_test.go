@@ -107,7 +107,7 @@ func TestZipResponseBodyAndNoTopLevelStripping(t *testing.T) {
 	if !got["http://clio.test/default/files/reports/pool/weekly.md"] || !got["http://clio.test/default/files/reports/pool/measurements/latest.md"] {
 		t.Fatalf("upload URLs not relative to destination: %#v", urls)
 	}
-	if _, err := os.Stat(filepath.Join(a.content, "reports", "pool", "weekly.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(a.content, "default", "reports", "pool", "weekly.md")); err != nil {
 		t.Fatalf("archive top-level directory was stripped: %v", err)
 	}
 }
@@ -257,7 +257,7 @@ func TestDirectoryChildrenAndContentUI(t *testing.T) {
 	if w := testRequest(t, a, http.MethodPost, "/api/v1/default/files/pages", `{"path":"/pool/report.html","content_type":"text/html","content":"<h1>Report</h1>"}`, "application/json"); w.Code != http.StatusCreated {
 		t.Fatalf("create html page: %d %s", w.Code, w.Body.String())
 	}
-	if err := os.WriteFile(filepath.Join(a.content, "pool", "data.csv"), []byte("a,b\n1,2\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(a.content, "default", "pool", "data.csv"), []byte("a,b\n1,2\n"), 0644); err != nil {
 		t.Fatalf("write raw file: %v", err)
 	}
 

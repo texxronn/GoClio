@@ -121,7 +121,7 @@ func TestDirectoryUIPostCreatesChildAndRedirects(t *testing.T) {
 	if got := w.Header().Get("Location"); got != "/default/files/notes/weekly" {
 		t.Fatalf("redirect location = %q, want /default/files/notes/weekly", got)
 	}
-	if info, err := os.Stat(filepath.Join(a.content, "notes", "weekly")); err != nil || !info.IsDir() {
+	if info, err := os.Stat(filepath.Join(a.content, "default", "notes", "weekly")); err != nil || !info.IsDir() {
 		t.Fatalf("created child directory missing or not a directory: info=%v err=%v", info, err)
 	}
 }
@@ -136,7 +136,7 @@ func TestDirectoryUIPostCreatesRootChild(t *testing.T) {
 	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/default/files/garden" {
 		t.Fatalf("root directory POST returned status=%d location=%q", w.Code, w.Header().Get("Location"))
 	}
-	if info, err := os.Stat(filepath.Join(a.content, "garden")); err != nil || !info.IsDir() {
+	if info, err := os.Stat(filepath.Join(a.content, "default", "garden")); err != nil || !info.IsDir() {
 		t.Fatalf("root child directory missing or not a directory: info=%v err=%v", info, err)
 	}
 }

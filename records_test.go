@@ -781,10 +781,10 @@ func TestDirectoryZipUploadPreservesPathsAndRejectsTraversal(t *testing.T) {
 	if upload.Code != http.StatusCreated {
 		t.Fatalf("directory upload status = %d, want 201: %s", upload.Code, upload.Body.String())
 	}
-	if _, err := os.Stat(filepath.Join(a.content, "pool", "reports", "weekly.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(a.content, "default", "pool", "reports", "weekly.md")); err != nil {
 		t.Fatalf("weekly page not published at destination: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(a.content, "pool", "reports", "measurements", "latest.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(a.content, "default", "pool", "reports", "measurements", "latest.md")); err != nil {
 		t.Fatalf("nested page not published at destination: %v", err)
 	}
 
@@ -812,7 +812,7 @@ func TestDirectoryZipUploadPreservesPathsAndRejectsTraversal(t *testing.T) {
 	if replaced.Code != http.StatusCreated {
 		t.Fatalf("explicit ZIP overwrite status = %d, want 201: %s", replaced.Code, replaced.Body.String())
 	}
-	weekly, err := os.ReadFile(filepath.Join(a.content, "pool", "reports", "weekly.md"))
+	weekly, err := os.ReadFile(filepath.Join(a.content, "default", "pool", "reports", "weekly.md"))
 	if err != nil || string(weekly) != "# Replaced" {
 		t.Fatalf("explicit overwrite content=%q err=%v", weekly, err)
 	}
@@ -829,7 +829,7 @@ func TestDirectoryZipUploadPreservesPathsAndRejectsTraversal(t *testing.T) {
 	if rejected.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("traversal upload status = %d, want 422", rejected.Code)
 	}
-	if _, err := os.Stat(filepath.Join(a.content, "pool", "escape.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(a.content, "default", "pool", "escape.md")); !os.IsNotExist(err) {
 		t.Fatalf("traversal upload wrote outside destination: %v", err)
 	}
 }
@@ -858,7 +858,7 @@ func TestDirectoryAPIListAndDelete(t *testing.T) {
 	if deleted.Code != http.StatusNoContent {
 		t.Fatalf("delete directory status = %d, want 204", deleted.Code)
 	}
-	if _, err := os.Stat(filepath.Join(a.content, "pool")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(a.content, "default", "pool")); !os.IsNotExist(err) {
 		t.Fatalf("directory still exists after delete: %v", err)
 	}
 }
@@ -916,7 +916,7 @@ func TestDirectoryZipRejectsExpandedFileLimit(t *testing.T) {
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expanded file limit status = %d, want 422: %s", response.Code, response.Body.String())
 	}
-	if _, err := os.Stat(filepath.Join(a.content, "oversized.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(a.content, "default", "oversized.md")); !os.IsNotExist(err) {
 		t.Fatalf("oversized file was published: %v", err)
 	}
 

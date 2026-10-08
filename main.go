@@ -98,6 +98,12 @@ func main() {
 	}
 	defer db.Close()
 	a := &app{db: db, content: content, baseURL: baseURL, auth: auth, started: time.Now(), contentMu: &sync.Mutex{}}
+	if err = a.migrateContentLayout(); err != nil {
+		log.Fatalf("migrate content layout: %v", err)
+	}
+	if err = a.reconcileAllContent(); err != nil {
+		log.Fatalf("reconcile content entries: %v", err)
+	}
 	srv := &http.Server{Addr: addr, Handler: a, ReadHeaderTimeout: 10 * time.Second}
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -223,7 +229,7 @@ func migrateSchema(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS tables_meta (project TEXT NOT NULL DEFAULT 'default', group_name TEXT NOT NULL, name TEXT NOT NULL, label TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL, timestamp_field TEXT, indexes TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(project,group_name,name), FOREIGN KEY(project,group_name) REFERENCES groups_meta(project,name) ON DELETE CASCADE)`,
 		`CREATE TABLE IF NOT EXISTS fields_meta (project TEXT NOT NULL DEFAULT 'default', group_name TEXT NOT NULL, table_name TEXT NOT NULL, name TEXT NOT NULL, position INTEGER NOT NULL, definition TEXT NOT NULL, PRIMARY KEY(project,group_name,table_name,name), FOREIGN KEY(project,group_name,table_name) REFERENCES tables_meta(project,group_name,name) ON DELETE CASCADE)`,
 		`CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, project TEXT NOT NULL DEFAULT 'default', group_name TEXT NOT NULL, table_name TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, data TEXT NOT NULL, timestamp_value TEXT, FOREIGN KEY(project,group_name,table_name) REFERENCES tables_meta(project,group_name,name) ON DELETE CASCADE)`,
-		`CREATE TABLE IF NOT EXISTS content_page_times (path TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS content_entries (id TEXT PRIMARY KEY, project TEXT NOT NULL DEFAULT 'default', path TEXT NOT NULL, kind TEXT NOT NULL, content_type TEXT NOT NULL, size INTEGER NOT NULL DEFAULT 0, sha256 TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(project,path), FOREIGN KEY(project) REFERENCES projects(name) ON DELETE CASCADE)`,
 		`CREATE TABLE IF NOT EXISTS managed_indexes (name TEXT PRIMARY KEY, project TEXT NOT NULL DEFAULT 'default', group_name TEXT NOT NULL, table_name TEXT NOT NULL)`,
 	}
 	for _, statement := range statements {
@@ -241,6 +247,9 @@ func migrateSchema(db *sql.DB) error {
 		return err
 	}
 	if err = ensureColumn(ctx, conn, "managed_indexes", "project", `TEXT NOT NULL DEFAULT 'default'`); err != nil {
+		return err
+	}
+	if err = migrateContentEntries(ctx, conn); err != nil {
 		return err
 	}
 	rebuilds := []struct{ table, create, copy string }{
@@ -300,6 +309,57 @@ func rebuildProjectTable(ctx context.Context, conn *sql.Conn, table, create, cop
 		}
 	}
 	return nil
+}
+
+// migrateContentEntries converts the legacy content_page_times table into
+// project-scoped content entries, assigning every row to the default project
+// with a new ID (section 64.2, section 65.7). The legacy table is dropped.
+func migrateContentEntries(ctx context.Context, conn *sql.Conn) error {
+	exists, err := tableExists(ctx, conn, "content_page_times")
+	if err != nil || !exists {
+		return err
+	}
+	rows, err := conn.QueryContext(ctx, `SELECT path,created_at,updated_at FROM content_page_times`)
+	if err != nil {
+		return err
+	}
+	type legacy struct{ path, created, updated string }
+	entries := []legacy{}
+	for rows.Next() {
+		var item legacy
+		if err = rows.Scan(&item.path, &item.created, &item.updated); err != nil {
+			rows.Close()
+			return err
+		}
+		entries = append(entries, item)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, item := range entries {
+		if _, err = conn.ExecContext(ctx, `INSERT INTO content_entries(id,project,path,kind,content_type,size,sha256,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`,
+			newID(), defaultProject, item.path, contentKind(item.path), contentMediaType(item.path), 0, "", item.created, item.updated); err != nil {
+			return err
+		}
+	}
+	if _, err = conn.ExecContext(ctx, `DROP TABLE content_page_times`); err != nil {
+		return err
+	}
+	return nil
+}
+
+func tableExists(ctx context.Context, conn *sql.Conn, table string) (bool, error) {
+	var one int
+	err := conn.QueryRowContext(ctx, `SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func tableHasColumn(ctx context.Context, conn *sql.Conn, table, column string) (bool, error) {
