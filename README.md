@@ -1,7 +1,7 @@
 # GoClio
 
 GoClio is a Go implementation of the frozen Clio v1 contract in `SPEC.md`
-(specification revision 1.7; product version 1.0.0; API version v1). It uses Go's
+(specification revision 1.7; product version 2.0.0; API version v1). It uses Go's
 standard HTTP server, one SQLite database in WAL mode, and the filesystem for
 published content. `SPEC-CONFORMANCE.md` maps specification areas to automated
 tests.
@@ -11,14 +11,17 @@ Feature summary:
 - Metadata-driven groups, tables, fields and records, including record and
   time-series tables, with filtering, sorting, paging, grouping and aggregation.
 - Named **projects** that scope their own structured data and content; the
-  implicit `default` project always exists.
+  implicit `default` project always exists. The project overview at
+  `/{project}/` lists, creates and deletes projects through the public projects
+  API, and server-renders the project list without JavaScript.
 - Two partitions per project: `data` (groups, tables, records, metadata) and
   `files` (unified directories, pages and files with stable IDs).
 - Optional full-text search over extracted page/file text (SQLite FTS5, native
   text and PDF text extraction) with an agent enrichment write-back API.
 - `attachment` fields that link records to files by stable ID.
 - Optional WebDAV, an opt-in one-command backup/restore path, an interactive
-  data browser and file explorer, and a dependency-free browser client.
+  data browser, file explorer and project manager, and a dependency-free
+  browser client (ClioJS 1.2.0).
 
 ## Build and run
 
@@ -40,7 +43,7 @@ CLIO_BASE_URL=http://localhost:8080 \
 `make`, build directly and pass the version yourself:
 
 ```sh
-CGO_ENABLED=1 go build -tags sqlite_fts5 -buildvcs=false -ldflags="-X main.version=1.0.0" -o clio .
+CGO_ENABLED=1 go build -tags sqlite_fts5 -buildvcs=false -ldflags="-X main.version=2.0.0" -o clio .
 ```
 
 The default listener is `0.0.0.0:8080`; the default data directory is
@@ -64,7 +67,7 @@ docker run --rm --name clio \
 ```
 
 For a Compose build, set `CLIO_VERSION` to select both the image tag and the
-injected version; it defaults to `local` / `1.0.0` when unset. The image runs as
+injected version; it defaults to `local` / `2.0.0` when unset. The image runs as
 an unprivileged `clio` user. The named volume stores both the
 SQLite database and published content under `/var/lib/clio`. The container
 listens on port 8080; open <http://localhost:8080/help> after startup. For a
@@ -144,6 +147,18 @@ and bare `/api/v1` redirects to `/api/v1/default`. The only instance-level
 routes are `/health`, `/help`, `/api/v1/health`, `/api/v1/help`,
 `/api/v1/projects`, `/assets/...` and `/favicon.svg`.
 
+The project overview at `/{project}/` is the human projects manager. It lists
+the projects, links to each `/{name}/`, and creates and deletes projects through
+the public `GET`/`POST /api/v1/projects` and
+`DELETE /api/v1/projects/{project}` API; `default` is never deletable and a
+non-empty project returns `409`. Without JavaScript the overview server-renders
+the project list with project-scoped links. There is deliberately no human
+`/projects` route (section 66.3): the manager lives inside the existing
+project-scoped pages, and every URL it generates is `/{name}/`. The browser
+client exposes it as `Clio.Projects.mount(element)` (ClioJS 1.2.0), and the data
+browser and file explorer toolbars carry a compact project switcher that
+navigates the same sub-path under the chosen project.
+
 Each project is divided into two partitions:
 
 - **`data`** — structured data. The API lives under
@@ -181,13 +196,13 @@ GoClio tracks three independent identifiers, described in `SPEC.md`:
 | Identifier | Current | Where it appears |
 | --- | --- | --- |
 | Specification revision | `1.7` | `SPEC.md` header |
-| Product version | `1.0.0` (source default) | `version` in `/api/v1/health` |
+| Product version | `2.0.0` (source default) | `version` in `/api/v1/health` |
 | API version | `v1` | `/api/v1/` route prefix |
 
 Releases are tagged `v<MAJOR>.<MINOR>.<PATCH>` following Semantic Versioning.
 The product version reported by a binary is injected at build time from the
 nearest git tag (without the leading `v`), so a release build reports its actual
-tag. The literal `1.0.0` in `main.go` is only the default used when building
+tag. The literal `2.0.0` in `main.go` is only the default used when building
 without a tag, such as inside the Docker build context where `.git` is
 excluded. The specification header records the documented product version and is
 updated deliberately when the product version is bumped; at release time the tag

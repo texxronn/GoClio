@@ -24,7 +24,7 @@ import (
 // log. It defaults to the product version documented in SPEC.md and is
 // overridden at build time with -ldflags "-X main.version=...", normally from
 // the git tag (see the Makefile and Dockerfile).
-var version = "1.0.0"
+var version = "2.0.0"
 
 type app struct {
 	db        *sql.DB

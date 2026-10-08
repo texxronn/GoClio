@@ -2,7 +2,7 @@
   "use strict";
 
   const apiVersion = "v1";
-  const libraryVersion = "1.1.0";
+  const libraryVersion = "1.2.0";
 
   class ClioError extends Error {
     constructor(status, code, message, body) {
@@ -239,6 +239,33 @@
         signal: options.signal
       });
     }
+
+    // projects lists every project from the instance-level projects API
+    // (section 65.5). It is deliberately not project-prefixed.
+    projects(options) {
+      return this._request(`${this.baseUrl}/api/${apiVersion}/projects`, {
+        signal: options && options.signal
+      });
+    }
+
+    // createProject creates a project from {name, label, description, order}
+    // (section 65.5). A duplicate is 409 and a reserved/default name is 422.
+    createProject(value, options) {
+      return this._request(`${this.baseUrl}/api/${apiVersion}/projects`, {
+        method: "POST",
+        json: value,
+        signal: options && options.signal
+      });
+    }
+
+    // deleteProject removes an empty project (204). `default` is never
+    // deletable (422) and a non-empty project returns 409 (section 65.5).
+    deleteProject(name, options) {
+      return this._request(`${this.baseUrl}/api/${apiVersion}/projects/${encodeURIComponent(name)}`, {
+        method: "DELETE",
+        signal: options && options.signal
+      });
+    }
   }
 
   async function* iterateRecords(client, recordsPath, options) {
@@ -287,6 +314,78 @@
     return "default";
   }
 
+  // currentProjectFromLocation resolves the active project from the first path
+  // segment of the human URL, defaulting to `default`.
+  function currentProjectFromLocation() {
+    const parts = ((root.location && root.location.pathname) || "").split("/").filter(Boolean);
+    return parts.length >= 1 ? parts[0] : "default";
+  }
+
+  // projectSwitchTarget builds the same human sub-path under another project,
+  // preserving any current query string.
+  function projectSwitchTarget(project, path) {
+    const search = (root.location && root.location.search) || "";
+    return `/${encodeURIComponent(project)}${path}${search}`;
+  }
+
+  // switchProject navigates to the same sub-path under another project. It
+  // prefers a full navigation so the mounted client re-targets the project and
+  // falls back to history.pushState for test doubles or embedded views.
+  function switchProject(project, path) {
+    if (!project) return false;
+    const target = projectSwitchTarget(project, path);
+    if (root.location && typeof root.location.assign === "function") {
+      root.location.assign(target);
+      return true;
+    }
+    if (root.history && typeof root.history.pushState === "function") {
+      root.history.pushState({}, "", target);
+      return true;
+    }
+    if (root.location) {
+      root.location.href = target;
+      return true;
+    }
+    return false;
+  }
+
+  // buildProjectSwitcher creates a compact project <select> for a toolbar. It
+  // starts with the current project and is filled from the API asynchronously.
+  function buildProjectSwitcher(doc, currentProject, onChange) {
+    const label = doc.createElement("label");
+    label.className = "project-switcher";
+    if (doc.createTextNode) label.appendChild(doc.createTextNode("Project: "));
+    const select = doc.createElement("select");
+    select.setAttribute("aria-label", "Project");
+    const option = doc.createElement("option");
+    option.value = currentProject;
+    option.textContent = currentProject;
+    select.appendChild(option);
+    select.addEventListener("change", () => onChange(select.value));
+    label.appendChild(select);
+    return { label, select };
+  }
+
+  // fillProjectSwitcher populates a project <select> from the projects API.
+  // Every label is assigned as text, so server data is never rendered as HTML.
+  async function fillProjectSwitcher(doc, select, client, currentProject) {
+    try {
+      const projects = await client.projects();
+      if (!Array.isArray(projects)) return;
+      select.replaceChildren();
+      for (const item of projects) {
+        const option = doc.createElement("option");
+        option.value = String(item.name);
+        option.textContent = item.label ? String(item.label) : String(item.name);
+        option.selected = String(item.name) === currentProject;
+        select.appendChild(option);
+      }
+      select.value = currentProject;
+    } catch (_) {
+      // Keep the current project when the project list cannot be loaded.
+    }
+  }
+
   const DataBrowser = {
     mount(target, options) {
       options = options || {};
@@ -310,6 +409,10 @@
         return value;
       };
       const toolbar = element("div", null, "browser-toolbar");
+      const projectSwitcher = buildProjectSwitcher(doc, project, (next) => {
+        if (next && next !== project) switchProject(next, "/data");
+      });
+      toolbar.appendChild(projectSwitcher.label);
       const collectionLabel = element("label", "Collection:");
       const collectionSelect = element("select");
       collectionSelect.setAttribute("aria-label", "Collection");
@@ -545,8 +648,9 @@
       };
       if (root.addEventListener) root.addEventListener("popstate", popstate);
       const ready = navigate(initialGroup, initialTable, selectedPage(), true);
+      const projectsReady = fillProjectSwitcher(doc, projectSwitcher.select, client, project);
       return {
-        ready,
+        ready: Promise.all([ready, projectsReady]).then(() => undefined),
         refresh() {
           groups = [];
           return navigate(currentGroup, currentTable, selectedPage(), true);
@@ -664,7 +768,12 @@
       const uploadInput = element("input");
       uploadInput.type = "file";
       uploadInput.setAttribute("aria-label", "Upload file");
-      toolbar.append(searchForm, newFolderButton, uploadInput);
+      const projectSwitcher = buildProjectSwitcher(doc, project, (next) => {
+        if (!next || next === project) return;
+        const sub = currentPath === "/" ? "/files" : "/files" + encodeURI(currentPath);
+        switchProject(next, sub);
+      });
+      toolbar.append(projectSwitcher.label, searchForm, newFolderButton, uploadInput);
 
       const breadcrumbs = element("nav", null, "fb-breadcrumbs");
       breadcrumbs.setAttribute("aria-label", "Breadcrumb");
@@ -911,8 +1020,9 @@
       if (root.addEventListener) root.addEventListener("popstate", popstate);
 
       const ready = navigate(currentPath, true);
+      const projectsReady = fillProjectSwitcher(doc, projectSwitcher.select, client, project);
       return {
-        ready,
+        ready: Promise.all([ready, projectsReady]).then(() => undefined),
         get path() { return currentPath; },
         refresh() { return navigate(currentPath, true); },
         navigate(path) { return navigate(path, false); },
@@ -930,8 +1040,183 @@
     }
   };
 
+  // Projects is an interactive manager over the instance-level projects API
+  // (section 65.5). It lists, creates and deletes projects without adding a
+  // human route: every link it renders is project-scoped (`/{name}/`). Names,
+  // labels and descriptions are assigned as text, so server data is never
+  // rendered as HTML.
+  const Projects = {
+    mount(target, options) {
+      options = options || {};
+      const doc = root.document;
+      if (!doc) throw new TypeError("Clio.Projects.mount() requires a browser element");
+      const host = typeof target === "string" ? doc.querySelector(target) : target;
+      if (!host) throw new TypeError("Clio.Projects.mount() requires a browser element");
+      const currentProject = options.project ? String(options.project) : currentProjectFromLocation();
+      const client = options.client || new Clio(Object.assign({}, options, { project: currentProject }));
+      let destroyed = false;
+
+      const element = (tag, text, className) => {
+        const value = doc.createElement(tag);
+        if (text != null) value.textContent = String(text);
+        if (className) value.className = className;
+        return value;
+      };
+      const text = (value) => (doc.createTextNode ? doc.createTextNode(String(value)) : element("span", value));
+
+      const status = element("p", "", "projects-status");
+      status.setAttribute("role", "status");
+      const list = element("ul", null, "projects-list");
+      const form = element("form", null, "projects-create");
+
+      const nameLabel = element("label", "Name");
+      const nameInput = element("input");
+      nameInput.type = "text";
+      nameInput.name = "name";
+      nameInput.required = true;
+      nameInput.setAttribute("placeholder", "project-name");
+      nameInput.setAttribute("pattern", "[a-z0-9][a-z0-9_-]*");
+      nameLabel.appendChild(nameInput);
+      const labelLabel = element("label", "Label (optional)");
+      const labelInput = element("input");
+      labelInput.type = "text";
+      labelInput.name = "label";
+      labelLabel.appendChild(labelInput);
+      const descriptionLabel = element("label", "Description (optional)");
+      const descriptionInput = element("input");
+      descriptionInput.type = "text";
+      descriptionInput.name = "description";
+      descriptionLabel.appendChild(descriptionInput);
+      const orderLabel = element("label", "Order (optional)");
+      const orderInput = element("input");
+      orderInput.type = "number";
+      orderInput.name = "order";
+      orderLabel.appendChild(orderInput);
+      const submit = element("button", "Create project");
+      submit.type = "submit";
+      form.append(nameLabel, labelLabel, descriptionLabel, orderLabel, submit);
+
+      host.replaceChildren(element("h2", "Projects"), status, list, form);
+
+      function renderList(projects) {
+        list.replaceChildren();
+        for (const item of projects) {
+          const name = String(item.name);
+          const row = element("li", null, "projects-item");
+          row.setAttribute("data-project", name);
+          const link = element("a", item.label || name);
+          link.href = `/${encodeURIComponent(name)}/`;
+          row.appendChild(link);
+          if (name !== "default") {
+            row.appendChild(text(" "));
+            row.appendChild(element("span", name, "projects-slug"));
+          }
+          if (name === currentProject) {
+            row.appendChild(text(" "));
+            row.appendChild(element("span", "(current)", "projects-current"));
+          }
+          if (name !== "default") {
+            const remove = element("button", "Delete", "projects-danger");
+            remove.type = "button";
+            remove.setAttribute("aria-label", `Delete project ${name}`);
+            remove.addEventListener("click", () => {
+              if (typeof root.confirm === "function" && !root.confirm(`Delete project ${name}?`)) return;
+              removeProject(name);
+            });
+            row.appendChild(remove);
+          }
+          list.appendChild(row);
+        }
+      }
+
+      function showError(error, fallback) {
+        status.className = "projects-status projects-error";
+        status.textContent = error && error.message ? error.message : fallback;
+      }
+
+      async function refresh() {
+        try {
+          const projects = await client.projects();
+          if (destroyed) return;
+          renderList(Array.isArray(projects) ? projects : []);
+          status.className = "projects-status";
+          status.textContent = "";
+        } catch (error) {
+          if (destroyed) return;
+          showError(error, "Unable to load projects.");
+        }
+      }
+
+      async function createProject(event) {
+        if (event && event.preventDefault) event.preventDefault();
+        const payload = { name: String(nameInput.value || "").trim() };
+        const labelValue = String(labelInput.value || "").trim();
+        const description = String(descriptionInput.value || "").trim();
+        const order = String(orderInput.value || "").trim();
+        if (labelValue) payload.label = labelValue;
+        if (description) payload.description = description;
+        if (order !== "") payload.order = Number(order);
+        status.className = "projects-status";
+        status.textContent = "Creating…";
+        try {
+          const created = await client.createProject(payload);
+          if (destroyed) return;
+          if (typeof form.reset === "function") form.reset();
+          nameInput.value = "";
+          labelInput.value = "";
+          descriptionInput.value = "";
+          orderInput.value = "";
+          await refresh();
+          status.className = "projects-status";
+          status.textContent = `Created ${created && created.name ? created.name : payload.name}.`;
+          if (root.location && typeof root.location.reload === "function") root.location.reload();
+        } catch (error) {
+          if (destroyed) return;
+          showError(error, "Could not create the project.");
+        }
+      }
+
+      async function removeProject(name) {
+        if (name === "default") return;
+        status.className = "projects-status";
+        status.textContent = "Deleting…";
+        try {
+          await client.deleteProject(name);
+          if (destroyed) return;
+          await refresh();
+          status.className = "projects-status";
+          status.textContent = `Deleted ${name}.`;
+          if (root.location && typeof root.location.reload === "function") root.location.reload();
+        } catch (error) {
+          if (destroyed) return;
+          showError(error, `Could not delete ${name}.`);
+        }
+      }
+
+      form.addEventListener("submit", createProject);
+      return {
+        ready: refresh(),
+        refresh,
+        create(value) {
+          value = value || {};
+          nameInput.value = value.name != null ? String(value.name) : "";
+          labelInput.value = value.label != null ? String(value.label) : "";
+          descriptionInput.value = value.description != null ? String(value.description) : "";
+          orderInput.value = value.order != null ? String(value.order) : "";
+          return createProject();
+        },
+        remove(name) { return removeProject(name); },
+        destroy() {
+          destroyed = true;
+          host.replaceChildren();
+        }
+      };
+    }
+  };
+
   Object.defineProperty(Clio, "DataBrowser", { value: DataBrowser, enumerable: true });
   Object.defineProperty(Clio, "FileBrowser", { value: FileBrowser, enumerable: true });
+  Object.defineProperty(Clio, "Projects", { value: Projects, enumerable: true });
 
   root.Clio = Clio;
 })(typeof window !== "undefined" ? window : globalThis);
