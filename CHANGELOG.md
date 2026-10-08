@@ -11,6 +11,8 @@ than the product.
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-10-08
+
 ### Added
 
 - The Data Browser's **New table** form gains type-specific field editors for

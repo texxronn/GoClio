@@ -5,7 +5,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        VERSION: ${CLIO_VERSION:-2.1.1}
+        VERSION: ${CLIO_VERSION:-2.2.0}
     container_name: clio
     restart: unless-stopped
     ports:
