@@ -48,6 +48,21 @@ than the product.
   upper-cased extension). Every column header is a sort toggle (Name, Type, Size,
   Created, Modified) with an ▲/▼ marker and `aria-sort`; folders always stay at
   the top and each group sorts independently.
+- The Data Browser can now **create collections and tables**. Toolbar **New
+  collection** and **New table** buttons open an inline `browser-create` form
+  (not a dialog): choose an existing collection or a new one, name the table,
+  optionally label it, pick `record` (default) or `timeseries` (which asks for a
+  timestamp field), and edit dynamic `name`/`type` field rows (add/remove). The
+  simple types `string, text, integer, decimal, boolean, date, datetime, url`
+  are offered; `enum` and `reference` need extra configuration and are a
+  follow-up. Creation issues `POST /api/v1/{project}/data/groups` first only when
+  a new collection name was given, then
+  `POST /api/v1/{project}/data/groups/{group}/tables`; on success the browser
+  refreshes, selects the new (empty) table and shows a confirmation, while an
+  API error (`409`/`422`) is shown in the form and the form stays open. Client
+  validation blocks an empty table name, a field-less table and invalid
+  timeseries timestamp fields without a request, and all names/values are
+  rendered as text. `Clio.version` is `1.5.0`.
 
 ### Changed
 
@@ -79,6 +94,13 @@ than the product.
 
 ### Fixed
 
+- The Data Browser no longer renders a **duplicate theme toggle**: it relied on
+  its own `.browser-theme-toggle` (and wrote `data-theme`) in addition to the
+  shared nav toggle in `pageShell`, so the page showed two toggles that could
+  disagree. The Data Browser's own toggle, its `Clio.Theme.mount` call and the
+  now-dead `.browser-theme-toggle` CSS are removed; the single shared
+  `.clio-theme-toggle` and the one `Clio.Theme` controller over the shared
+  `clio-theme` key remain.
 - The file explorer no longer shows the browser's native "Choose Files" control next to the styled **Upload…** button: the hidden file input is now unconditionally hidden (`.fb-file-input` with `!important`). Only the styled button appears; selecting files still opens the picker and stages them.
 - File downloads now send `Content-Disposition: attachment; filename="<name>"`, so the stable ID URL saves under the real file name instead of the opaque ID. An `?inline=1` request on a stable/API content URL previews types that are safe to display (images other than SVG, `application/pdf`, plain text, CSV and Markdown, audio and video) with `Content-Disposition: inline`; active content (HTML, SVG, scripts) and every other type still download. The file explorer's **Open in new tab** uses the inline preview for files and the rendered path URL for pages.
 

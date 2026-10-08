@@ -2,7 +2,7 @@
   "use strict";
 
   const apiVersion = "v1";
-  const libraryVersion = "1.4.0";
+  const libraryVersion = "1.5.0";
 
   class ClioError extends Error {
     constructor(status, code, message, body) {
@@ -520,10 +520,11 @@
       tableViewLink.hidden = true;
       tableViewLink.setAttribute("aria-label", "Open table management view");
       toolbar.appendChild(tableViewLink);
-      const themeToggle = element("button", null, "browser-theme-toggle");
-      themeToggle.type = "button";
-      toolbar.appendChild(themeToggle);
-      const themeControl = Theme.mount(themeToggle);
+      const newCollectionButton = element("button", "New collection", "browser-new-collection");
+      newCollectionButton.type = "button";
+      const newTableButton = element("button", "New table", "browser-new-table");
+      newTableButton.type = "button";
+      toolbar.append(newCollectionButton, newTableButton);
       const layout = element("div", null, "browser-layout");
       const sidebar = element("aside", null, "browser-tables");
       sidebar.appendChild(element("h2", "Tables"));
@@ -539,7 +540,243 @@
       pagination.setAttribute("aria-label", "Pages");
       content.append(title, status, grid, pagination);
       layout.append(sidebar, content);
-      host.replaceChildren(toolbar, layout);
+
+      // --- create collection/table form -------------------------------------
+      // The Data Browser can create a collection and a table through the
+      // existing public API; the panel is inline (not a dialog) and every
+      // server-provided value is assigned as text. enum and reference fields
+      // need extra configuration and are deliberately not offered yet.
+      const NEW_COLLECTION = "__new__";
+      const simpleFieldTypes = ["string", "text", "integer", "decimal", "boolean", "date", "datetime", "url"];
+      let fieldEditors = [];
+      const createPanel = element("section", null, "browser-create");
+      createPanel.setAttribute("role", "region");
+      createPanel.setAttribute("aria-label", "Create a collection or table");
+      createPanel.hidden = true;
+      const createForm = element("form", null, "browser-create-form");
+      const createStatus = element("p", "", "browser-create-status");
+      createStatus.setAttribute("role", "status");
+      const createCollectionLabel = element("label", "Collection");
+      const createCollectionSelect = element("select", null, "browser-create-collection");
+      createCollectionSelect.setAttribute("aria-label", "Collection for the new table");
+      createCollectionLabel.appendChild(createCollectionSelect);
+      const newCollectionLabel = element("label", "New collection name");
+      const newCollectionInput = element("input", null, "browser-create-new-collection");
+      newCollectionInput.type = "text";
+      newCollectionInput.setAttribute("placeholder", "new-collection");
+      newCollectionLabel.appendChild(newCollectionInput);
+      newCollectionLabel.hidden = true;
+      const createNameLabel = element("label", "Table name (required)");
+      const createNameInput = element("input", null, "browser-create-name");
+      createNameInput.type = "text";
+      createNameInput.required = true;
+      createNameInput.setAttribute("placeholder", "table-name");
+      createNameLabel.appendChild(createNameInput);
+      const createLabelLabel = element("label", "Label (optional)");
+      const createLabelInput = element("input", null, "browser-create-label");
+      createLabelInput.type = "text";
+      createLabelLabel.appendChild(createLabelInput);
+      const createKindLabel = element("label", "Kind");
+      const createKindSelect = element("select", null, "browser-create-kind");
+      createKindSelect.setAttribute("aria-label", "Table kind");
+      for (const kind of ["record", "timeseries"]) {
+        const option = element("option", kind);
+        option.value = kind;
+        createKindSelect.appendChild(option);
+      }
+      createKindSelect.value = "record";
+      createKindLabel.appendChild(createKindSelect);
+      const createTimestampLabel = element("label", "Timestamp field");
+      const createTimestampInput = element("input", null, "browser-create-timestamp");
+      createTimestampInput.type = "text";
+      createTimestampInput.setAttribute("placeholder", "timestamp_field");
+      createTimestampLabel.appendChild(createTimestampInput);
+      createTimestampLabel.hidden = true;
+      const fieldsBlock = element("div", null, "browser-fields");
+      fieldsBlock.appendChild(element("h3", "Fields"));
+      const fieldRows = element("div", null, "browser-field-rows");
+      fieldsBlock.appendChild(fieldRows);
+      const addFieldButton = element("button", "＋ Add field", "browser-field-add");
+      addFieldButton.type = "button";
+      fieldsBlock.appendChild(addFieldButton);
+      const createActions = element("div", null, "browser-create-actions");
+      const createSubmit = element("button", "Create", "browser-create-submit");
+      createSubmit.type = "submit";
+      const createCancel = element("button", "Cancel", "browser-create-cancel");
+      createCancel.type = "button";
+      createActions.append(createSubmit, createCancel);
+      createForm.append(createStatus, createCollectionLabel, newCollectionLabel, createNameLabel, createLabelLabel, createKindLabel, createTimestampLabel, fieldsBlock, createActions);
+      createPanel.appendChild(createForm);
+
+      function addFieldRow(name, type) {
+        const row = element("div", null, "browser-field-row");
+        const fieldName = element("input", null, "browser-field-name");
+        fieldName.type = "text";
+        fieldName.setAttribute("aria-label", "Field name");
+        fieldName.setAttribute("placeholder", "field_name");
+        fieldName.value = name || "";
+        const fieldType = element("select", null, "browser-field-type");
+        fieldType.setAttribute("aria-label", "Field type");
+        for (const candidate of simpleFieldTypes) {
+          const option = element("option", candidate);
+          option.value = candidate;
+          fieldType.appendChild(option);
+        }
+        fieldType.value = type || "string";
+        const remove = element("button", "×", "browser-field-remove");
+        remove.type = "button";
+        remove.setAttribute("aria-label", "Remove field");
+        const editor = { row, name: fieldName, type: fieldType };
+        remove.addEventListener("click", (event) => {
+          if (event && event.preventDefault) event.preventDefault();
+          fieldEditors = fieldEditors.filter((entry) => entry !== editor);
+          if (row.parentNode && row.parentNode.removeChild) row.parentNode.removeChild(row);
+        });
+        row.append(fieldName, fieldType, remove);
+        fieldRows.appendChild(row);
+        fieldEditors.push(editor);
+        return editor;
+      }
+
+      function drawCreateCollections() {
+        createCollectionSelect.replaceChildren();
+        for (const group of groups) {
+          const option = element("option", group.label || group.name);
+          option.value = group.name;
+          createCollectionSelect.appendChild(option);
+        }
+        const option = element("option", "＋ New collection…");
+        option.value = NEW_COLLECTION;
+        createCollectionSelect.appendChild(option);
+        if (currentGroup && groups.some((group) => group.name === currentGroup)) {
+          createCollectionSelect.value = currentGroup;
+        } else {
+          createCollectionSelect.value = NEW_COLLECTION;
+        }
+      }
+
+      function syncNewCollectionVisibility() {
+        newCollectionLabel.hidden = createCollectionSelect.value !== NEW_COLLECTION;
+      }
+
+      function syncTimestampVisibility() {
+        createTimestampLabel.hidden = createKindSelect.value !== "timeseries";
+      }
+
+      function openCreate(options) {
+        options = options || {};
+        createStatus.className = "browser-create-status";
+        createStatus.textContent = "";
+        drawCreateCollections();
+        if (options.newCollection) createCollectionSelect.value = NEW_COLLECTION;
+        newCollectionInput.value = "";
+        createNameInput.value = "";
+        createLabelInput.value = "";
+        createKindSelect.value = "record";
+        createTimestampInput.value = "";
+        createTimestampLabel.hidden = true;
+        fieldEditors = [];
+        fieldRows.replaceChildren();
+        addFieldRow("", "string");
+        syncNewCollectionVisibility();
+        syncTimestampVisibility();
+        createPanel.hidden = false;
+        if (typeof createNameInput.focus === "function") createNameInput.focus();
+      }
+
+      function showCreateError(message) {
+        createStatus.className = "browser-create-status browser-error";
+        createStatus.textContent = message;
+      }
+
+      function readCreateForm() {
+        const collectionValue = createCollectionSelect.value;
+        const newGroup = collectionValue === NEW_COLLECTION ? String(newCollectionInput.value || "").trim() : "";
+        if (collectionValue === NEW_COLLECTION && !newGroup) return { error: "Enter a name for the new collection." };
+        const tableName = String(createNameInput.value || "").trim();
+        if (!tableName) return { error: "Table name is required." };
+        if (!fieldEditors.length) return { error: "Add at least one field." };
+        const names = [];
+        const fields = [];
+        for (const editor of fieldEditors) {
+          const fieldName = String(editor.name.value || "").trim();
+          if (!fieldName) return { error: "Every field needs a name." };
+          if (names.indexOf(fieldName) !== -1) return { error: `Field names must be unique: ${fieldName}` };
+          names.push(fieldName);
+          fields.push({ name: fieldName, type: editor.type.value });
+        }
+        const kind = createKindSelect.value === "timeseries" ? "timeseries" : "record";
+        let timestampField = "";
+        if (kind === "timeseries") {
+          timestampField = String(createTimestampInput.value || "").trim();
+          if (!timestampField) return { error: "A timeseries table needs a timestamp field." };
+          const timestampEditor = fieldEditors.filter((entry) => String(entry.name.value || "").trim() === timestampField)[0];
+          if (!timestampEditor) return { error: "The timestamp field must be one of the fields." };
+          if (timestampEditor.type.value !== "date" && timestampEditor.type.value !== "datetime") {
+            return { error: "The timestamp field must be a date or datetime field." };
+          }
+          const timestampValue = fields.filter((entry) => entry.name === timestampField)[0];
+          timestampValue.required = true;
+          timestampValue.role = "timestamp";
+        }
+        const labelValue = String(createLabelInput.value || "").trim();
+        return { group: collectionValue === NEW_COLLECTION ? newGroup : collectionValue, newGroup, name: tableName, label: labelValue, kind, fields, timestampField, error: "" };
+      }
+
+      async function submitCreateForm(event) {
+        if (event && event.preventDefault) event.preventDefault();
+        const form = readCreateForm();
+        if (form.error) {
+          showCreateError(form.error);
+          return;
+        }
+        createStatus.className = "browser-create-status";
+        createStatus.textContent = "Creating…";
+        try {
+          let groupName = form.group;
+          if (form.newGroup) {
+            const created = await client.createGroup({ name: form.newGroup, label: form.newGroup });
+            groupName = created && created.name ? String(created.name) : form.newGroup;
+          }
+          const payload = { name: form.name, kind: form.kind, fields: form.fields };
+          if (form.label) payload.label = form.label;
+          if (form.kind === "timeseries") payload.timestamp_field = form.timestampField;
+          await client.group(groupName).createTable(payload);
+          if (destroyed) return;
+          createPanel.hidden = true;
+          createStatus.textContent = "";
+          groups = [];
+          await navigate(groupName, form.name, 1, true);
+          if (destroyed) return;
+          status.className = "browser-status";
+          status.textContent = `Created table “${form.name}” in “${groupName}”.`;
+        } catch (error) {
+          if (destroyed) return;
+          showCreateError(error && error.message ? error.message : "Could not create the table.");
+        }
+      }
+
+      createCollectionSelect.addEventListener("change", syncNewCollectionVisibility);
+      createKindSelect.addEventListener("change", syncTimestampVisibility);
+      addFieldButton.addEventListener("click", (event) => {
+        if (event && event.preventDefault) event.preventDefault();
+        addFieldRow("", "string");
+      });
+      newCollectionButton.addEventListener("click", (event) => {
+        if (event && event.preventDefault) event.preventDefault();
+        openCreate({ newCollection: true });
+      });
+      newTableButton.addEventListener("click", (event) => {
+        if (event && event.preventDefault) event.preventDefault();
+        openCreate({ newCollection: groups.length === 0 });
+      });
+      createCancel.addEventListener("click", (event) => {
+        if (event && event.preventDefault) event.preventDefault();
+        createPanel.hidden = true;
+      });
+      createForm.addEventListener("submit", submitCreateForm);
+
+      host.replaceChildren(toolbar, createPanel, layout);
 
       function selectedPage() {
         const params = new URLSearchParams((root.location && root.location.search) || "");
@@ -733,7 +970,6 @@
         },
         destroy() {
           destroyed = true;
-          if (themeControl) themeControl.destroy();
           if (root.removeEventListener) root.removeEventListener("popstate", popstate);
           host.replaceChildren();
         }

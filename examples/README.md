@@ -54,9 +54,9 @@ curl 'http://localhost:8080/api/v1/default/data/groups/pool/tables/measurements/
 ```
 
 Open `/default/data/vehicle/service` and `/default/data/pool/measurements` to use
-the browser table views and their query controls. The read-only data browser is
-at `/default/data`, and metadata is discoverable under
-`/api/v1/default/data/metadata`.
+the browser table views and their query controls. The data browser is
+at `/default/data` (it can also create a collection and a table), and metadata
+is discoverable under `/api/v1/default/data/metadata`.
 
 ## Publish the Markdown and browser example
 

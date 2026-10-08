@@ -17,10 +17,15 @@ func TestDataBrowserRoutes(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("GET /default/data status=%d: %s", response.Code, response.Body.String())
 	}
-	for _, want := range []string{"Data Browser", "assets/clio.js", "Clio.DataBrowser.mount", "clio-data-browser", "browser-theme-toggle", "browser-table-view", "clio-theme-toggle", "clio-theme", ":root{color-scheme:light", `:root[data-theme="dark"]`, "prefers-color-scheme", "var(--page)", "var(--surface-raised)", "var(--text)", "var(--line)", "var(--accent)", "var(--accent-soft)", "var(--hover)", "var(--danger)", "var(--on-accent)"} {
+	for _, want := range []string{"Data Browser", "assets/clio.js", "Clio.DataBrowser.mount", "clio-data-browser", "browser-table-view", "browser-new-collection", "browser-new-table", "browser-create", "browser-field-row", "clio-theme-toggle", "clio-theme", ":root{color-scheme:light", `:root[data-theme="dark"]`, "prefers-color-scheme", "var(--page)", "var(--surface-raised)", "var(--text)", "var(--line)", "var(--accent)", "var(--accent-soft)", "var(--hover)", "var(--danger)", "var(--on-accent)"} {
 		if !strings.Contains(response.Body.String(), want) {
 			t.Errorf("GET /default/data missing %q", want)
 		}
+	}
+	// The Data Browser relies on the shared nav theme toggle; it no longer
+	// renders or defines its own duplicate toggle (section 66.5 UI).
+	if strings.Contains(response.Body.String(), "browser-theme-toggle") {
+		t.Errorf("GET /default/data still defines the duplicate .browser-theme-toggle")
 	}
 	// The shared palette is defined once (in pageShell), not again in the data
 	// browser body.
