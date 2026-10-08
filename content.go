@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -899,7 +898,23 @@ func regexpDrive(s string) bool {
 }
 
 func (a *app) contentUI(w http.ResponseWriter, r *http.Request, s []string) {
-	if r.Method != "GET" && r.Method != "POST" {
+	// The reserved `id` segment is the stable URL /{project}/files/id/{id}
+	// (section 66.5). It always downloads the raw stored bytes, including for a
+	// page, and must be handled before content-path canonicalisation rejects the
+	// reserved first segment.
+	if len(s) > 0 && s[0] == reservedFilesSegment {
+		if len(s) != 2 {
+			writeAPIError(w, missing("Content"))
+			return
+		}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			writeAPIError(w, methodNotAllowed())
+			return
+		}
+		a.serveFileContent(w, r, s[1])
+		return
+	}
+	if r.Method != "GET" && r.Method != "POST" && r.Method != "HEAD" {
 		writeAPIError(w, methodNotAllowed())
 		return
 	}
@@ -967,7 +982,7 @@ func (a *app) contentUI(w http.ResponseWriter, r *http.Request, s []string) {
 		writeHTML(w, 200, a.directoryHTML(d))
 		return
 	}
-	if r.Method != "GET" {
+	if r.Method != "GET" && r.Method != "HEAD" {
 		writeAPIError(w, methodNotAllowed())
 		return
 	}
@@ -1000,16 +1015,11 @@ body{max-width:none;margin:0 auto;padding:0 1.4rem;background:#f4f7fb;color:#192
 		writeHTML(w, 200, string(data))
 		return
 	}
-	typeName := mime.TypeByExtension(filepath.Ext(target))
-	if typeName == "" {
-		typeName = "application/octet-stream"
+	// Any other content is served as a download so it cannot execute in-origin
+	// (section 64.5). http.ServeContent supplies byte ranges and HEAD.
+	if ae := serveDownload(w, r, target, contentMediaType(clean)); ae != nil {
+		writeErr(w, ae)
 	}
-	data, err := os.ReadFile(target)
-	if err != nil {
-		writeErr(w, errAPI(err))
-		return
-	}
-	writeText(w, 200, string(data), typeName)
 }
 
 func (a *app) directoryHTML(d map[string]any) string {
