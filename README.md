@@ -160,12 +160,52 @@ backward-compatible changes stay under `/api/v1/`.
 
 ## Backup and restore
 
-Stop Clio before copying the data directory so SQLite's WAL contents and the
-published content tree are captured together. Back up the complete
+A backup captures the SQLite database and the content tree together. The
+database is mandatory: it holds durable state the filesystem cannot reproduce —
+content-entry IDs, entry timestamps, and agent-supplied extracted text
+(sections 57 and 64.11).
+
+The always-correct procedure is stop-copy: stop Clio, then copy the complete
 `CLIO_DATA_DIR`, including `clio.db`, any `clio.db-wal` / `clio.db-shm` files,
 and `content/`. If `CLIO_DB` points outside `CLIO_DATA_DIR`, back up that
-database and its WAL/SHM files as well. Restore by stopping Clio, replacing
-the data directory and any separately located database with the backup, then
+database and its WAL/SHM files as well. Restore by stopping Clio, replacing the
+data directory and any separately located database with the backup, then
 starting Clio with the same `CLIO_DB` and `CLIO_DATA_DIR` configuration.
 Confirm recovery through `/health`; SQLite runs `quick_check` as part of that
 endpoint.
+
+A one-command path is also available:
+
+```sh
+# Consistent snapshot of the configured database and content tree.
+CLIO_DATA_DIR=./data clio backup /backups/2026-10-08
+
+# Restore into the configured data directory. Refuses to overwrite existing
+# data unless --force is given.
+CLIO_DATA_DIR=./data clio restore /backups/2026-10-08 --force
+```
+
+`clio backup <dest>` creates `dest` (it must not exist or must be empty),
+snapshots the database with SQLite `VACUUM INTO` — one consistent, compact file
+that includes the FTS5 full-text index, so no `-wal`/`-shm` sidecars are needed
+— copies the content tree, and writes `manifest.json`. It fails safely when
+`dest` is not empty, and requires the database to exist.
+
+`clio restore <src>` validates `manifest.json`, replaces the configured
+database and content directory, then reconciles the catalog with the restored
+files: entry IDs, timestamps and agent text are preserved, a raw file present
+before the backup is adopted, and an entry whose file vanished is dropped.
+Restore refuses a non-empty `CLIO_DATA_DIR` unless `--force` is given.
+
+A backup directory contains:
+
+| Entry | Purpose |
+| --- | --- |
+| `manifest.json` | `format` (`clio-backup`), `format_version`, `product_version`, `created_at`, and the database/content names |
+| `clio.db` | `VACUUM INTO` snapshot of the SQLite database: IDs, timestamps, enrichment and the FTS index |
+| `content/` | Copy of the content tree, one subtree per project |
+
+Inside the container, the data volume is `/var/lib/clio`; back it up with
+`docker run --rm -v clio-data:/var/lib/clio gocl.io:"$VERSION" backup /backup`
+after mounting a destination, or simply copy the named volume while the
+container is stopped.

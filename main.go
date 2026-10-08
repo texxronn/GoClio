@@ -64,13 +64,28 @@ func (a *app) contentLock() *sync.Mutex {
 
 func main() {
 	if len(os.Args) > 1 {
-		if len(os.Args) == 2 && os.Args[1] == "hash-password" {
+		switch os.Args[1] {
+		case "hash-password":
+			if len(os.Args) != 2 {
+				log.Fatalf("%s", usageLine())
+			}
 			if err := generatePasswordHash(os.Stdin, os.Stdout, os.Stderr); err != nil {
 				log.Fatalf("hash-password: %v", err)
 			}
 			return
+		case "backup":
+			if err := backupCommand(os.Args[2:], os.Getenv, os.Stdout); err != nil {
+				log.Fatalf("backup: %v", err)
+			}
+			return
+		case "restore":
+			if err := restoreCommand(os.Args[2:], os.Getenv, os.Stdout); err != nil {
+				log.Fatalf("restore: %v", err)
+			}
+			return
+		default:
+			log.Fatalf("%s", usageLine())
 		}
-		log.Fatalf("usage: %s [hash-password]", filepath.Base(os.Args[0]))
 	}
 	auth, err := loadAuthConfig(os.LookupEnv)
 	if err != nil {
@@ -172,6 +187,12 @@ func env(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// usageLine describes the command-line interface, including the backup and
+// restore subcommands (section 57).
+func usageLine() string {
+	return fmt.Sprintf("usage: %s [hash-password | backup <dest> | restore <src> [--force]]", filepath.Base(os.Args[0]))
 }
 
 func openDatabase(path string) (*sql.DB, error) {
