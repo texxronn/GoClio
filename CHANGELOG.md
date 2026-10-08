@@ -49,6 +49,25 @@ than the product.
   at startup (existing path keeps its ID, a new path gets a new ID, vanished
   paths are removed; symbolic links are never followed). A project with content
   is not empty and cannot be deleted.
+- Files REST API (spec v1.7 §64.4/§66.7) under `/api/v1/{project}/files`:
+  - `GET /files` lists the paged flat catalog with optional `prefix`,
+    `content_type` and `kind` filters; `GET /files?path=...` returns the
+    content-entry representation or a directory listing (paged children).
+  - `GET /files/{id}` reads a page or file entry by its stable ID.
+  - `PUT /files?path=...` creates or replaces raw bytes atomically, honors the
+    declared `Content-Type` for files, preserves the ID on replace, and returns
+    `201` for a new path and `200` for a replacement. The 16 MiB per-file limit
+    (`413`) and path-traversal rules are enforced (spec v1.7 §64.12).
+  - `POST /files/directories`, `DELETE /files?path=...` (subtree) and
+    `DELETE /files/{id}` manipulate directories and entries, with `409` for
+    file/directory type conflicts and a `409` when deleting the root.
+  - `POST /files/move` renames or moves a file, page or directory and preserves
+    every descendant's ID; `POST /files/copy` copies with new IDs; both reject a
+    conflicting destination with `409` and a missing source with `404`.
+  - `POST /files/rescan` reconciles the catalog with disk and reports added,
+    removed and refreshed entries.
+  - The path segment `id` is reserved directly under `files` so it cannot
+    shadow the stable ID URL (spec v1.7 §66.5).
 
 ### Documentation
 
