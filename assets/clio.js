@@ -1390,7 +1390,11 @@
       }
 
       function openInNewTab(entry) {
-        const url = entryURL(entry);
+        // Pages render at their path URL; files use the stable ID URL with an
+        // inline preview request so safe types (images, PDF, text, audio/video)
+        // open in the tab and everything else still downloads (section 64.5).
+        const isPage = entry.child && entry.child.kind === "page";
+        const url = (!isPage && entry.id) ? `${contentIDUrl(entry.id)}?inline=1` : entryURL(entry);
         if (typeof root.open === "function") root.open(url, "_blank");
         else if (root.location && "href" in root.location) root.location.href = url;
       }

@@ -736,7 +736,7 @@ body{max-width:none;margin:0 auto;padding:0 1.4rem;background:var(--page);color:
 	}
 	// Any other content is served as a download so it cannot execute in-origin
 	// (section 64.5). http.ServeContent supplies byte ranges and HEAD.
-	if ae := serveDownload(w, r, target, contentMediaType(clean)); ae != nil {
+	if ae := serveDownload(w, r, target, contentMediaType(clean), false); ae != nil {
 		writeErr(w, ae)
 	}
 }

@@ -4360,12 +4360,18 @@ nodes and IDs.
 Non-page content is served with:
 
 ```text
-Content-Disposition: attachment
+Content-Disposition: attachment; filename="<entry file name>"
 X-Content-Type-Options: nosniff
 ```
 
-This applies to `/f/{id}` for every entry and to direct path URLs for files. HTML
-pages continue to be served as trusted executable content at their path URL
+This applies to `/{project}/files/id/{id}` for every entry and to direct path
+URLs for files. The disposition carries the entry's file name so the browser
+saves it under the real name. A client may request an inline preview with
+`?inline=1`; when the content type is safe to display — images other than SVG,
+`application/pdf`, plain text, CSV and Markdown, audio and video — the
+disposition becomes `inline; filename="<entry file name>"`. Active content
+(HTML, SVG, scripts) and every other type always remain `attachment`. HTML pages
+continue to be served as trusted executable content at their path URL
 (section 55.1). A file download must not execute active content in Clio's
 origin. GET responses support byte ranges.
 

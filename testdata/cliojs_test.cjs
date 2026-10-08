@@ -615,7 +615,7 @@ async function main() {
   fbRow(ctxHost, "/note.txt").handlers.contextmenu({ preventDefault() {}, clientX: 0, clientY: 0 });
   const openedTabs = opened.length;
   menuItem(menuOf(ctxHost), "Open in new tab").handlers.click({ preventDefault() {}, stopPropagation() {} });
-  assert.equal(opened.at(-1), "https://clio.example/default/files/note.txt", "Open in new tab uses the path URL");
+  assert.equal(opened.at(-1), "/default/files/id/file-2?inline=1", "Open in new tab uses the stable ID URL with an inline preview request");
   assert.ok(opened.length > openedTabs, "Open in new tab opens a new tab/URL");
 
   // Rename prompts and issues the move request.
