@@ -276,6 +276,10 @@ func (a *app) filesAPI(w http.ResponseWriter, r *http.Request, s []string) {
 		return
 	}
 	switch s[0] {
+	case "dav":
+		// WebDAV is mounted under the files partition at
+		// /api/v1/{project}/files/dav/... (sections 64.10 and 66.8).
+		a.webdavMount(w, r, "/api/v1/"+a.projectName()+"/files/dav")
 	case "directories":
 		a.createDirectoryAPI(w, r)
 	case "pages":

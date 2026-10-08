@@ -524,6 +524,12 @@ func (a *app) checkNoFileParent(target string) *apiError {
 	}
 	return nil
 }
+
+// reservedContentSegments are the first path segments directly under
+// /{project}/files that a content path may not use: `id` is the stable URL and
+// `dav` is the WebDAV mount (sections 66.5, 66.8 and 64.10).
+var reservedContentSegments = map[string]bool{reservedFilesSegment: true, "dav": true}
+
 func (a *app) canonicalContentPath(raw string) (string, *apiError) { return canonicalContentPath(raw) }
 func canonicalContentPath(raw string) (string, *apiError) {
 	if !utf8.ValidString(raw) {
@@ -546,7 +552,7 @@ func canonicalContentPath(raw string) (string, *apiError) {
 		if p == "" || p == "." || p == ".." || strings.Contains(p, "\\") || hasControl(p) {
 			return "", invalid("Invalid content path")
 		}
-		if i == 0 && (reservedRoot[p] || p == reservedFilesSegment) {
+		if i == 0 && (reservedRoot[p] || reservedContentSegments[p]) {
 			return "", invalid("Reserved root path")
 		}
 	}
@@ -593,6 +599,13 @@ func regexpDrive(s string) bool {
 }
 
 func (a *app) contentUI(w http.ResponseWriter, r *http.Request, s []string) {
+	// The WebDAV mount lives at /{project}/files/dav/... (sections 64.10 and
+	// 66.8). It is handled before content-path canonicalisation rejects the
+	// reserved first segment.
+	if len(s) > 0 && s[0] == "dav" {
+		a.webdavMount(w, r, a.projectPath("files", "dav"))
+		return
+	}
 	// The reserved `id` segment is the stable URL /{project}/files/id/{id}
 	// (section 66.5). It always downloads the raw stored bytes, including for a
 	// page, and must be handled before content-path canonicalisation rejects the
