@@ -386,6 +386,25 @@
     }
   }
 
+  // appendProjectNav appends the default-project-only project switcher to a
+  // toolbar and returns it. The switcher is the only cross-project affordance,
+  // so it exists only in the default project; a non-default project gets a
+  // single Home link to bare "/" instead, which the server redirects to the
+  // default project. It never lists the other projects (section 66.1).
+  function appendProjectNav(doc, toolbar, currentProject, onChange) {
+    if (currentProject !== "default") {
+      const home = doc.createElement("a");
+      home.className = "project-home";
+      home.href = "/";
+      home.textContent = "Home";
+      toolbar.appendChild(home);
+      return null;
+    }
+    const switcher = buildProjectSwitcher(doc, currentProject, onChange);
+    toolbar.appendChild(switcher.label);
+    return switcher;
+  }
+
   const DataBrowser = {
     mount(target, options) {
       options = options || {};
@@ -409,10 +428,9 @@
         return value;
       };
       const toolbar = element("div", null, "browser-toolbar");
-      const projectSwitcher = buildProjectSwitcher(doc, project, (next) => {
+      const projectSwitcher = appendProjectNav(doc, toolbar, project, (next) => {
         if (next && next !== project) switchProject(next, "/data");
       });
-      toolbar.appendChild(projectSwitcher.label);
       const collectionLabel = element("label", "Collection:");
       const collectionSelect = element("select");
       collectionSelect.setAttribute("aria-label", "Collection");
@@ -648,7 +666,9 @@
       };
       if (root.addEventListener) root.addEventListener("popstate", popstate);
       const ready = navigate(initialGroup, initialTable, selectedPage(), true);
-      const projectsReady = fillProjectSwitcher(doc, projectSwitcher.select, client, project);
+      const projectsReady = projectSwitcher
+        ? fillProjectSwitcher(doc, projectSwitcher.select, client, project)
+        : Promise.resolve();
       return {
         ready: Promise.all([ready, projectsReady]).then(() => undefined),
         refresh() {
@@ -768,12 +788,12 @@
       const uploadInput = element("input");
       uploadInput.type = "file";
       uploadInput.setAttribute("aria-label", "Upload file");
-      const projectSwitcher = buildProjectSwitcher(doc, project, (next) => {
+      const projectSwitcher = appendProjectNav(doc, toolbar, project, (next) => {
         if (!next || next === project) return;
         const sub = currentPath === "/" ? "/files" : "/files" + encodeURI(currentPath);
         switchProject(next, sub);
       });
-      toolbar.append(projectSwitcher.label, searchForm, newFolderButton, uploadInput);
+      toolbar.append(searchForm, newFolderButton, uploadInput);
 
       const breadcrumbs = element("nav", null, "fb-breadcrumbs");
       breadcrumbs.setAttribute("aria-label", "Breadcrumb");
@@ -1020,7 +1040,9 @@
       if (root.addEventListener) root.addEventListener("popstate", popstate);
 
       const ready = navigate(currentPath, true);
-      const projectsReady = fillProjectSwitcher(doc, projectSwitcher.select, client, project);
+      const projectsReady = projectSwitcher
+        ? fillProjectSwitcher(doc, projectSwitcher.select, client, project)
+        : Promise.resolve();
       return {
         ready: Promise.all([ready, projectsReady]).then(() => undefined),
         get path() { return currentPath; },
@@ -1063,6 +1085,26 @@
         return value;
       };
       const text = (value) => (doc.createTextNode ? doc.createTextNode(String(value)) : element("span", value));
+
+      // Only the default project exposes the projects manager. Mounted on any
+      // other project, it offers a single Home link to bare "/" and no list,
+      // switcher or create/delete controls, so a non-default project never
+      // links to a sibling project (section 66.1).
+      if (currentProject !== "default") {
+        const home = element("a", "Home", "project-home");
+        home.href = "/";
+        host.replaceChildren(home);
+        return {
+          ready: Promise.resolve(),
+          refresh() { return Promise.resolve(); },
+          create() { return Promise.resolve(); },
+          remove() { return Promise.resolve(); },
+          destroy() {
+            destroyed = true;
+            host.replaceChildren();
+          }
+        };
+      }
 
       const status = element("p", "", "projects-status");
       status.setAttribute("role", "status");

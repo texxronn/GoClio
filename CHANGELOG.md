@@ -11,6 +11,18 @@ than the product.
 
 ## [Unreleased]
 
+### Changed
+
+- Only the default project exposes cross-project navigation (section 66.1). The
+  projects manager on the overview (`Clio.Projects.mount`), the server-rendered
+  project list and the data-browser/file-explorer project switchers are now
+  rendered only for `default`. In any other project the single cross-project
+  affordance is a **Home** link to bare `/` (which redirects to `/{default}/`),
+  present in the nav, the overview and both toolbars; a non-default project no
+  longer lists or links to a sibling project. `Clio.Projects.mount` is robust
+  when mounted outside `default` and then offers only the Home link. No routes
+  changed.
+
 ## [2.0.0] - 2026-10-08
 
 ### Added

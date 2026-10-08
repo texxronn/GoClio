@@ -589,12 +589,21 @@ body{max-width:none;margin:0 auto;padding:0 1.4rem;background:#f4f7fb;color:#192
 
 func (a *app) pageShell(body, title string) string {
 	home := a.projectPath() + "/"
+	homeLabel := "Clio"
+	if a.projectName() != defaultProject {
+		// A non-default project exposes no cross-project links beyond a single
+		// Home link to bare "/", which the server redirects to the default
+		// project (section 66.1). The per-project links below stay for the
+		// current project.
+		home = "/"
+		homeLabel = "Home"
+	}
 	dataPath := a.projectPath("data")
 	filesPath := a.projectPath("files")
 	searchPath := a.projectPath("search")
 	helpPath := a.projectPath("help")
 	healthPath := a.projectPath("health")
-	return "<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><link rel=icon type='image/svg+xml' href='/favicon.svg'><title>" + esc(title) + " · Clio</title><style>body{font:16px system-ui,sans-serif;max-width:960px;margin:2rem auto;padding:0 1rem;color:#222}a{color:#165d9c}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:.5rem;text-align:left}label{display:block;margin:1rem 0}input,textarea,select{display:block;max-width:100%;width:28rem;padding:.5rem}textarea{height:8rem}button,.button{padding:.5rem .8rem;background:#165d9c;color:white;border:0;border-radius:3px}dt{font-weight:bold;margin-top:.7rem}pre{overflow:auto;background:#f5f5f5;padding:1rem}nav{border-bottom:1px solid #ddd;padding-bottom:1rem;margin-bottom:2rem}</style><nav><a href='" + home + "'>Clio</a> · <a href='" + dataPath + "'>Data browser</a> · <a href='" + filesPath + "'>Files</a> · <a href='" + searchPath + "'>Search</a> · <a href='" + helpPath + "'>Help</a> · <a href='" + healthPath + "'>Health</a></nav><main>" + body + "</main></html>"
+	return "<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><link rel=icon type='image/svg+xml' href='/favicon.svg'><title>" + esc(title) + " · Clio</title><style>body{font:16px system-ui,sans-serif;max-width:960px;margin:2rem auto;padding:0 1rem;color:#222}a{color:#165d9c}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:.5rem;text-align:left}label{display:block;margin:1rem 0}input,textarea,select{display:block;max-width:100%;width:28rem;padding:.5rem}textarea{height:8rem}button,.button{padding:.5rem .8rem;background:#165d9c;color:white;border:0;border-radius:3px}dt{font-weight:bold;margin-top:.7rem}pre{overflow:auto;background:#f5f5f5;padding:1rem}nav{border-bottom:1px solid #ddd;padding-bottom:1rem;margin-bottom:2rem}</style><nav><a href='" + home + "'>" + homeLabel + "</a> · <a href='" + dataPath + "'>Data browser</a> · <a href='" + filesPath + "'>Files</a> · <a href='" + searchPath + "'>Search</a> · <a href='" + helpPath + "'>Help</a> · <a href='" + healthPath + "'>Health</a></nav><main>" + body + "</main></html>"
 }
 
 // dataBrowserURL builds the client data-browser location for a group and table:
@@ -628,7 +637,26 @@ func (a *app) projectOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	children, _ := d["children"].([]map[string]any)
-	writeHTML(w, http.StatusOK, a.homeHTML(children, a.projectsPanelHTML()))
+	writeHTML(w, http.StatusOK, a.homeHTML(children, a.projectOverviewPanelHTML()))
+}
+
+// projectOverviewPanelHTML is the panel appended to the project overview. Only
+// the default project exposes the projects manager; every other project gets a
+// single Home link to bare "/" (which the server redirects to the default
+// project), so a non-default overview never lists or links to a sibling
+// project.
+func (a *app) projectOverviewPanelHTML() string {
+	if a.projectName() == defaultProject {
+		return a.projectsPanelHTML()
+	}
+	return homeLinkPanelHTML()
+}
+
+// homeLinkPanelHTML renders the single cross-project affordance offered to a
+// non-default project: a prominent Home link to bare "/". It carries no list of
+// other projects, no switcher and no create/delete controls.
+func homeLinkPanelHTML() string {
+	return `<style>.home-panel{max-width:1120px;margin:2rem auto 4rem;padding:clamp(1.2rem,3vw,2rem);border:1px solid #e3e9f1;border-radius:14px;background:#fff;color:#192a41}.home-panel h2{margin:0 0 .35rem;font-size:1.3rem;letter-spacing:-.03em}.home-panel-intro{margin:0 0 1rem;color:#718394;font-size:.9rem}.home-panel-link{display:inline-flex;align-items:center;gap:.55rem;padding:.6rem .9rem;border-radius:7px;background:#215f78;color:#fff;font-weight:650;text-decoration:none}.home-panel-link:hover{background:#174d63}</style><section class="home-panel"><h2>Home</h2><p class="home-panel-intro">Go to the default project.</p><a class="home-panel-link" href="/">Open Home <span aria-hidden="true">→</span></a></section>`
 }
 
 // projectHref is the human URL of a project overview: /{name}/. It is absolute
