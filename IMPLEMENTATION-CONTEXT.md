@@ -12,7 +12,7 @@
 - **Plan:** `IMPLEMENTATION-PLAN.md`
 - **Code baseline:** Phase 2 implemented; routing is project-first, data queries scoped by project, and the legacy page/directory operations are re-homed under the files partition (content storage is not yet partitioned per project)
 - **Branch:** `master`
-- **Last merged commit:** `719f063` (Phase 1, PR #5)
+- **Last merged commit:** `5c6c5ad` (Phase 2, PR #6)
 - **Current phase:** Phase 2 complete (this commit)
 - **Next action:** Phase 3 — replace `content_page_times` with `content_entries` (`id`, `project`, `path`, `kind`, `content_type`, `size`, `sha256`, `created_at`, `updated_at`; unique `(project, path)`), migrate existing rows to `default` entries with new IDs, generate opaque IDs, reconcile the on-disk tree at startup and on rescan (keep an ID for an existing path, assign one to a new path, drop vanished rows), and partition the content root into one subtree per project.
 - **Blockers:** none
