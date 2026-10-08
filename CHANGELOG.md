@@ -11,6 +11,20 @@ than the product.
 
 ## [Unreleased]
 
+### Added
+
+- Projects registry (spec v1.6–v1.7): the implicit `default` project and the
+  `GET`/`POST /api/v1/projects` and `GET`/`DELETE /api/v1/projects/{project}`
+  API. `POST` rejects reserved names (`api`, `health`, `help`, `projects`,
+  `assets`, `favicon.svg`, `default`) with `422` and duplicates with `409`;
+  `DELETE` removes only an empty project and never `default`.
+- Project-scoped storage: `groups_meta`, `tables_meta`, `fields_meta` and
+  `records` gain a `project` column with project-scoped primary and foreign
+  keys. Existing databases are rebuilt on open and every row is assigned to
+  `default`; no stored data is rewritten. Group and table names are now unique
+  per project.
+- `/health` and `/api/v1/health` report a `projects` count.
+
 ### Documentation
 
 - `SPEC.md` revised to v1.7.
