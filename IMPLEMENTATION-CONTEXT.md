@@ -11,9 +11,9 @@
 - **Spec:** `SPEC.md` v1.7 (sections 64, 65, 66 are new; earlier URL sections carry supersession notes)
 - **Plan:** `IMPLEMENTATION-PLAN.md`
 - **Code baseline:** Phase 11 implemented. The human UI is re-scoped to the section 66.5 URLs: `/{project}/` is a project overview linking the data browser, file explorer and search; the read-only collection data browser is at `/{project}/data` (group/table/page in the query string) while the server table UI and forms remain at `/{project}/data/{group}/{table}`; the file explorer shell is at `/{project}/files` and mounts `Clio.FileBrowser.mount(element)` (directory gutter, breadcrumbs, URL state, new folder/upload/rename-move/delete and 409 surfacing); a server-rendered human search page is at `/{project}/search`; `Clio.version` is `1.1.0`. Phases 0–10 remain as described below.
-- **Branch:** `phase-11-human-ui`
-- **Last merged commit:** `b3193e5` (Phase 10, PR #14)
-- **Current phase:** Phase 11 complete (pending merge)
+- **Branch:** `master`
+- **Last merged commit:** `9ca383f` (Phase 11, PR #15)
+- **Current phase:** Phase 11 complete and merged
 - **Next action:** Phase 12 — WebDAV (§64.10, §66.8)
 - **Blockers:** none
 
