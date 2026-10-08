@@ -133,7 +133,7 @@ const context = {
           path: "/", kind: "directory",
           children: [
             { path: "/docs", name: "docs", kind: "directory", url: "https://clio.example/default/files/docs" },
-            { path: "/note.txt", name: "note.txt", kind: "file", id: "file-2", content_type: "text/plain", size: 3, url: "https://clio.example/default/files/note.txt" },
+            { path: "/note.txt", name: "note.txt", kind: "file", id: "file-2", content_type: "text/plain", size: 3, created_at: "2026-01-02T03:04:05Z", updated_at: "2026-02-03T04:05:06Z", url: "https://clio.example/default/files/note.txt" },
             { path: "/a", name: "a", kind: "directory", url: "https://clio.example/default/files/a" },
             { path: "/big", name: "big", kind: "directory", url: "https://clio.example/default/files/big" }
           ],
@@ -143,7 +143,7 @@ const context = {
         body = {
           path: "/docs", kind: "directory",
           children: [
-            { path: "/docs/old.txt", name: "old.txt", kind: "file", id: "file-3", content_type: "text/plain", size: 1, url: "https://clio.example/default/files/docs/old.txt" },
+            { path: "/docs/old.txt", name: "old.txt", kind: "file", id: "file-3", content_type: "text/plain", size: 1, created_at: "2025-12-01T00:00:00Z", updated_at: "2025-12-02T00:00:00Z", url: "https://clio.example/default/files/docs/old.txt" },
             { path: "/docs/nested", name: "nested", kind: "directory", url: "https://clio.example/default/files/docs/nested" }
           ],
           page: { limit: 100, offset: 0, count: 2, total: 2 }
@@ -528,7 +528,7 @@ async function main() {
   persistBrowser.destroy();
   session.clear();
 
-  // --- FileBrowser context menu: one uniform list, kebab + right-click menu ---
+  // --- FileBrowser context menu: one uniform list + right-click menu ---
   const fbTable = (host) => collectByTag(host, "table").find((table) => table.className === "fb-table");
   const fbRows = (host) => {
     const table = fbTable(host);
@@ -555,7 +555,16 @@ async function main() {
   assert.equal(fbRow(ctxHost, "/docs").children[1].textContent, "–", "directories show a dash size");
   assert.equal(fbRow(ctxHost, "/note.txt").children[1].textContent, "3 B", "files show a human-readable size");
   assert.equal(collectByTag(ctxHost, "button").filter((button) => button.className === "fb-danger" || button.textContent === "Rename" || button.textContent === "Delete").length, 0, "the old inline Rename/Delete buttons are gone");
-  assert.ok(buttonByClass(fbRow(ctxHost, "/note.txt"), "fb-row-menu"), "every row has a kebab button");
+  assert.equal(collectByTag(ctxHost, "button").filter((button) => button.className === "fb-row-menu").length, 0, "the kebab column is gone");
+  const sortButton = (label) => collectByTag(ctxHost, "button").find((button) => button.className === "fb-sort" && button.textContent.replace(/[ ▲▼]+$/, "") === label);
+  assert.deepEqual(
+    collectByTag(ctxHost, "button").filter((button) => button.className === "fb-sort").map((button) => button.textContent.replace(/[ ▲▼]+$/, "")),
+    ["Name", "Size", "Created", "Modified"],
+    "the columns are Name/Size/Created/Modified"
+  );
+  assert.equal(fbRow(ctxHost, "/note.txt").children[2].textContent, "2026-01-02 03:04", "Created shows the created_at timestamp");
+  assert.equal(fbRow(ctxHost, "/note.txt").children[3].textContent, "2026-02-03 04:05", "Modified shows the updated_at timestamp");
+  assert.equal(fbRow(ctxHost, "/docs").children[2].textContent, "–", "directories show a dash for Created");
 
   // Right-click a file row opens the full menu at the pointer.
   fbRow(ctxHost, "/note.txt").handlers.contextmenu({ preventDefault() {}, clientX: 24, clientY: 30 });
@@ -564,8 +573,6 @@ async function main() {
   assert.equal(menu.attributes.role, "menu");
   assert.deepEqual(menuLabels(menu), ["Open", "Download", "Rename", "Delete"], "the file menu has Open/Download/Rename/Delete");
   assert.ok(collectByTag(menu, "button").every((button) => button.attributes.role === "menuitem"), "every menu entry is a menuitem");
-  assert.equal(buttonByClass(fbRow(ctxHost, "/note.txt"), "fb-row-menu").attributes["aria-haspopup"], "menu", "the kebab advertises a menu");
-  assert.equal(buttonByClass(fbRow(ctxHost, "/note.txt"), "fb-row-menu").attributes["aria-expanded"], "true", "the open menu sets aria-expanded");
   assert.equal(menu.style.position, "fixed", "the menu floats");
   assert.equal(menu.style.left, "24px");
   assert.equal(menu.style.top, "30px");
@@ -604,12 +611,17 @@ async function main() {
   assert.deepEqual(menuLabels(menuOf(ctxHost)), ["Open", "Rename", "Delete"], "the directory menu omits Download");
   context.document.dispatchEvent("mousedown", { target: new Element("div") });
   assert.equal(menuOf(ctxHost), undefined, "an outside mousedown closes the menu");
-  assert.equal(buttonByClass(fbRow(ctxHost, "/docs"), "fb-row-menu").attributes["aria-expanded"], "false", "closing resets aria-expanded");
 
-  // The kebab opens the same menu and Escape closes it, returning focus.
-  buttonByClass(fbRow(ctxHost, "/docs"), "fb-row-menu").handlers.click({ preventDefault() {}, stopPropagation() {} });
+  // Sorting: clicking the Name header toggles direction, folders still first.
+  sortButton("Name").handlers.click({ preventDefault() {} });
+  assert.deepEqual(fbRows(ctxHost).map((row) => row.attributes["data-path"]), ["/docs", "/big", "/a", "/note.txt"], "clicking Name sorts descending within each group");
+  sortButton("Name").handlers.click({ preventDefault() {} });
+  assert.deepEqual(fbRows(ctxHost).map((row) => row.attributes["data-path"]), ["/a", "/big", "/docs", "/note.txt"], "clicking Name again restores ascending");
+
+  // Right-click opens the menu; Escape closes it and returns focus to the row.
+  fbRow(ctxHost, "/docs").handlers.contextmenu({ preventDefault() {}, clientX: 5, clientY: 6 });
   menu = menuOf(ctxHost);
-  assert.ok(menu, "the kebab opens the context menu");
+  assert.ok(menu, "right-click opens the context menu for a directory");
   assert.deepEqual(menuLabels(menu), ["Open", "Rename", "Delete"]);
   assert.equal(context.document.activeElement, collectByTag(menu, "button")[0], "focus moves into the menu");
   menu.handlers.keydown({ key: "ArrowDown", preventDefault() {} });
