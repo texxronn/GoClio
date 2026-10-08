@@ -124,6 +124,11 @@ networks.
 Published `.html` pages are served as trusted executable HTML. Only trusted
 publishers should be allowed to create or replace them.
 
+The human write routes (record and folder creation) reject a request whose
+present `Origin` or `Referer` host does not match the request host, so a browser
+with a cached Basic credential cannot be driven from a cross-site form. Requests
+without either header, and the JSON API, are unaffected.
+
 ## API and content
 
 Open `/help` for human-readable usage or `/api/v1/help` for machine-oriented

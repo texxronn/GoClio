@@ -41,7 +41,12 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if v := recover(); v != nil {
 			log.Printf("request panic: method=%s", r.Method)
-			writeJSON(w, 500, map[string]any{"error": "internal_error", "message": "An internal error occurred"})
+			// Only write the 500 when the handler has not already committed a
+			// status or body; appending JSON to a committed response would
+			// corrupt it (the status is already on the wire).
+			if tracked.status == 0 {
+				writeJSON(w, 500, map[string]any{"error": "internal_error", "message": "An internal error occurred"})
+			}
 		}
 		if tracked.status >= http.StatusBadRequest {
 			log.Printf("HTTP failure: method=%s status=%d", r.Method, tracked.status)
@@ -140,6 +145,15 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // projectUI routes human (non-API) project-scoped URLs. The first path segment
 // is the project; everything is project-scoped (section 66.1).
 func (a *app) projectUI(w http.ResponseWriter, r *http.Request) {
+	// Human state-changing requests are browser form submissions. A cached
+	// Basic credential makes them forgeable cross-site, so a present Origin or
+	// Referer whose host is not this request's host is rejected. An absent
+	// header is allowed, keeping non-browser clients and the JSON API's
+	// conventions unchanged (sections 54 and 64.14).
+	if isStateChangingMethod(r.Method) && !sameOriginRequest(r) {
+		writeErr(w, &apiError{http.StatusForbidden, "forbidden", "Cross-site request rejected"})
+		return
+	}
 	segments := splitPath(r.URL.Path)
 	if len(segments) == 0 {
 		writeAPIError(w, missing("Resource"))
@@ -178,6 +192,36 @@ func (a *app) projectUI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeAPIError(w, missing("Resource"))
+}
+
+// isStateChangingMethod reports whether an HTTP method mutates server state.
+func isStateChangingMethod(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+// sameOriginRequest reports whether a state-changing browser request is
+// same-origin. It compares the host of a present Origin (or, failing that,
+// Referer) header with the request host; an absent header is allowed so
+// non-browser clients and existing callers keep working. The scheme is not
+// compared because TLS may terminate at a trusted reverse proxy.
+func sameOriginRequest(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		origin = r.Header.Get("Referer")
+	}
+	if origin == "" {
+		return true
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(parsed.Host, r.Host)
 }
 
 type responseStatusWriter struct {
@@ -1493,9 +1537,42 @@ func errAPI(e error) *apiError {
 	if e == nil {
 		return nil
 	}
-	log.Printf("internal storage or filesystem error: %v", e)
+	log.Printf("internal storage or filesystem error: %s", redactError(e))
 	return &apiError{500, "internal_error", "An internal error occurred"}
 }
+
+// redactError describes an internal error for the log without leaking a
+// filesystem/content path (sections 54.4 and 56). It keeps the operation and a
+// coarse cause so a failure is still diagnosable, but never the path-bearing
+// message.
+func redactError(e error) string {
+	var pathErr *os.PathError
+	if errors.As(e, &pathErr) {
+		return "path operation " + strconv.Quote(pathErr.Op) + ": " + errorClass(pathErr.Err)
+	}
+	var linkErr *os.LinkError
+	if errors.As(e, &linkErr) {
+		return "link operation " + strconv.Quote(linkErr.Op) + ": " + errorClass(linkErr.Err)
+	}
+	return "error type " + fmt.Sprintf("%T", e)
+}
+
+// errorClass names an error's class without including any path it may carry.
+func errorClass(e error) string {
+	switch {
+	case e == nil:
+		return "unknown"
+	case errors.Is(e, os.ErrNotExist):
+		return "not_exist"
+	case errors.Is(e, os.ErrPermission):
+		return "permission_denied"
+	case errors.Is(e, os.ErrExist):
+		return "already_exists"
+	default:
+		return fmt.Sprintf("%T", e)
+	}
+}
+
 func isConstraint(e error) bool {
 	return e != nil && (strings.Contains(strings.ToLower(e.Error()), "constraint") || strings.Contains(strings.ToLower(e.Error()), "unique"))
 }

@@ -78,6 +78,50 @@ func TestFileContentDownloadHeadersAndRanges(t *testing.T) {
 	}
 }
 
+func TestFileContentDownloadOmitsModificationConditionals(t *testing.T) {
+	a := newTestApp(t)
+	entry := putFile(t, a, "default", "/docs/notes.txt", "0123456789", "text/plain")
+	url := "/api/v1/default/files/" + entry["id"].(string) + "/content"
+
+	full := requestWithHeaders(t, a, http.MethodGet, url, nil)
+	if full.Code != http.StatusOK {
+		t.Fatalf("GET content status = %d: %s", full.Code, full.Body.String())
+	}
+	if got := full.Header().Get("Last-Modified"); got != "" {
+		t.Errorf("Last-Modified = %q, want empty (section 3.1)", got)
+	}
+	if got := full.Header().Get("ETag"); got != "" {
+		t.Errorf("ETag = %q, want empty", got)
+	}
+	if got := full.Header().Get("Content-Disposition"); got != "attachment" {
+		t.Errorf("Content-Disposition = %q, want attachment", got)
+	}
+	if got := full.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
+	}
+
+	// A modification-time conditional must not short-circuit with 304.
+	conditional := requestWithHeaders(t, a, http.MethodGet, url, map[string]string{"If-Modified-Since": "Wed, 21 Oct 2015 07:28:00 GMT"})
+	if conditional.Code != http.StatusOK {
+		t.Fatalf("If-Modified-Since status = %d, want 200", conditional.Code)
+	}
+	if conditional.Body.String() != "0123456789" {
+		t.Errorf("conditional body = %q, want the full body", conditional.Body.String())
+	}
+
+	// Ranges still work without a modification time.
+	partial := requestWithHeaders(t, a, http.MethodGet, url, map[string]string{"Range": "bytes=2-5"})
+	if partial.Code != http.StatusPartialContent {
+		t.Fatalf("range status = %d, want 206", partial.Code)
+	}
+	if got := partial.Header().Get("Content-Range"); got != "bytes 2-5/10" {
+		t.Errorf("Content-Range = %q, want bytes 2-5/10", got)
+	}
+	if partial.Body.String() != "2345" {
+		t.Errorf("range body = %q, want 2345", partial.Body.String())
+	}
+}
+
 func TestFileContentMissingIDReturnsNotFound(t *testing.T) {
 	a := newTestApp(t)
 	assertAPIError(t, testRequest(t, a, http.MethodGet, "/api/v1/default/files/missing/content", nil, ""), http.StatusNotFound)
