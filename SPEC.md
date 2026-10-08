@@ -1,11 +1,11 @@
 # Clio
 
-## Consolidated Specification v1.6 — Go implementation contract
+## Consolidated Specification v1.7 — Go implementation contract
 
 **Status: FROZEN**
 
 This specification is the implementation contract for Clio v1. It is a single
-consolidated document: sections 1–65 are the complete, equally normative contract.
+consolidated document: sections 1–66 are the complete, equally normative contract.
 The former v1.1 clarifications and addenda have been merged into the topical
 sections rather than appended, so there are no separate clarification or appendix
 parts. Where two statements appear to conflict, the conflict is a defect in this
@@ -76,6 +76,11 @@ Example payloads are illustrative unless a rule references them explicitly.
   `default` project that existing routes alias. Added the projects API and
   project-scoped route prefixes, reserved `/p`, made content paths
   project-relative, and scoped search, enrichment and WebDAV by project.
+- **v1.7** — made project scoping mandatory and reorganized each project into
+  `data` and `files` partitions (section 66). Every application URL now begins
+  with the project; `default` is explicit and bare `/` and `/api/v1` redirect to
+  it. The Directory API and Page API are replaced by the unified files
+  partition, and the reserved roots are reduced to the instance-level routes.
 
 ### Table of contents
 
@@ -201,6 +206,7 @@ Example payloads are illustrative unless a rule references them explicitly.
 - [63. Final product boundary](#63-final-product-boundary)
 - [64. Content filesystem, attachments, search, and WebDAV](#64-content-filesystem-attachments-search-and-webdav)
 - [65. Namespaces (projects)](#65-namespaces-projects)
+- [66. Project-scoped URL scheme and partitions](#66-project-scoped-url-scheme-and-partitions)
 <!-- /TOC -->
 
 ---
@@ -2178,6 +2184,9 @@ It must not evolve into a general-purpose analytical engine.
 
 # 32. Human-facing URL namespaces
 
+> **Superseded by section 66 (v1.7).** Where this section's URLs differ from
+> section 66, section 66 governs.
+
 ## 32.1 Content tree
 
 Human-facing content occupies the root namespace:
@@ -2303,6 +2312,9 @@ Client-side validation is optional.
 ---
 
 # 35. Collection Data Browser
+
+> **Superseded by section 66 (v1.7).** Where this section's URLs differ from
+> section 66, section 66 governs.
 
 This section consolidates the former `SPEC-Addendum-DataBrowsing.md`, which is
 retained only as a historical reference, and is normative for the built-in
@@ -2478,6 +2490,11 @@ The root is browsable.
 
 # 38. Directory API
 
+> **Superseded by section 66 (v1.7).** Directories are part of the files
+> partition; this section's endpoints are replaced by
+> `/api/v1/{project}/files...`. Where this section's URLs differ from
+> section 66, section 66 governs.
+
 The machine-readable directory API uses the `path` query parameter for nested paths:
 
 ```text
@@ -2606,6 +2623,11 @@ Pages have stable URLs.
 ---
 
 # 41. Page API
+
+> **Superseded by section 66 (v1.7).** Pages are `.md`/`.html` entries in the
+> files partition; this section's endpoints are replaced by
+> `PUT /api/v1/{project}/files?path=...`. Where this section's URLs differ from
+> section 66, section 66 governs.
 
 Pages are entries in the content filesystem (section 64). The Page API remains
 available and behaves as before; it is a compatibility facade over the same
@@ -3195,6 +3217,10 @@ Existing `/api/v1/` semantics must not silently change.
 ---
 
 # 49. Complete API v1 summary
+
+> **Superseded by section 66 (v1.7).** The summary below predates mandatory
+> project scoping and the `data`/`files` partitions. Section 66 is the
+> authoritative route list.
 
 ```text
 GET    /api/v1/health
@@ -4211,6 +4237,10 @@ stored bytes for any entry, including a page.
 
 ## 64.4 Filesystem REST API
 
+> **Superseded by section 66 (v1.7).** All routes below are project-scoped as
+> `/api/v1/{project}/files...`; the unscoped forms no longer exist. Semantics
+> are unchanged.
+
 The content filesystem is exposed as a REST API under `/api/v1/files`. It
 addresses filesystem nodes — directories, pages and files — and unifies the
 operations that the directory API (section 38) and page API (section 41) expose
@@ -4447,6 +4477,10 @@ hint; it does not replace validation.
 
 ## 64.10 WebDAV
 
+> **Superseded by section 66 (v1.7).** The mount is exposed at both
+> `/api/v1/{project}/files/dav/...` and `/{project}/files/dav/...`. Where this
+> section's URLs differ from section 66, section 66 governs.
+
 Clio may expose the content filesystem over WebDAV (RFC 4918). The mount is
 project-first: `/dav` lists projects and `/dav/{project}/...` maps to content
 `<path>` within that project, with the default project spelled `default`
@@ -4499,6 +4533,10 @@ Adding the `attachment` field type and enabling WebDAV do not change existing
 incompatible change requires a future `/api/v2/` (section 48).
 
 ## 64.14 Web-based file explorer
+
+> **Superseded by section 66 (v1.7).** The explorer lives at `/{project}/files`
+> with a directory-browsing gutter. Where this section's URLs differ from
+> section 66, section 66 governs.
 
 The content filesystem must be browsable in a browser through a dedicated
 explorer at `/files`, analogous to the collection data browser (section 35).
@@ -4586,6 +4624,10 @@ matching group semantics (section 17).
 
 ## 65.4 URLs
 
+> **Superseded by section 66 (v1.7).** Project scoping is mandatory and the
+> route shapes are defined in section 66. Where this section's URLs differ from
+> section 66, section 66 governs.
+
 - Canonical content URLs are project-scoped: `/p/{project}/...`. The root
   `/...` addresses the `default` project.
 - Table views: `/t/{project}/{group}/{table}` for a project, or
@@ -4633,6 +4675,11 @@ A project representation is:
 
 ## 65.6 Project-scoped API
 
+> **Superseded by section 66 (v1.7).** The project segment is mandatory and the
+> `data`/`files` partitions are defined in section 66; there are no unscoped
+> resource routes. Where this section's URLs differ from section 66,
+> section 66 governs.
+
 Existing v1 resources accept a project scope as a path prefix. `/api/v1/...`
 addresses `default`; `/api/v1/projects/{project}/...` addresses a project. This
 applies to metadata, groups, tables, records, directories, pages, files
@@ -4679,4 +4726,155 @@ Per-project authorization is not part of v1.
 Project scoping is additive: unscoped `/api/v1` routes continue to address
 `default` with unchanged semantics, and `/api/v1/projects` is new. An
 incompatible change would still require `/api/v2` (section 48).
+
+---
+
+# 66. Project-scoped URL scheme and partitions
+
+## 66.1 Principle
+
+Every application URL is project-scoped. The project is the first path segment
+after `/api/v1/` or after the site root. There is no unscoped data, file or page
+API. The project named `default` always exists; bare `/` redirects to
+`/{default}/` and bare `/api/v1` redirects to `/api/v1/{default}`.
+
+## 66.2 Partitions
+
+A project is divided into two partitions:
+
+- `data` — collection groups, tables, fields, records and metadata
+  (sections 8–29).
+- `files` — the unified content tree of directories, pages and files, including
+  search, extraction, enrichment and WebDAV (sections 36 and 64).
+
+There is no separate `pages` partition and no Page API. A `.md` or `.html` entry
+is a page by extension and is rendered when viewed; every other regular file is
+downloaded. Directory and page operations are part of the `files` partition, so
+the Directory API (section 38) and Page API (section 41) are replaced by it.
+
+## 66.3 Instance-level routes
+
+The following are the only instance-level routes; everything else is
+project-scoped:
+
+```text
+GET    /health
+GET    /help
+GET    /api/v1/health
+GET    /api/v1/help
+GET    /api/v1/projects
+POST   /api/v1/projects
+GET    /api/v1/projects/{project}
+DELETE /api/v1/projects/{project}
+GET    /assets/...
+GET    /favicon.svg
+```
+
+The projects API is defined in section 65.5.
+
+## 66.4 Reserved project names
+
+`api`, `health`, `help`, `projects`, `assets` and `favicon.svg` cannot be used as
+project names. `default` is reserved and always exists. Project names otherwise
+follow section 65.2.
+
+## 66.5 Human URLs
+
+```text
+/{project}/                              project overview
+/{project}/health
+/{project}/help
+
+/{project}/data
+/{project}/data/{group}
+/{project}/data/{group}/{table}
+/{project}/data/{group}/{table}/new
+/{project}/data/{group}/{table}/{id}
+/{project}/data/{group}/{table}/{id}/edit
+
+/{project}/files                         file explorer (directory-browsing gutter)
+/{project}/files/{path}                  directory listing | rendered page | file download
+/{project}/files/id/{id}                 stable file link
+/{project}/files/dav/{path}              WebDAV mount (human path)
+```
+
+`id` is a reserved segment directly under `/{project}/files`. A path that does
+not exist returns `404 Not Found`.
+
+## 66.6 Data API
+
+```text
+GET    /api/v1/{project}/data/metadata
+GET    /api/v1/{project}/data/metadata/groups
+GET    /api/v1/{project}/data/metadata/groups/{group}
+GET    /api/v1/{project}/data/metadata/groups/{group}/tables
+GET    /api/v1/{project}/data/metadata/groups/{group}/tables/{table}
+
+GET    /api/v1/{project}/data/groups
+POST   /api/v1/{project}/data/groups
+GET    /api/v1/{project}/data/groups/{group}
+GET    /api/v1/{project}/data/groups/{group}/tables
+POST   /api/v1/{project}/data/groups/{group}/tables
+GET    /api/v1/{project}/data/groups/{group}/tables/{table}
+PATCH  /api/v1/{project}/data/groups/{group}/tables/{table}
+DELETE /api/v1/{project}/data/groups/{group}/tables/{table}
+
+GET    /api/v1/{project}/data/groups/{group}/tables/{table}/records
+POST   /api/v1/{project}/data/groups/{group}/tables/{table}/records
+GET    /api/v1/{project}/data/groups/{group}/tables/{table}/records/{id}
+PATCH  /api/v1/{project}/data/groups/{group}/tables/{table}/records/{id}
+DELETE /api/v1/{project}/data/groups/{group}/tables/{table}/records/{id}
+```
+
+Request, response, query and error semantics are unchanged from sections 8–29
+and 49; only the path prefix is added.
+
+## 66.7 Files API
+
+```text
+GET    /api/v1/{project}/files
+GET    /api/v1/{project}/files?path=/...
+GET    /api/v1/{project}/files/{id}
+GET    /api/v1/{project}/files/{id}/content
+PUT    /api/v1/{project}/files?path=/...
+POST   /api/v1/{project}/files/directories
+DELETE /api/v1/{project}/files?path=/...
+DELETE /api/v1/{project}/files/{id}
+POST   /api/v1/{project}/files/move
+POST   /api/v1/{project}/files/copy
+POST   /api/v1/{project}/files/rescan
+GET    /api/v1/{project}/files/extraction?path=/...
+PUT    /api/v1/{project}/files/extraction?path=/...
+DELETE /api/v1/{project}/files/extraction?path=/...
+ANY    /api/v1/{project}/files/dav/...        WebDAV
+
+GET    /api/v1/{project}/search?q=...
+```
+
+Semantics are those of section 64 with the project prefix mandatory. Values of
+`?path=` are relative to the project root. A page is created or replaced with
+`PUT /api/v1/{project}/files?path=/reports/weekly.md`, which is the former
+`POST /api/v1/pages` operation.
+
+## 66.8 WebDAV
+
+WebDAV is exposed at both `/api/v1/{project}/files/dav/...` and
+`/{project}/files/dav/...`, mapping to the project's content root. Instance
+routes and the projects API are not exposed over WebDAV.
+
+## 66.9 Stable URLs
+
+`/{project}/files/id/{id}` and `/api/v1/{project}/files/{id}/content` serve an
+entry's current bytes regardless of its path. A path URL changes when the entry
+is moved; an ID URL does not. Content-entry IDs are unique within their project;
+record IDs remain globally unique (section 14).
+
+## 66.10 Supersession and versioning
+
+Section 66 governs all URLs, routing, partitions and reserved names. It
+supersedes the URL schemes, route listings and reserved roots in sections 32,
+35, 38, 41, 49, 64 and 65; those sections remain normative for behaviour where
+they do not conflict. The Directory API (section 38) and Page API (section 41)
+are replaced by the files partition. Existing `/api/v1/` semantics are otherwise
+unchanged, and an incompatible change still requires `/api/v2` (section 48).
 
