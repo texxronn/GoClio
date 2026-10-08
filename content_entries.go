@@ -118,6 +118,12 @@ func saveContentEntryExec(exec sqlExecer, project, path string, data []byte, cre
 	if err != nil {
 		return err
 	}
+	// Rewritten bytes invalidate any agent extraction (section 64.8): a stale
+	// extraction must not shadow the changed content. The native text is then
+	// rebuilt below.
+	if err = clearAgentSearch(exec, project, id); err != nil {
+		return err
+	}
 	title, body := nativeExtraction(path, contentType, data)
 	return indexNativeText(exec, project, id, path, contentKind(path), title, body)
 }
@@ -262,6 +268,11 @@ func (a *app) rescanContent() (contentRescan, error) {
 				kind, contentType, info.Size(), formatUTC(time.Now()), entry.ID,
 			)
 			if err != nil {
+				return err
+			}
+			// The bytes changed, so any agent extraction is stale and must not
+			// shadow the new content (section 64.8).
+			if err = clearAgentSearch(a.db, a.project, entry.ID); err != nil {
 				return err
 			}
 			summary.Refreshed++
