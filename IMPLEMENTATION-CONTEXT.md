@@ -11,8 +11,8 @@
 - **Spec:** `SPEC.md` v1.7 (sections 64, 65, 66 are new; earlier URL sections carry supersession notes)
 - **Plan:** `IMPLEMENTATION-PLAN.md`
 - **Code baseline:** Phase 5 implemented; the filesystem is fully manipulable through `/api/v1/{project}/files` and content is served with stable URLs. Non-page content always downloads (`Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`) via `http.ServeContent` (HEAD, byte ranges); `/{project}/files/id/{id}` and `/api/v1/{project}/files/{id}/content` stream an entry's raw bytes (even a page), while Markdown/HTML pages still render at their path URLs. The legacy directory/page operations remain at `/files/{directories,pages}` until Phase 10.
-- **Branch:** `phase-5-serving`
-- **Last merged commit:** `a8da7b7` (Phase 4, PR #8)
+- **Branch:** `master`
+- **Last merged commit:** `8584d73` (Phase 5, PR #9)
 - **Current phase:** Phase 5 complete (this commit)
 - **Next action:** Phase 6 — native extraction and FTS5: add `-tags sqlite_fts5` to `Makefile`, `Dockerfile` and CI; add a `content_search` FTS5 table; native extraction for text-like formats and PDF text (cap 1 MiB); populate on write and rescan; drop on delete. Tests: extraction per type, cap, rebuild by rescan, FTS5 build.
 - **Blockers:** none
