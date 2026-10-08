@@ -12,7 +12,7 @@
 - **Plan:** `IMPLEMENTATION-PLAN.md`
 - **Code baseline:** Phase 3 implemented; content entries with stable opaque IDs, per-project content subtrees, and reconciliation at startup. The legacy page/directory operations remain under the files partition pending the unified files API.
 - **Branch:** `master`
-- **Last merged commit:** `5c6c5ad` (Phase 2, PR #6)
+- **Last merged commit:** `662c225` (Phase 3, PR #7)
 - **Current phase:** Phase 3 complete (this commit)
 - **Next action:** Phase 4 — the files REST API under `/api/v1/{project}/files`: `GET` list (paged, filters) and `?path=` (entry or directory listing), `GET /files/{id}`, `PUT /files?path=` (create/replace, atomic, 16 MiB, ID preserved), `POST .../files/directories`, `DELETE .../files?path=` and `.../files/{id}` (`409` when referenced), `POST .../files/move` (IDs preserved), `.../files/copy` (new IDs) and `.../files/rescan`; enforce `409` for file/dir vs page/dir conflicts and reserve the `id` segment. Tests: CRUD by path and ID, move/copy, limits, traversal, conflict rules, rescan.
 - **Blockers:** none
