@@ -327,30 +327,43 @@ func (a *app) rescanContent() (contentRescan, error) {
 
 // reconcileAllContent reconciles every project's content subtree.
 func (a *app) reconcileAllContent() error {
+	_, err := a.reconcileAllContentSummary()
+	return err
+}
+
+// reconcileAllContentSummary reconciles every project's content subtree and
+// totals the per-project rescan summary. Restore uses the totals to report the
+// rescan-on-restore pass (section 64.11).
+func (a *app) reconcileAllContentSummary() (contentRescan, error) {
+	total := contentRescan{}
 	rows, err := a.db.Query(`SELECT name FROM projects ORDER BY name`)
 	if err != nil {
-		return err
+		return total, err
 	}
 	names := []string{}
 	for rows.Next() {
 		var name string
 		if err = rows.Scan(&name); err != nil {
 			rows.Close()
-			return err
+			return total, err
 		}
 		names = append(names, name)
 	}
 	if err = rows.Err(); err != nil {
 		rows.Close()
-		return err
+		return total, err
 	}
 	rows.Close()
 	for _, name := range names {
-		if err = a.withProject(name).reconcileContent(); err != nil {
-			return err
+		summary, err := a.withProject(name).rescanContent()
+		if err != nil {
+			return total, err
 		}
+		total.Added += summary.Added
+		total.Removed += summary.Removed
+		total.Refreshed += summary.Refreshed
 	}
-	return nil
+	return total, nil
 }
 
 // migrateContentLayout moves content published before per-project subtrees into

@@ -43,6 +43,7 @@ through HTTP and use temporary SQLite databases and content directories.
 | §64.8 agent enrichment API | `TestEnrichmentRequiresMatchingFingerprint`, `TestEnrichmentAcceptsSha256Fingerprint`, `TestEnrichmentByIDPathSegment`, `TestEnrichmentValidatesRequestShape`, `TestEnrichmentDeleteFallsBackToNative`, `TestEnrichmentSurvivesMove`, `TestEnrichmentIsProjectScoped`, `TestEnrichmentEditedFileInvalidatesAgentText` |
 | §64.9 attachment fields | `TestAttachmentFieldNormalizationAndMetadata`, `TestAttachmentValidationOnCreateUpdateAndDefault`, `TestAttachmentDefaultValidation`, `TestAttachmentRejectsCrossProjectEntries`, `TestAttachmentDeleteIntegrity`, `TestAttachmentDeleteIntegrityDirectorySubtree`, `TestAttachmentSurvivesRenameAndMove`, `TestAttachmentFilterSortAndDistinct`, `TestAttachmentFormAndRecordRendering` |
 | §64.10/§66.8 WebDAV mount | `TestWebDAVDisabledByDefault`, `TestWebDAVMethodSet`, `TestWebDAVMovePreservesIDAndCopyAssignsNewID`, `TestWebDAVDirectoryMovePreservesDescendantIDs`, `TestWebDAVDeleteReferencedReturnsConflict`, `TestWebDAVRequiresAuthentication`, `TestWebDAVPropfindReturnsEntryMetadata` |
+| §57/§64.11/§65.8 backup and restore | `TestBackupRestoreReproducesIdentityTimestampsAndEnrichment`, `TestRestoreReconcilesContentTree`, `TestBackupRefusesNonEmptyDestination`, `TestBackupRequiresExistingDatabase`, `TestRestoreValidatesManifest`, `TestRestoreRefusesNonEmptyTargetUnlessForced`, `TestBackupRestoreCommands` |
 | §64.14 web file explorer and human search surface | `TestFileExplorerShellRoutes`, `TestFileExplorerLightActions`, `TestSearchUIWorkflow`, `TestClioJSBehaviorWithNode` |
 | §65.3 project data scoping and isolation | `TestProjectDataIsolation`, `TestContentIsolationBetweenProjects` |
 | §66.1/§66.3/§66.5–§66.6 project-first routing, instance routes, human URLs and the data partition | `TestBareRoutesRedirectToDefaultProject`, `TestUnknownProjectReturnsNotFound`, `TestProjectScopedHumanAndAPIRoutes`, `TestDataBrowserRoutes`, `TestFileExplorerShellRoutes`, `TestSearchUIWorkflow` |
@@ -64,10 +65,5 @@ otherwise.
 
 ## Pending conformance
 
-Section 64 of [`SPEC.md`](SPEC.md) is normative and partly implemented. The
-areas below have no automated coverage yet; each row must move into the table
-above as its tests land.
-
-| Spec area | Planned tests |
-| --- | --- |
-| §64.11 backup and restore | restored database plus content reproduces IDs, timestamps and agent text |
+None: every normative area exercised by this implementation has automated
+coverage in the table above.

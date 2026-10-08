@@ -159,6 +159,18 @@ than the product.
   subtree. Locks are in-memory and do not survive a restart. The mount is
   behind the same authentication and HTTPS policy as every route, and when
   disabled it does not exist (returns `404`).
+- Backup and restore (spec §57/§64.11/§65.8): `clio backup <dest>` snapshots the
+  SQLite database with `VACUUM INTO` (one consistent, compact file that includes
+  the FTS5 index) and copies the content tree, writing a `manifest.json`
+  (`format`, `format_version`, `product_version`, `created_at`) last so an
+  interrupted backup is incomplete. It refuses a destination that is not empty
+  or a missing database. `clio restore <src>` validates the manifest, replaces
+  the database and content directory, then reconciles the catalog with the
+  restored files (rescan-on-restore) so content-entry IDs, entry timestamps and
+  agent-supplied text are preserved, raw files are adopted and vanished files
+  are dropped; it refuses a non-empty target data directory unless `--force` is
+  given. The documented stop-copy procedure remains
+  (`README.md`, `/help`, `CLIO_DATA_DIR`/`CLIO_DB`).
 
 ### Changed
 
