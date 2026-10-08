@@ -89,6 +89,19 @@ than the product.
   populated on create/replace (files API, pages, ZIP uploads and copy), updated
   on move, rebuilt by rescan and dropped on delete. This adds a
   `github.com/ledongthuc/pdf` module dependency.
+- Search API (spec v1.7 §64.7/§66.7): `GET /api/v1/{project}/search?q=...`
+  searches the extracted text of pages and files in one project-scoped result
+  set. Query terms are treated literally (quoted, AND-combined; FTS operators
+  such as `NEAR`, `OR` and `*` cannot inject syntax or cause an error), an empty
+  or over-long query returns `422`, and results are paged (`limit`, `offset`,
+  default 100, maximum 1000). Each result is `id`, `path`, `kind`,
+  `content_type`, `source`, a plain-text `snippet` with matched terms delimited
+  by the private sentinels `⟦`/`⟧`, and a relevance `score`; results are ordered
+  by relevance (bm25 with a title boost) and then deterministically by path and
+  ID. `html.EscapeString` is applied before the sentinels become highlight
+  markup, so indexed content cannot inject HTML.
+- The content-entry representation now reports the real `indexed` value
+  (whether the entry has native or agent text) instead of a hardcoded `false`.
 - Builds and tests require `-tags sqlite_fts5` so the cgo SQLite driver compiles
   in FTS5. The `Makefile`, `Dockerfile` and CI apply it; a binary built without
   the tag fails at startup when it creates `content_search`.

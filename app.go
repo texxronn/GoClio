@@ -229,6 +229,12 @@ func (a *app) api(w http.ResponseWriter, r *http.Request) {
 		scoped.dataAPI(w, r, segments[2:])
 	case "files":
 		scoped.filesAPI(w, r, segments[2:])
+	case "search":
+		if len(segments) != 2 {
+			writeAPIError(w, missing("Endpoint"))
+			return
+		}
+		scoped.searchAPI(w, r)
 	default:
 		writeAPIError(w, missing("Endpoint"))
 	}
