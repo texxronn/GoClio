@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -52,27 +51,19 @@ func (a *app) webdavMount(w http.ResponseWriter, r *http.Request, prefix string)
 		}
 		return
 	}
-	// Bound a PUT body to the 16 MiB upload limit before the handler buffers
-	// it (section 64.12). A declared Content-Length over the limit is rejected
-	// immediately; a chunked or unknown-length body is read at most
-	// limit+1 bytes so an over-limit body still returns 413 rather than
-	// buffering unbounded memory (or surfacing as a 500 on Close).
+	// Bound a PUT body to the upload limit: a declared Content-Length over the
+	// limit is rejected immediately, and a chunked or unknown-length body is
+	// streamed into an upload stage, which stops at the limit and reports the
+	// overage so the response is still 413 (section 64.12).
 	if r.Method == http.MethodPut {
 		if r.ContentLength > fileUploadLimit {
 			writeAPIError(w, &apiError{http.StatusRequestEntityTooLarge, "body_too_large", "Request body is too large"})
 			return
 		}
-		body, readErr := io.ReadAll(io.LimitReader(r.Body, fileUploadLimit+1))
-		if readErr != nil {
-			writeAPIError(w, invalid("Malformed request body"))
-			return
-		}
-		if int64(len(body)) > fileUploadLimit {
-			writeAPIError(w, &apiError{http.StatusRequestEntityTooLarge, "body_too_large", "Request body is too large"})
-			return
-		}
-		r.Body = io.NopCloser(bytes.NewReader(body))
-		r.ContentLength = int64(len(body))
+		state := &davUploadState{}
+		r = r.WithContext(context.WithValue(r.Context(), davUploadKey{}, state))
+		r.Body = &davBody{ReadCloser: r.Body, state: state}
+		w = &davPutWriter{ResponseWriter: w, state: state}
 	}
 	// A DELETE that would break an attachment reference returns 409 before the
 	// WebDAV handler runs; its RemoveAll error cannot carry a custom status
@@ -99,6 +90,50 @@ func (a *app) webdavMount(w http.ResponseWriter, r *http.Request, prefix string)
 		LockSystem: a.davLockSystem(),
 	}
 	handler.ServeHTTP(w, r)
+}
+
+// davUploadState lets a davWriteFile report an over-limit body to the mount,
+// because x/net/webdav answers any body copy failure with 405.
+type davUploadState struct{ exceeded, failed bool }
+
+type davUploadKey struct{}
+
+// davPutWriter turns the WebDAV handler's error status for an over-limit PUT
+// into the files API's 413 (section 64.12).
+type davPutWriter struct {
+	http.ResponseWriter
+	state      *davUploadState
+	suppressed bool
+}
+
+func (w *davPutWriter) WriteHeader(status int) {
+	if w.state.exceeded && status >= 400 {
+		w.suppressed = true
+		writeAPIError(w.ResponseWriter, &apiError{http.StatusRequestEntityTooLarge, "body_too_large", "Request body is too large"})
+		return
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *davPutWriter) Write(p []byte) (int, error) {
+	if w.suppressed {
+		return len(p), nil
+	}
+	return w.ResponseWriter.Write(p)
+}
+
+// davBody records a body read failure so Close discards the stage.
+type davBody struct {
+	io.ReadCloser
+	state *davUploadState
+}
+
+func (b *davBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if err != nil && err != io.EOF {
+		b.state.failed = true
+	}
+	return n, err
 }
 
 // davDestinationIgnored reports whether a COPY or MOVE Destination names an
@@ -234,7 +269,12 @@ func (fs davFileSystem) OpenFile(ctx context.Context, name string, flag int, per
 		if clean == "/" {
 			return nil, os.ErrExist
 		}
-		return &davWriteFile{a: fs.a, clean: clean, now: time.Now()}, nil
+		stage, ae := fs.a.newUploadStage(fileUploadLimit)
+		if ae != nil {
+			return nil, apiErrorToOSError(ae)
+		}
+		state, _ := ctx.Value(davUploadKey{}).(*davUploadState)
+		return &davWriteFile{a: fs.a, clean: clean, now: time.Now(), stage: stage, state: state}, nil
 	}
 	if clean == "/" {
 		if _, err := os.Lstat(target); os.IsNotExist(err) {
@@ -306,14 +346,16 @@ func (fs davFileSystem) Rename(ctx context.Context, oldName, newName string) err
 	return nil
 }
 
-// davWriteFile buffers a WebDAV write and commits it on Close through the
-// shared content-file helper, so a PUT or a copied destination gets the same
-// ID, timestamp, limit and index treatment as the files API (section 64.10).
+// davWriteFile streams a WebDAV write into an upload stage and commits it on
+// Close through the shared commit path. x/net/webdav calls Close even when
+// copying the body failed, so a failed stage is discarded, never committed
+// (sections 64.10 and 64.12).
 type davWriteFile struct {
 	a     *app
 	clean string
 	now   time.Time
-	buf   bytes.Buffer
+	stage *uploadStage
+	state *davUploadState
 	done  bool
 }
 
@@ -324,19 +366,18 @@ func (f *davWriteFile) Seek(int64, int) (int64, error) {
 func (f *davWriteFile) Readdir(int) ([]os.FileInfo, error) {
 	return nil, errors.New("webdav: not a directory")
 }
+
 func (f *davWriteFile) Write(p []byte) (int, error) {
-	// Defensive bound: webdavMount caps the request body before delegation,
-	// but this write path must never buffer unbounded either (section 64.12).
-	if int64(f.buf.Len())+int64(len(p)) > fileUploadLimit {
-		return 0, errors.New("webdav: upload exceeds the content limit")
+	n, err := f.stage.Write(p)
+	if f.stage.Exceeded() && f.state != nil {
+		f.state.exceeded = true
 	}
-	return f.buf.Write(p)
+	return n, err
 }
 
-// Stat reports the buffered size so the WebDAV handler can compute an ETag
-// before the write is committed.
+// Stat reports the staged size so the WebDAV handler can compute an ETag.
 func (f *davWriteFile) Stat() (os.FileInfo, error) {
-	return davFileInfo{name: path.Base(f.clean), size: int64(f.buf.Len()), mode: 0644, mod: f.now}, nil
+	return davFileInfo{name: path.Base(f.clean), size: f.stage.Size(), mode: 0644, mod: f.now}, nil
 }
 
 func (f *davWriteFile) Close() error {
@@ -344,7 +385,16 @@ func (f *davWriteFile) Close() error {
 		return nil
 	}
 	f.done = true
-	_, _, ae := f.a.storeContentFile(f.clean, f.buf.Bytes(), "")
+	if f.stage.failed || (f.state != nil && f.state.failed) {
+		f.stage.discard()
+		return errors.New("webdav: upload failed")
+	}
+	cw, ae := f.stage.finish(f.clean, "")
+	if ae != nil {
+		f.stage.discard()
+		return apiErrorToOSError(ae)
+	}
+	_, _, ae = f.a.commitUpload(f.clean, f.stage, cw)
 	return apiErrorToOSError(ae)
 }
 

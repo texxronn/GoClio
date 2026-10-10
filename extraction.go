@@ -37,6 +37,10 @@ var (
 	htmlAnyTag      = regexp.MustCompile(`(?s)<[^>]*>`)
 )
 
+// extractNative is the native extractor used for writes. Tests replace it to
+// observe when extraction runs.
+var extractNative = nativeExtraction
+
 // nativeExtraction returns the title and the searchable body extracted from one
 // entry's stored bytes (section 64.6). It is pure: it reads no files, performs
 // no I/O and never mutates state, so it is unit-testable in isolation. The body
