@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -189,6 +190,122 @@ func TestFilterOperatorSemantics(t *testing.T) {
 		"filter.missing=1",
 	} {
 		assertAPIError(t, testRequest(t, a, http.MethodGet, base+"?"+query, nil, ""), http.StatusUnprocessableEntity)
+	}
+}
+
+func TestBooleanFilterQueryValues(t *testing.T) {
+	a := newTestApp(t)
+	createTestGroup(t, a, "bools")
+	createTestTable(t, a, "bools", map[string]any{"name": "flags", "fields": []any{
+		map[string]any{"name": "flag", "type": "boolean"},
+		map[string]any{"name": "label", "type": "string"},
+	}})
+	createTestRecord(t, a, "bools", "flags", map[string]any{"flag": true, "label": "t"})
+	createTestRecord(t, a, "bools", "flags", map[string]any{"flag": false, "label": "f"})
+	createTestRecord(t, a, "bools", "flags", map[string]any{"flag": nil, "label": "n"})
+	base := "/api/v1/default/data/groups/bools/tables/flags/records"
+
+	labelsFor := func(path string) map[string]bool {
+		labels := map[string]bool{}
+		for _, row := range queryRows(t, a, path) {
+			labels[row.(map[string]any)["label"].(string)] = true
+		}
+		return labels
+	}
+	assertLabels := func(query string, want ...string) {
+		t.Helper()
+		labels := labelsFor(base + "?" + query)
+		if len(labels) != len(want) {
+			t.Fatalf("%s returned labels %v, want %v", query, labels, want)
+		}
+		for _, name := range want {
+			if !labels[name] {
+				t.Fatalf("%s returned labels %v, want %v", query, labels, want)
+			}
+		}
+	}
+
+	assertLabels("filter.flag=true", "t")
+	assertLabels("filter.flag=True", "t")
+	assertLabels("filter.flag=TRUE", "t")
+	assertLabels("filter.flag=false", "f")
+	assertLabels("filter.flag=False", "f")
+	assertLabels("filter.flag=FALSE", "f")
+	assertLabels("filter.flag.eq=true", "t")
+	assertLabels("filter.flag.eq=false", "f")
+	// ne matches null as well (SPEC section 25.2).
+	assertLabels("filter.flag.ne=true", "f", "n")
+	assertLabels("filter.flag.ne=false", "t", "n")
+	// in matches any supplied value and never null.
+	assertLabels("filter.flag.in=true", "t")
+	assertLabels("filter.flag.in=false", "f")
+	assertLabels("filter.flag.in=true&filter.flag.in=false", "t", "f")
+
+	// Only true/false (case-insensitive) are valid boolean query values.
+	for _, query := range []string{
+		"filter.flag=yes",
+		"filter.flag=1",
+		"filter.flag=0",
+		"filter.flag=maybe",
+		"filter.flag.eq=yes",
+		"filter.flag.ne=Y",
+		"filter.flag.in=true&filter.flag.in=yes",
+		"filter.flag.isnull=maybe",
+	} {
+		assertAPIError(t, testRequest(t, a, http.MethodGet, base+"?"+query, nil, ""), http.StatusUnprocessableEntity)
+	}
+
+	// The grouped-aggregate and distinct query paths share buildRecordWhere,
+	// so a boolean filter must work there too.
+	groups := queryResult(t, a, base+"?filter.flag=true&group_by=flag&aggregate=count")["groups"].([]any)
+	if len(groups) != 1 || groups[0].(map[string]any)["count"] != float64(1) {
+		t.Fatalf("group_by with boolean filter = %#v", groups)
+	}
+	distinct := queryResult(t, a, base+"?filter.flag=false&distinct=label")["values"].([]any)
+	if len(distinct) != 1 || distinct[0] != "f" {
+		t.Fatalf("distinct with boolean filter = %#v", distinct)
+	}
+}
+
+func TestMatchesBooleanQueryFilters(t *testing.T) {
+	defs := map[string]map[string]any{"flag": {"type": "boolean", "name": "flag"}}
+	cases := []struct {
+		query string
+		value any
+		want  bool
+	}{
+		{"filter.flag=true", true, true},
+		{"filter.flag=True", true, true},
+		{"filter.flag=true", false, false},
+		{"filter.flag=false", false, true},
+		{"filter.flag=false", true, false},
+		{"filter.flag.eq=false", false, true},
+		{"filter.flag.ne=true", false, true},
+		{"filter.flag.ne=true", nil, true},
+		{"filter.flag.ne=true", true, false},
+		{"filter.flag.ne=false", nil, true},
+		{"filter.flag.in=true", true, true},
+		{"filter.flag.in=false", true, false},
+		{"filter.flag.in=true&filter.flag.in=false", false, true},
+	}
+	for _, tc := range cases {
+		values, err := url.ParseQuery(tc.query)
+		if err != nil {
+			t.Fatalf("parse query %q: %v", tc.query, err)
+		}
+		got, ae := matches(map[string]any{"flag": tc.value}, defs, values)
+		if ae != nil {
+			t.Fatalf("%s on %v: unexpected error %v", tc.query, tc.value, ae)
+		}
+		if got != tc.want {
+			t.Errorf("%s on %v = %v, want %v", tc.query, tc.value, got, tc.want)
+		}
+	}
+	for _, query := range []string{"filter.flag=yes", "filter.flag=1", "filter.flag.in=yes"} {
+		values, _ := url.ParseQuery(query)
+		if _, ae := matches(map[string]any{"flag": true}, defs, values); ae == nil {
+			t.Errorf("%s: expected a validation error", query)
+		}
 	}
 }
 

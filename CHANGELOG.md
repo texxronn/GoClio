@@ -9,6 +9,14 @@ in [`SPEC.md`](SPEC.md). The API version (`v1`) changes only for incompatible
 API changes, and the specification revision tracks the contract document rather
 than the product.
 
+## [Unreleased]
+
+### Fixed
+
+- Record list filters on `boolean` fields accept the query values `true` and
+  `false` (case-insensitive) for `eq`, `ne` and `in`; previously every boolean
+  filter was rejected with HTTP 422 (SPEC section 25.2).
+
 ## [2.3.0] - 2026-10-10
 
 ### Added

@@ -331,13 +331,13 @@ func buildRecordWhere(project, group, table string, defs map[string]map[string]a
 			}
 			placeholders := make([]string, 0, len(values))
 			for _, value := range values {
-				coerced, _ := coerce(defs[field], value)
+				coerced, _ := coerceQueryValue(defs[field], value)
 				placeholders = append(placeholders, "?")
 				args = append(args, filterArgument(coerced))
 			}
 			conditions = append(conditions, expression+" IN ("+strings.Join(placeholders, ",")+")")
 		default:
-			coerced, _ := coerce(defs[field], values[len(values)-1])
+			coerced, _ := coerceQueryValue(defs[field], values[len(values)-1])
 			operator := map[string]string{"eq": "=", "ne": "<>", "gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[op]
 			condition := expression + " " + operator + " ?"
 			if op == "ne" || op == "lt" || op == "lte" {
