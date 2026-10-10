@@ -409,7 +409,7 @@ Do not introduce:
 * cache invalidation logic
 * distributed caches
 
-Prepared SQL statements may be retained when useful for code simplicity and performance, but this is not considered an application data cache.
+Prepared SQL statements may be retained when useful for code simplicity and performance, but this is not considered an application data cache. The authentication memo of section 54.1 is not an application data cache.
 
 If performance problems are discovered later, caching can be added based on evidence.
 
@@ -3332,6 +3332,9 @@ The `error` member is a stable machine-readable code. The defined codes are:
 ```text
 validation_error   (422)
 not_found          (404)
+forbidden          (403)
+unauthorized       (401)
+https_required     (403)
 conflict           (409)
 method_not_allowed (405)
 body_too_large     (413)
@@ -3434,6 +3437,10 @@ When enabled, authentication applies to every HTTP route, including health,
 help, published content, directories, table views, API endpoints, and static
 assets. Health is not an unauthenticated exception.
 
+After a successful verification Clio keeps a SHA-256 digest of the verified
+`Authorization` header in memory and accepts an identical header without
+re-running bcrypt. No password is stored; restarting clears it.
+
 ## 54.2 Configuration
 
 Optional settings and defaults are:
@@ -3515,6 +3522,12 @@ HTTP clients use their standard Basic Authentication support. When enabled,
 README and `/help` document the authentication state, hash generation, HTTPS
 policy, trusted HTTP networks, trusted-proxy requirements, and the fact that
 Basic Authentication must be protected by TLS on untrusted networks.
+
+State-changing requests (POST, PUT, PATCH, DELETE) whose `Origin` — or, without
+one, `Referer` — names a host other than the request host or the `CLIO_BASE_URL`
+host are refused with `403 forbidden`. Requests without either header are
+accepted. JSON endpoints refuse `text/plain`, `application/x-www-form-urlencoded`
+and `multipart/form-data` bodies with `422 validation_error`.
 
 ## 54.5 Authentication and transport tests
 
@@ -4579,10 +4592,8 @@ lists projects and `/files/{project}/...` browses one (section 65.4).
   operations; the explorer is a browsing and light-administration surface.
 
 Security note: the explorer's mutating actions are ordinary same-origin requests
-protected by the authentication policy of section 54. Cross-site request forgery
-protection is not part of v1; when authentication is enabled, deployments should
-rely on the same-origin policy and network controls and may front Clio with a
-proxy that enforces CSRF protection.
+protected by the authentication policy of section 54 and the same-origin gate of
+section 54.4.
 
 ---
 

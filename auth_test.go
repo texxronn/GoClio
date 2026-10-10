@@ -213,3 +213,45 @@ func TestForwardedHTTPSOnlyTrustedFromProxy(t *testing.T) {
 		t.Fatalf("trusted proxy HTTPS status=%d, want 200: %s", w.Code, w.Body.String())
 	}
 }
+
+func TestVerifiedCredentialSkipsRepeatBcrypt(t *testing.T) {
+	a := newTestApp(t)
+	a.auth = authConfig{enabled: true, username: "admin", passwordHash: testPasswordHash(t), requireHTTPS: false, memo: &credentialMemo{}}
+	calls := 0
+	original := compareCredential
+	compareCredential = func(hash, password []byte) error {
+		calls++
+		return original(hash, password)
+	}
+	t.Cleanup(func() { compareCredential = original })
+
+	for i := 0; i < 3; i++ {
+		if w := authRequest(t, a, "/api/v1/health", "127.0.0.1:1", true); w.Code != http.StatusOK {
+			t.Fatalf("request %d status = %d", i, w.Code)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("bcrypt calls for 3 identical requests = %d, want 1", calls)
+	}
+
+	wrong := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	wrong.RemoteAddr = "127.0.0.1:1"
+	wrong.SetBasicAuth("admin", "not-the-password")
+	w := httptest.NewRecorder()
+	a.ServeHTTP(w, wrong)
+	if w.Code != http.StatusUnauthorized || calls != 2 {
+		t.Fatalf("wrong password: status = %d, bcrypt calls = %d; want 401 and 2", w.Code, calls)
+	}
+	// A failed attempt must not evict or replace the verified credential.
+	if w := authRequest(t, a, "/api/v1/health", "127.0.0.1:1", true); w.Code != http.StatusOK || calls != 2 {
+		t.Fatalf("after failure: status = %d, bcrypt calls = %d; want 200 and 2", w.Code, calls)
+	}
+}
+
+func TestAuthWithoutMemoStillVerifies(t *testing.T) {
+	a := newTestApp(t)
+	a.auth = authConfig{enabled: true, username: "admin", passwordHash: testPasswordHash(t)}
+	if w := authRequest(t, a, "/api/v1/health", "127.0.0.1:1", true); w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+}
