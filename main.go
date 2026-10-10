@@ -41,6 +41,23 @@ type app struct {
 	// carries the resolved project (see withProject); the shared fields are
 	// read-only for the life of a request.
 	project string
+	// smallBodyTimeout bounds how long a small (JSON) request body may take to
+	// arrive; a zero value means 30s (section 53).
+	smallBodyTimeout time.Duration
+}
+
+// newHTTPServer builds the server with connection-level limits. There is no
+// ReadTimeout or WriteTimeout: those cover the whole request and would cut off
+// large uploads and downloads. Small bodies get a per-request deadline in
+// ServeHTTP instead (section 53).
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    64 << 10,
+	}
 }
 
 // withProject returns a shallow copy of the app scoped to a project. Fields are
@@ -126,7 +143,7 @@ func main() {
 	if err = a.reconcileAllContent(); err != nil {
 		log.Fatalf("reconcile content entries: %v", err)
 	}
-	srv := &http.Server{Addr: addr, Handler: a, ReadHeaderTimeout: 10 * time.Second}
+	srv := newHTTPServer(addr, a)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatalf("HTTP server failed to listen: %v", err)

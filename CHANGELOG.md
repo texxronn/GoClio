@@ -11,6 +11,13 @@ than the product.
 
 ## [Unreleased]
 
+### Security
+
+- Cross-site POSTs to the API are refused. Every state-changing request (POST,
+  PUT, PATCH, DELETE) with a foreign `Origin`/`Referer` now returns
+  `403 forbidden`, and JSON endpoints reject `text/plain` and form encodings
+  with `422`.
+
 ## [2.2.0] - 2026-10-08
 
 ### Added

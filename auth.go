@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"crypto/subtle"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/term"
@@ -25,6 +27,43 @@ type authConfig struct {
 	trustedProxyNetworks []*net.IPNet
 	tlsCertificateFile   string
 	tlsPrivateKeyFile    string
+	memo                 *credentialMemo
+}
+
+// compareCredential verifies a password against the configured bcrypt hash.
+// Tests replace it to count evaluations.
+var compareCredential = bcrypt.CompareHashAndPassword
+
+// credentialMemo holds the SHA-256 digest of the last Authorization header
+// that passed bcrypt verification. Browsers and WebDAV clients resend the same
+// header on every request, so later requests cost one constant-time digest
+// comparison instead of a bcrypt evaluation. It stores no password and is
+// cleared only by restarting, which is also how the configured hash changes
+// (section 54.1). It is an authentication memo, not a data cache (section 4.5).
+type credentialMemo struct {
+	mu     sync.Mutex
+	digest [sha256.Size]byte
+	valid  bool
+}
+
+func (m *credentialMemo) matches(header string) bool {
+	if m == nil || header == "" {
+		return false
+	}
+	sum := sha256.Sum256([]byte(header))
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.valid && subtle.ConstantTimeCompare(sum[:], m.digest[:]) == 1
+}
+
+func (m *credentialMemo) remember(header string) {
+	if m == nil {
+		return
+	}
+	sum := sha256.Sum256([]byte(header))
+	m.mu.Lock()
+	m.digest, m.valid = sum, true
+	m.mu.Unlock()
 }
 
 func loadAuthConfig(lookup func(string) (string, bool)) (authConfig, error) {
@@ -89,6 +128,10 @@ func loadAuthConfig(lookup func(string) (string, bool)) (authConfig, error) {
 	if (certFile == "") != (keyFile == "") {
 		return authConfig{}, fmt.Errorf("CLIO_TLS_CERT and CLIO_TLS_KEY must be configured together")
 	}
+	var memo *credentialMemo
+	if enabled {
+		memo = &credentialMemo{}
+	}
 	return authConfig{
 		enabled:              enabled,
 		username:             username,
@@ -99,6 +142,7 @@ func loadAuthConfig(lookup func(string) (string, bool)) (authConfig, error) {
 		trustedProxyNetworks: trustedProxy,
 		tlsCertificateFile:   certFile,
 		tlsPrivateKeyFile:    keyFile,
+		memo:                 memo,
 	}, nil
 }
 
@@ -167,11 +211,16 @@ func (a *app) authorizeRequest(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 
+	header := r.Header.Get("Authorization")
+	if cfg.memo.matches(header) {
+		return true
+	}
+
 	username, password, validBasic := r.BasicAuth()
 	if !validBasic {
 		password = ""
 	}
-	validPassword := bcrypt.CompareHashAndPassword(cfg.passwordHash, []byte(password)) == nil
+	validPassword := compareCredential(cfg.passwordHash, []byte(password)) == nil
 	validUsername := subtle.ConstantTimeCompare([]byte(username), []byte(cfg.username)) == 1
 	if !validBasic || !validUsername || !validPassword {
 		log.Printf("authentication failure: remote=%q reason=invalid_credentials", r.RemoteAddr)
@@ -179,6 +228,7 @@ func (a *app) authorizeRequest(w http.ResponseWriter, r *http.Request) bool {
 		writeAPIError(w, &apiError{http.StatusUnauthorized, "unauthorized", "Authentication required"})
 		return false
 	}
+	cfg.memo.remember(header)
 	return true
 }
 

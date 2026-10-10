@@ -9,10 +9,10 @@ import (
 	"testing"
 )
 
-// TestHumanStateChangingRequestsRequireSameOrigin covers the lightweight
-// Origin/Referer check added to projectUI: a cross-site human POST is rejected
-// before it mutates anything, a same-origin or header-less request is allowed,
-// and the JSON API is unaffected (sections 54 and 64.14).
+// TestHumanStateChangingRequestsRequireSameOrigin covers the Origin/Referer
+// gate in ServeHTTP: a cross-site human or API POST is rejected before it
+// mutates anything, while a same-origin or header-less request is allowed
+// (sections 54 and 64.14).
 func TestHumanStateChangingRequestsRequireSameOrigin(t *testing.T) {
 	a := newTestApp(t)
 	createTestGroup(t, a, "pool")
@@ -85,14 +85,15 @@ func TestHumanStateChangingRequestsRequireSameOrigin(t *testing.T) {
 		t.Fatalf("cross-site folder exists (status %d), want 404", w.Code)
 	}
 
-	// The JSON API is not subject to the human same-origin check.
+	// The JSON API is covered by the same gate, so a cross-site API POST is
+	// refused before the handler runs (section 54).
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/default/data/groups", strings.NewReader(`{"name":"api-cross"}`))
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Origin", "http://evil.test")
 	w := httptest.NewRecorder()
 	a.ServeHTTP(w, r)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("JSON API cross-site status = %d, want 201: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("JSON API cross-site status = %d, want 403: %s", w.Code, w.Body.String())
 	}
 }
 

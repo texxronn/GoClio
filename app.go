@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type apiError struct {
@@ -55,8 +56,27 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !a.authorizeRequest(w, r) {
 		return
 	}
+	// A body small enough to be a JSON request must arrive promptly; a client
+	// that declares one and stalls is cut off (section 53).
+	if r.ContentLength > 0 && r.ContentLength <= bodyLimit {
+		timeout := a.smallBodyTimeout
+		if timeout == 0 {
+			timeout = 30 * time.Second
+		}
+		rc := http.NewResponseController(w)
+		if rc.SetReadDeadline(time.Now().Add(timeout)) == nil {
+			r.Body = &deadlineBody{ReadCloser: r.Body, rc: rc}
+		}
+	}
 	if _, err := url.ParseQuery(r.URL.RawQuery); err != nil {
 		writeAPIError(w, &apiError{400, "bad_request", "Malformed query parameters"})
+		return
+	}
+	// Browsers re-send cached Basic credentials on cross-site form posts, so
+	// every state-changing request with a foreign Origin/Referer is refused,
+	// for the API and the human UI alike (section 54).
+	if isStateChangingMethod(r.Method) && !a.sameOriginRequest(r) {
+		writeErr(w, &apiError{http.StatusForbidden, "forbidden", "Cross-site request rejected"})
 		return
 	}
 	// Bare / and /api/v1 redirect to the default project (section 66.1).
@@ -145,15 +165,6 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // projectUI routes human (non-API) project-scoped URLs. The first path segment
 // is the project; everything is project-scoped (section 66.1).
 func (a *app) projectUI(w http.ResponseWriter, r *http.Request) {
-	// Human state-changing requests are browser form submissions. A cached
-	// Basic credential makes them forgeable cross-site, so a present Origin or
-	// Referer whose host is not this request's host is rejected. An absent
-	// header is allowed, keeping non-browser clients and the JSON API's
-	// conventions unchanged (sections 54 and 64.14).
-	if isStateChangingMethod(r.Method) && !sameOriginRequest(r) {
-		writeErr(w, &apiError{http.StatusForbidden, "forbidden", "Cross-site request rejected"})
-		return
-	}
 	segments := splitPath(r.URL.Path)
 	if len(segments) == 0 {
 		writeAPIError(w, missing("Resource"))
@@ -206,10 +217,12 @@ func isStateChangingMethod(method string) bool {
 
 // sameOriginRequest reports whether a state-changing browser request is
 // same-origin. It compares the host of a present Origin (or, failing that,
-// Referer) header with the request host; an absent header is allowed so
-// non-browser clients and existing callers keep working. The scheme is not
-// compared because TLS may terminate at a trusted reverse proxy.
-func sameOriginRequest(r *http.Request) bool {
+// Referer) header with the request host or the configured CLIO_BASE_URL host,
+// so a reverse proxy that rewrites Host does not break same-origin writes. An
+// absent header is allowed so non-browser clients keep working; an opaque
+// origin such as "null" is refused. The scheme is not compared because TLS may
+// terminate at a trusted reverse proxy (sections 54 and 64.14).
+func (a *app) sameOriginRequest(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		origin = r.Header.Get("Referer")
@@ -218,10 +231,14 @@ func sameOriginRequest(r *http.Request) bool {
 		return true
 	}
 	parsed, err := url.Parse(origin)
-	if err != nil {
+	if err != nil || parsed.Host == "" {
 		return false
 	}
-	return strings.EqualFold(parsed.Host, r.Host)
+	if strings.EqualFold(parsed.Host, r.Host) {
+		return true
+	}
+	base, err := url.Parse(a.baseURL)
+	return err == nil && base.Host != "" && strings.EqualFold(parsed.Host, base.Host)
 }
 
 type responseStatusWriter struct {
@@ -245,6 +262,22 @@ func (w *responseStatusWriter) Write(body []byte) (int, error) {
 }
 
 func (w *responseStatusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// deadlineBody clears the connection read deadline once the body has been read
+// to its end, so the deadline bounds only the body upload and never a slow or
+// long response.
+type deadlineBody struct {
+	io.ReadCloser
+	rc *http.ResponseController
+}
+
+func (b *deadlineBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if err == io.EOF {
+		_ = b.rc.SetReadDeadline(time.Time{})
+	}
+	return n, err
+}
 
 func (a *app) api(w http.ResponseWriter, r *http.Request) {
 	segments := splitPath(strings.TrimPrefix(r.URL.Path, "/api/v1/"))
@@ -1577,6 +1610,13 @@ func isConstraint(e error) bool {
 	return e != nil && (strings.Contains(strings.ToLower(e.Error()), "constraint") || strings.Contains(strings.ToLower(e.Error()), "unique"))
 }
 func readJSON(r *http.Request, limit int64) (map[string]any, *apiError) {
+	// HTML forms can only send these encodings; refusing them means a
+	// cross-site form can never deliver a JSON body (section 54). A missing
+	// Content-Type stays accepted for existing scripts.
+	switch requestMediaType(r) {
+	case "text/plain", "application/x-www-form-urlencoded", "multipart/form-data":
+		return nil, invalid("Content-Type must be application/json")
+	}
 	body, e := io.ReadAll(io.LimitReader(r.Body, limit+1))
 	if e != nil {
 		return nil, invalid("Malformed JSON request")

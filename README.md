@@ -128,10 +128,20 @@ networks.
 Published `.html` pages are served as trusted executable HTML. Only trusted
 publishers should be allowed to create or replace them.
 
-The human write routes (record and folder creation) reject a request whose
-present `Origin` or `Referer` host does not match the request host, so a browser
-with a cached Basic credential cannot be driven from a cross-site form. Requests
-without either header, and the JSON API, are unaffected.
+Every state-changing request (POST, PUT, PATCH, DELETE), for the human UI and
+the JSON API alike, is rejected with `403 forbidden` when its present `Origin`
+(or, without one, `Referer`) names a host other than the request host or the
+`CLIO_BASE_URL` host. This stops a browser with a cached Basic credential being
+driven from a cross-site form. Requests without either header keep working, so
+non-browser clients are unaffected. JSON endpoints accept `application/json` or
+a missing `Content-Type`; `text/plain`, `application/x-www-form-urlencoded` and
+`multipart/form-data` bodies return `422`, so `curl -d` needs
+`-H 'Content-Type: application/json'`.
+
+Clio bounds request headers, idle connections and small (JSON) request bodies
+itself. Large uploads and downloads have no server-side whole-request deadline,
+so put a reverse proxy with its own timeouts in front when Clio is reachable
+from untrusted networks.
 
 ## API and content
 
