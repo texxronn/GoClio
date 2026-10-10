@@ -11,12 +11,77 @@ than the product.
 
 ## [Unreleased]
 
+### Added
+
+- `CLIO_MAX_UPLOAD_BYTES` configures the maximum individual file upload, with a
+  100 MiB default (the fixed 16 MiB cap is gone), so large scanned PDFs,
+  high-resolution photos and lossless audio can be stored. Uploads stream to
+  disk instead of being buffered in memory; the ZIP per-entry limit is unchanged
+  (SPEC sections 7.2 and 64.12).
+- `GET /api/v1/health` reports a `files` count, and
+  `GET /api/v1/health?deep=true` (and `/health?deep=true`) additionally runs
+  `PRAGMA quick_check`; the default health check stays cheap (SPEC section 47).
+
+### Changed
+
+- Content writes are staged and atomic: bytes stream to a temporary file, text
+  is extracted before the content lock is taken, and the bytes, catalog row and
+  index row are committed together. A failed write leaves the previous bytes
+  and catalog unchanged, and a half-finished WebDAV `PUT` stores nothing
+  (SPEC section 64.4).
+- Startup reconciliation is fast: an entry whose size and modification time
+  match the catalog is treated as unchanged, so a normal rescan no longer
+  re-hashes or re-extracts every file (including photos, audio and
+  scanned/image-only PDFs). `POST .../files/rescan?full=true` re-hashes every
+  entry and rebuilds its native index (SPEC sections 64.2, 64.4 and 64.6).
+- File and directory copy stream instead of reading whole files into memory
+  (SPEC section 64.4).
+- The content types for common documents, photos and audio (`.pdf` and the
+  audio formats `.flac`, `.mp3`, `.m4a`, `.ogg`, `.oga`, `.opus`, `.wav`) are
+  pinned so they do not depend on the base image shipping a `/etc/mime.types`
+  file (SPEC section 64.5).
+- The built-in `records` indexes now lead with `project`, matching every record
+  query; the pre-2.3 group-leading indexes are dropped (SPEC section 52).
+
+### Fixed
+
+- Clio's own temporary files (`.clio-*`) and operating-system metadata
+  (`.DS_Store`, `._*`, `Thumbs.db`, `desktop.ini`, `__MACOSX`) are never
+  stored, listed, cataloged or indexed: writes to such names return `422`
+  (`403` over WebDAV), reads return `404`, ZIP archives skip them instead of
+  rejecting the upload, and existing catalog rows are removed by the next
+  reconciliation while the files stay on disk (SPEC sections 36.1, 44.1, 64.2
+  and 64.10).
+- The HTTP server gains an idle timeout and a header-size cap, and JSON-sized
+  request bodies are read under a deadline, so a client that declares a small
+  body and stalls is cut off. Large uploads keep no server-side deadline for
+  slow links (SPEC section 53).
+
 ### Security
 
 - Cross-site POSTs to the API are refused. Every state-changing request (POST,
   PUT, PATCH, DELETE) with a foreign `Origin`/`Referer` now returns
   `403 forbidden`, and JSON endpoints reject `text/plain` and form encodings
-  with `422`.
+  with `422` (SPEC section 54.4).
+- A successfully verified credential is remembered: after one bcrypt check Clio
+  accepts an identical `Authorization` header without re-running bcrypt, so
+  authenticated pages and WebDAV clients no longer pay a bcrypt cost per
+  request. No password is stored, and restarting clears the memo
+  (SPEC section 54.1).
+
+### Upgrade notes
+
+- JSON API requests that send `Content-Type: text/plain` or a form encoding now
+  return `422`; send `application/json` (a missing `Content-Type` is still
+  accepted for existing scripts).
+- The first start after upgrade adds the `content_entries.mtime` column and
+  rebuilds the built-in record indexes; that first rescan hashes every file
+  once. Later starts do not.
+- Existing catalog rows for `.DS_Store`, `._*` and the other reserved names are
+  removed on the first reconciliation; the files themselves stay on disk.
+- `CLIO_MAX_UPLOAD_BYTES` is new with a 100 MiB default (the fixed 16 MiB cap is
+  gone). Raise any reverse-proxy body limit (for example nginx
+  `client_max_body_size`) to match.
 
 ## [2.2.0] - 2026-10-08
 

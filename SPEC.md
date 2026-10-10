@@ -1,6 +1,6 @@
 # Clio
 
-## Consolidated Specification v1.7 — Go implementation contract
+## Consolidated Specification v1.8 — Go implementation contract
 
 **Status: FROZEN**
 
@@ -17,7 +17,7 @@ These version identifiers are independent and must not be conflated:
 
 | Identifier | Value | Where it appears |
 | --- | --- | --- |
-| Specification revision | `1.4` | This document |
+| Specification revision | `1.8` | This document |
 | Product version | `2.2.0` | `version` in `/api/v1/health` |
 | API version | `v1` | `/api/v1/` route prefix |
 
@@ -81,6 +81,16 @@ Example payloads are illustrative unless a rule references them explicitly.
   with the project; `default` is explicit and bare `/` and `/api/v1` redirect to
   it. The Directory API and Page API are replaced by the unified files
   partition, and the reserved roots are reduced to the instance-level routes.
+- **v1.8** — hardening pass. Same-origin enforcement for every state-changing
+  request and the `forbidden` error code (section 54.4); reserved system names
+  that are never stored, listed, cataloged or indexed (section 36.1); fast
+  startup reconciliation by size and modification time with
+  `POST .../files/rescan?full=true` (sections 64.2 and 64.4); staged,
+  atomically-cataloged content writes with text extraction outside the content
+  lock (section 64.4); the configurable upload limit `CLIO_MAX_UPLOAD_BYTES`
+  with a 100 MiB default (sections 7.2 and 64.12); the in-memory credential
+  memo (section 54.1); `health?deep=true` and the `files` count (section 47);
+  and record indexes that lead with `project` (section 52).
 
 ### Table of contents
 
@@ -459,9 +469,7 @@ Example data directory:
 ```text
 /var/lib/clio/
     clio.db
-    content/
-    pages/
-    files/
+    content/{project}/
 ```
 
 ---
@@ -1077,8 +1085,8 @@ decimal_format=number   decimal fields are JSON numbers
 `decimal_format` is valid on:
 
 ```text
-GET /api/v1/groups/{group}/tables/{table}/records
-GET /api/v1/groups/{group}/tables/{table}/records/{id}
+GET /api/v1/{project}/data/groups/{group}/tables/{table}/records
+GET /api/v1/{project}/data/groups/{group}/tables/{table}/records/{id}
 ```
 
 It also applies to the decimal-valued results of `distinct`, `aggregate`,
@@ -1134,11 +1142,11 @@ A client or LLM must never need to inspect the SQLite database directly to under
 API v1 provides:
 
 ```text
-GET /api/v1/metadata
-GET /api/v1/metadata/groups
-GET /api/v1/metadata/groups/{group}
-GET /api/v1/metadata/groups/{group}/tables
-GET /api/v1/metadata/groups/{group}/tables/{table}
+GET /api/v1/{project}/data/metadata
+GET /api/v1/{project}/data/metadata/groups
+GET /api/v1/{project}/data/metadata/groups/{group}
+GET /api/v1/{project}/data/metadata/groups/{group}/tables
+GET /api/v1/{project}/data/metadata/groups/{group}/tables/{table}
 ```
 
 Responses must expose enough information to understand:
@@ -1165,7 +1173,7 @@ Responses must expose enough information to understand:
 Create group:
 
 ```http
-POST /api/v1/groups
+POST /api/v1/{project}/data/groups
 Content-Type: application/json
 ```
 
@@ -1182,13 +1190,13 @@ Example:
 Get group:
 
 ```text
-GET /api/v1/groups/{group}
+GET /api/v1/{project}/data/groups/{group}
 ```
 
 List tables:
 
 ```text
-GET /api/v1/groups/{group}/tables
+GET /api/v1/{project}/data/groups/{group}/tables
 ```
 
 A group's `name`, `label`, `description` and `order` are fixed at creation in
@@ -1196,8 +1204,8 @@ v1. There is no group update endpoint and no group delete endpoint in v1.
 
 Nested groups are never supported.
 
-These routes address the `default` project; project-scoped group routes are
-defined in section 65.6.
+These routes are project-scoped under `/{project}/data/...` (section 66.6);
+there is no unscoped form. The project named `default` is spelled explicitly.
 
 ---
 
@@ -1206,7 +1214,7 @@ defined in section 65.6.
 Tables must be creatable entirely through the API.
 
 ```http
-POST /api/v1/groups/{group}/tables
+POST /api/v1/{project}/data/groups/{group}/tables
 Content-Type: application/json
 ```
 
@@ -1403,15 +1411,15 @@ Stable API root:
 Group/table operations:
 
 ```text
-GET    /api/v1/groups
-GET    /api/v1/groups/{group}
-POST   /api/v1/groups
+GET    /api/v1/{project}/data/groups
+GET    /api/v1/{project}/data/groups/{group}
+POST   /api/v1/{project}/data/groups
 
-GET    /api/v1/groups/{group}/tables
-GET    /api/v1/groups/{group}/tables/{table}
-POST   /api/v1/groups/{group}/tables
-PATCH  /api/v1/groups/{group}/tables/{table}
-DELETE /api/v1/groups/{group}/tables/{table}
+GET    /api/v1/{project}/data/groups/{group}/tables
+GET    /api/v1/{project}/data/groups/{group}/tables/{table}
+POST   /api/v1/{project}/data/groups/{group}/tables
+PATCH  /api/v1/{project}/data/groups/{group}/tables/{table}
+DELETE /api/v1/{project}/data/groups/{group}/tables/{table}
 ```
 
 ## 20.1 API path parameter rules
@@ -1423,9 +1431,9 @@ This avoids ambiguity caused by nested path parameters.
 Examples:
 
 ```text
-GET /api/v1/directories?path=/pool/reports
-GET /api/v1/pages?path=/pool/reports/weekly.md
-DELETE /api/v1/directories?path=/pool/reports
+GET /api/v1/{project}/files?path=/pool/reports
+GET /api/v1/{project}/files?path=/pool/reports/weekly.md
+DELETE /api/v1/{project}/files?path=/pool/reports
 ```
 
 Group and table identifiers are simple path parameters because they are restricted identifiers.
@@ -1435,11 +1443,11 @@ Group and table identifiers are simple path parameters because they are restrict
 # 21. Record API
 
 ```text
-GET    /api/v1/groups/{group}/tables/{table}/records
-GET    /api/v1/groups/{group}/tables/{table}/records/{id}
-POST   /api/v1/groups/{group}/tables/{table}/records
-PATCH  /api/v1/groups/{group}/tables/{table}/records/{id}
-DELETE /api/v1/groups/{group}/tables/{table}/records/{id}
+GET    /api/v1/{project}/data/groups/{group}/tables/{table}/records
+GET    /api/v1/{project}/data/groups/{group}/tables/{table}/records/{id}
+POST   /api/v1/{project}/data/groups/{group}/tables/{table}/records
+PATCH  /api/v1/{project}/data/groups/{group}/tables/{table}/records/{id}
+DELETE /api/v1/{project}/data/groups/{group}/tables/{table}/records/{id}
 ```
 
 These endpoints apply to both:
@@ -1769,7 +1777,7 @@ section 26.1. Filters and time ranges apply before distinct selection.
 Example:
 
 ```http
-GET /api/v1/groups/vehicle/tables/service/records?distinct=type
+GET /api/v1/{project}/data/groups/vehicle/tables/service/records?distinct=type
 ```
 
 Response:
@@ -1901,7 +1909,7 @@ Grouped response example (decimal results are strings; see section 28.2):
 Example:
 
 ```http
-GET /api/v1/groups/vehicle/tables/service/records?aggregate=count,cost:sum,cost:avg
+GET /api/v1/{project}/data/groups/vehicle/tables/service/records?aggregate=count,cost:sum,cost:avg
 ```
 
 Response:
@@ -2296,8 +2304,8 @@ Every table automatically gets generic forms.
 Routes:
 
 ```text
-/t/{group}/{table}/new
-/t/{group}/{table}/{id}/edit
+/{project}/data/{group}/{table}/new
+/{project}/data/{group}/{table}/{id}/edit
 ```
 
 Field controls:
@@ -2378,10 +2386,11 @@ table; there is no shared enum or reference registry.
 
 ## 35.3 Boundaries and verification
 
-The browser is for inspection and navigation only. Record creation and editing
-remain in the existing `/t/` forms or API. Collection paths are reserved from
-published content so they cannot shadow the browser routes. The content
-filesystem has a parallel explorer at `/files` (section 64.14).
+The browser does not create, edit or delete records; it may create collections
+(groups) and tables through the public API (section 35.2). Record creation and
+editing remain in the existing table forms or API. Collection paths are reserved
+from published content so they cannot shadow the browser routes. The content
+filesystem has a parallel explorer at `/{project}/files` (section 64.14).
 
 Tests cover browser route handling and methods, loading ClioJS, group/table
 navigation, metadata-ordered visible columns, safe text rendering, URL/page
@@ -2908,10 +2917,10 @@ numbers; dates and datetimes remain strings as well. Record PATCH requests pass
 omitted and explicit-null properties through unchanged so the API retains its
 defined partial-update semantics.
 
-`clio.page(path)` returns the original page source and metadata from the page
+`clio.page(path)` returns the original page source and metadata from the files
 API. ClioJS integrates with the separately served `/assets/clio-markdown.js`
 renderer through `Clio.Markdown.render(source)` when that renderer is loaded.
-Markdown safety requirements remain those in sections 44 and 42.1.
+Markdown safety requirements remain those in sections 55 and 42.1.
 
 ## 43.4 Help and verification
 
@@ -2928,7 +2937,7 @@ asset must work in an ordinary browser page.
 # 44. Directory-tree upload
 
 Clio must support publishing an entire directory tree and its contents in a single
-request. The endpoint is `POST /api/v1/directories` with
+request. The endpoint is `POST /api/v1/{project}/files/directories` with
 `Content-Type: application/zip` and a destination supplied by the `path` query
 parameter (omitted means the root).
 
@@ -2939,7 +2948,7 @@ A directory-tree upload specifies its destination through the `path` query param
 Example:
 
 ```http
-POST /api/v1/directories?path=/pool/reports
+POST /api/v1/{project}/files/directories?path=/pool/reports
 Content-Type: application/zip
 ```
 
@@ -3144,7 +3153,7 @@ The help must include:
 * full-text search
 * attachments
 * WebDAV
-* file-system browsing at `/files`
+* file-system browsing at `/{project}/files`
 * URL conventions
 * health
 * errors
@@ -3601,7 +3610,7 @@ set of safe tags above (`h1`–`h6`, `ul`, `li`, `p`, `pre`, `code`, `strong`,
 `em`, `a`). No attributes are accepted from source text, and only `http`/`https`
 link targets are emitted. As a result, a Markdown page cannot introduce
 executable markup or event handlers through its content. The client-side
-renderer must satisfy the same rules (sections 44 and 42.1).
+renderer must satisfy the same rules (sections 42 and 42.1).
 
 Clio must not accidentally turn arbitrary record values into executable HTML/JavaScript.
 
@@ -3625,9 +3634,10 @@ Therefore:
 Markdown and Clio-generated HTML views must still escape/sanitize untrusted data appropriately.
 
 Non-page content is served as a download with `Content-Disposition: attachment`
-and `X-Content-Type-Options: nosniff`, including through `/f/{id}` (section
-64.5). Because WebDAV allows a publisher to write `.html` into the content tree,
-the trusted-publisher boundary applies to WebDAV as well (section 64.10).
+and `X-Content-Type-Options: nosniff`, including through
+`/{project}/files/id/{id}` (section 64.5). Because WebDAV allows a publisher to
+write `.html` into the content tree, the trusted-publisher boundary applies to
+WebDAV as well (section 64.10).
 
 This boundary must be clearly documented in the README and `/help`.
 
@@ -3752,11 +3762,11 @@ Test:
 * traversal rejection
 * client-side Markdown rendering for representative Markdown content
 * content-entry identity and stable IDs across rename and move
-* the files API, `/f/{id}` serving, and download headers
+* the files API, `/{project}/files/id/{id}` serving, and download headers
 * text extraction, search, and agent enrichment
 * `attachment` field validation and delete integrity
 * WebDAV methods and the opt-in flag
-* the `/files` explorer and ClioJS file browser
+* the `/{project}/files` explorer and ClioJS file browser
 * project scoping, the `default` alias, and cross-project rejection
 
 ## HTTP/API
@@ -3792,7 +3802,7 @@ Tests should verify behaviour rather than implementation details.
 
 ## Additional acceptance requirements
 
-Section 56 defines the end-to-end acceptance walkthrough and section 58 defines
+Section 59 defines the end-to-end acceptance walkthrough and section 58 defines
 the automated test coverage. The following requirements are part of the same
 acceptance suite and do not replace either of those sections.
 
@@ -3801,8 +3811,8 @@ acceptance suite and do not replace either of those sections.
 Verify that all of the following can coexist:
 
 ```text
-/pool/measurements
-/t/pool/measurements
+/{project}/files/pool/measurements
+/{project}/data/pool/measurements
 ```
 
 where the first is a content resource and the second is a table.
@@ -3822,7 +3832,8 @@ through the API.
 Retrieve it through:
 
 ```text
-GET /api/v1/pages?path=/pool/reports/latest.md
+GET /api/v1/{project}/files?path=/pool/reports/latest.md
+GET /api/v1/{project}/files/{id}/content
 ```
 
 Verify that the original Markdown source is returned.
@@ -3927,13 +3938,13 @@ notes
 Open:
 
 ```text
-/t/vehicle/service
+/{project}/data/vehicle/service
 ```
 
 Then:
 
 ```text
-/t/vehicle/service/new
+/{project}/data/vehicle/service/new
 ```
 
 Create a record.
@@ -4148,7 +4159,7 @@ Clio v1 is complete when:
 * text extraction and search work
 * `attachment` fields link records to files
 * WebDAV can be enabled
-* the content filesystem is browsable at `/files`
+* the content filesystem is browsable at `/{project}/files`
 * projects scope tables and content, with existing routes addressing `default`
 * the implementation remains small and understandable
 
@@ -4270,18 +4281,23 @@ native index.
 
 ## 64.3 Stable file URLs
 
+> **Superseded by section 66 (v1.7).** The stable ID URL is
+> `/{project}/files/id/{id}` and the reserved segment is `id` under
+> `/{project}/files`; `/f` is no longer a reserved root. Where this section's
+> URLs differ from section 66, section 66 governs.
+
 Every content entry has two URLs:
 
-- its canonical path URL, for example `https://clio.example.com/bills/2026-03.pdf`;
-- its stable ID URL, `/f/{id}`.
+- its canonical path URL, for example
+  `https://clio.example.com/default/files/bills/2026-03.pdf`;
+- its stable ID URL, `/{project}/files/id/{id}`.
 
-`/f/{id}` serves or redirects to the entry's current bytes regardless of its
-current path; an optional cosmetic name segment, `/f/{id}/{name}`, is accepted
-and ignored for resolution. The path URL changes when the entry is moved; the ID
-URL does not. `/f` is a reserved root (section 32.3). `/f` responses use the
-serving rules of section 64.5.
+`/{project}/files/id/{id}` serves the entry's current bytes regardless of its
+current path. The path URL changes when the entry is moved; the ID URL does not.
+The `id` segment is reserved directly under `/{project}/files` (section 66.5).
+ID responses use the serving rules of section 64.5.
 
-Pages are rendered at their path URL (section 41); `/f/{id}` serves the raw
+Pages are rendered at their path URL; `/{project}/files/id/{id}` serves the raw
 stored bytes for any entry, including a page.
 
 ## 64.4 Filesystem REST API
@@ -4290,68 +4306,70 @@ stored bytes for any entry, including a page.
 > `/api/v1/{project}/files...`; the unscoped forms no longer exist. Semantics
 > are unchanged.
 
-The content filesystem is exposed as a REST API under `/api/v1/files`. It
-addresses filesystem nodes — directories, pages and files — and unifies the
-operations that the directory API (section 38) and page API (section 41) expose
-as compatibility facades. In this API, "files" names the filesystem resource;
-directories are nodes of it. All routes also accept a project scope,
-`/api/v1/projects/{project}/files...`; the unscoped form addresses the
-`default` project (section 65.6).
+The content filesystem is exposed as a REST API under
+`/api/v1/{project}/files`. It addresses filesystem nodes — directories, pages
+and files — and unifies the operations that the directory API (section 38) and
+page API (section 41) exposed as compatibility facades. In this API, "files"
+names the filesystem resource; directories are nodes of it. The project segment
+is mandatory (section 66.7), and the routes below are those of section 66.7.
 
 ```text
-GET    /api/v1/files                          # list entries (flat catalog)
-GET    /api/v1/files?path=/...                # node metadata; directory listing
-GET    /api/v1/files/{id}                     # file/page entry by id
-GET    /api/v1/files/{id}/content             # download bytes (HEAD, ranges)
-PUT    /api/v1/files?path=/...                # create/replace a file (raw bytes)
-POST   /api/v1/files/directories              # create a directory
-DELETE /api/v1/files?path=/...                # delete a file, page or directory
-DELETE /api/v1/files/{id}                     # delete a file/page entry by id
-POST   /api/v1/files/move                     # rename/move a node
-POST   /api/v1/files/copy                     # copy a node
-POST   /api/v1/files/rescan                   # reconcile catalog with disk
+GET    /api/v1/{project}/files                          # list entries (flat catalog)
+GET    /api/v1/{project}/files?path=/...                # node metadata; directory listing
+GET    /api/v1/{project}/files/{id}                     # file/page entry by id
+GET    /api/v1/{project}/files/{id}/content             # download bytes (HEAD, ranges)
+PUT    /api/v1/{project}/files?path=/...                # create/replace a file (raw bytes)
+POST   /api/v1/{project}/files/directories              # create a directory
+DELETE /api/v1/{project}/files?path=/...                # delete a file, page or directory
+DELETE /api/v1/{project}/files/{id}                     # delete a file/page entry by id
+POST   /api/v1/{project}/files/move                     # rename/move a node
+POST   /api/v1/{project}/files/copy                     # copy a node
+POST   /api/v1/{project}/files/rescan                   # reconcile catalog with disk
 ```
 
 Conventions and behavior:
 
 - Content paths are carried in the `path` query parameter (section 20.1); IDs
   are path parameters. Paths obey section 36.1.
-- `GET /api/v1/files?path=...` returns the node at that path. For a directory it
-  returns the directory and its children (paged); for a page or file it returns
-  the content-entry representation. A missing path returns `404 Not Found`.
-- `GET /api/v1/files` (no `path`) lists content entries across the whole
-  filesystem. It accepts `limit` and `offset` (section 23 defaults) and optional
-  `prefix`, `content_type` and `kind` filters.
-- `PUT /api/v1/files?path=...` creates or replaces a file. The request body is
-  the raw bytes; the media type is taken from the `Content-Type` header,
+- `GET /api/v1/{project}/files?path=...` returns the node at that path. For a
+  directory it returns the directory and its children (paged); for a page or
+  file it returns the content-entry representation. A missing path returns
+  `404 Not Found`.
+- `GET /api/v1/{project}/files` (no `path`) lists content entries across the
+  whole filesystem. It accepts `limit` and `offset` (section 23 defaults) and
+  optional `prefix`, `content_type` and `kind` filters.
+- `PUT /api/v1/{project}/files?path=...` creates or replaces a file. The request
+  body is the raw bytes; the media type is taken from the `Content-Type` header,
   defaulting to `application/octet-stream`. It returns `201 Created` for a new
   path and `200 OK` when an existing file is replaced. Replacing preserves the
   ID. A path that names a directory returns `409 Conflict`. The body is
   streamed; the entry, its index row and the bytes are committed together, so a
   failed write leaves the previous bytes and catalog unchanged. Writes are
   subject to the limits of section 64.12.
-- `POST /api/v1/files/directories` accepts `{"path": "/bills/archive"}` and
-  creates a directory, returning `201 Created`. Creating over an existing node
-  returns `409 Conflict`, and the root cannot be created. This is the same
-  operation as the directory API (section 38), which remains available.
-- `DELETE /api/v1/files?path=...` deletes the node at that path; for a directory
-  it deletes the subtree. It returns `204 No Content`. Deleting the root, or
-  deleting a page/file (or a directory containing one) referenced by an
+- `POST /api/v1/{project}/files/directories` accepts `{"path": "/bills/archive"}`
+  and creates a directory, returning `201 Created`. Creating over an existing
+  node returns `409 Conflict`, and the root cannot be created. A ZIP body
+  (`Content-Type: application/zip`) performs a directory-tree upload
+  (section 44).
+- `DELETE /api/v1/{project}/files?path=...` deletes the node at that path; for a
+  directory it deletes the subtree. It returns `204 No Content`. Deleting the
+  root, or deleting a page/file (or a directory containing one) referenced by an
   `attachment` field, returns `409 Conflict` (section 64.9). `DELETE
-  /api/v1/files/{id}` deletes a file or page by ID.
-- `POST /api/v1/files/move` accepts `{"from": "/old", "to": "/new"}` and
-  renames or moves a file, page or directory. IDs are preserved, including for
-  every descendant of a moved directory. The operation is atomic; a conflicting
-  destination returns `409 Conflict`, an invalid path `422 Unprocessable
-  Entity`, and a missing source `404 Not Found`.
-- `POST /api/v1/files/copy` accepts `{"from": "/old", "to": "/new"}` and copies
-  a file, page or directory. Copies receive new IDs; enrichment (section 64.8)
-  is not copied. Status codes match `move`.
-- `POST /api/v1/files/rescan` reconciles the catalog with the filesystem and
-  returns a summary of added, removed and refreshed entries. An optional
-  `full=true` re-hashes every entry and rebuilds its native index; the default
-  `full=false` trusts stored hashes for entries whose size and modification time
-  are unchanged. Any other `full` value returns `422 Unprocessable Entity`.
+  /api/v1/{project}/files/{id}` deletes a file or page by ID.
+- `POST /api/v1/{project}/files/move` accepts `{"from": "/old", "to": "/new"}`
+  and renames or moves a file, page or directory. IDs are preserved, including
+  for every descendant of a moved directory. The operation is atomic; a
+  conflicting destination returns `409 Conflict`, an invalid path
+  `422 Unprocessable Entity`, and a missing source `404 Not Found`.
+- `POST /api/v1/{project}/files/copy` accepts `{"from": "/old", "to": "/new"}`
+  and copies a file, page or directory. Copies receive new IDs; enrichment
+  (section 64.8) is not copied. Status codes match `move`.
+- `POST /api/v1/{project}/files/rescan` reconciles the catalog with the
+  filesystem and returns a summary of added, removed and refreshed entries. An
+  optional `full=true` re-hashes every entry and rebuilds its native index; the
+  default `full=false` trusts stored hashes for entries whose size and
+  modification time are unchanged. Any other `full` value returns
+  `422 Unprocessable Entity`.
 
 A content-entry representation is:
 
@@ -4365,8 +4383,8 @@ A content-entry representation is:
   "sha256": "9f2c...",
   "created_at": "2026-09-27T12:00:00Z",
   "updated_at": "2026-09-27T12:00:00Z",
-  "url": "https://clio.example.com/bills/2026-03.pdf",
-  "stable_url": "https://clio.example.com/f/9f2c4e8a1b3d4f5061728394a5b6c7d8",
+  "url": "https://clio.example.com/default/files/bills/2026-03.pdf",
+  "stable_url": "https://clio.example.com/default/files/id/9f2c4e8a1b3d4f5061728394a5b6c7d8",
   "indexed": true
 }
 ```
@@ -4377,7 +4395,7 @@ A directory representation is:
 {
   "path": "/bills",
   "kind": "directory",
-  "url": "https://clio.example.com/bills",
+  "url": "https://clio.example.com/default/files/bills",
   "children": [
     {
       "path": "/bills/2026-03.pdf",
@@ -4386,13 +4404,13 @@ A directory representation is:
       "content_type": "application/pdf",
       "size": 184320,
       "updated_at": "2026-09-27T12:00:00Z",
-      "url": "https://clio.example.com/bills/2026-03.pdf",
-      "stable_url": "https://clio.example.com/f/9f2c4e8a1b3d4f5061728394a5b6c7d8"
+      "url": "https://clio.example.com/default/files/bills/2026-03.pdf",
+      "stable_url": "https://clio.example.com/default/files/id/9f2c4e8a1b3d4f5061728394a5b6c7d8"
     },
     {
       "path": "/bills/archive",
       "kind": "directory",
-      "url": "https://clio.example.com/bills/archive"
+      "url": "https://clio.example.com/default/files/bills/archive"
     }
   ],
   "page": { "limit": 100, "offset": 0, "count": 2, "total": 2 }
@@ -4401,13 +4419,13 @@ A directory representation is:
 
 Directories are structural and do not have IDs (section 64.2); they are still
 nodes of the REST API. File and page entries are addressed by path or ID.
-`GET /api/v1/files/{id}/content` serves the raw bytes with the disposition and
-headers of section 64.5, supports `HEAD` and byte ranges, and returns
-`404 Not Found` for a missing ID.
+`GET /api/v1/{project}/files/{id}/content` serves the raw bytes with the
+disposition and headers of section 64.5, supports `HEAD` and byte ranges, and
+returns `404 Not Found` for a missing ID.
 
-The directory API (section 38) and page API (section 41) remain available and
-are compatibility facades over the same tree; they produce and address the same
-nodes and IDs.
+The directory API (section 38) and page API (section 41) were replaced by this
+files partition in v1.7 and are not available; there are no compatibility
+facades (section 66.2).
 
 ## 64.5 File serving
 
@@ -4453,13 +4471,12 @@ Clio maintains a full-text index of extracted text over content entries.
 ## 64.7 Search API
 
 ```text
-GET /api/v1/search?q=<terms>
+GET /api/v1/{project}/search?q=<terms>
 ```
 
 Search covers pages and files in one result set, is paged (`limit`, `offset`;
-section 23), and orders results by relevance. Search is scoped to a project:
-`/api/v1/search` searches `default` and `/api/v1/projects/{project}/search`
-searches that project (section 65.6). A result is:
+section 23), and orders results by relevance. Search is project-scoped:
+`/api/v1/{project}/search` searches that project (section 66.7). A result is:
 
 ```json
 {
@@ -4489,9 +4506,9 @@ Sidecar agents may contribute extracted text (for example OCR or deeper PDF
 parsing) so that it becomes searchable:
 
 ```text
-GET    /api/v1/files/extraction?path=/...
-PUT    /api/v1/files/extraction?path=/...
-DELETE /api/v1/files/extraction?path=/...
+GET    /api/v1/{project}/files/extraction?path=/...
+PUT    /api/v1/{project}/files/extraction?path=/...
+DELETE /api/v1/{project}/files/extraction?path=/...
 ```
 
 `PUT` accepts:
@@ -4536,7 +4553,7 @@ hint; it does not replace validation.
   cleared. There is no cascade deletion. Replacing the bytes at the same path is
   permitted and keeps the ID.
 - Clients resolve an attachment to a URL through the files API or by linking to
-  `/f/{id}`.
+  `/{project}/files/id/{id}`.
 
 ## 64.10 WebDAV
 
@@ -4577,9 +4594,9 @@ Content-entry IDs, entry timestamps, and agent-supplied text are durable state
 that the filesystem cannot reproduce. A consistent backup therefore captures the
 SQLite database (with its `-wal`/`-shm` sidecars) and the content directory
 together, as required by section 57. Restoring a backup preserves IDs, so
-`/f/{id}` URLs and `attachment` values remain valid; a rescan rebuilds the
-derived catalog and native text. The content directory alone is not a complete
-backup.
+`/{project}/files/id/{id}` URLs and `attachment` values remain valid; a rescan
+rebuilds the derived catalog and native text. The content directory alone is not
+a complete backup.
 
 ## 64.12 Limits
 
@@ -4607,11 +4624,12 @@ incompatible change requires a future `/api/v2/` (section 48).
 > section 66, section 66 governs.
 
 The content filesystem must be browsable in a browser through a dedicated
-explorer at `/files`, analogous to the collection data browser (section 35).
-`/files` is a reserved root (section 32.3) and cannot be shadowed by content.
-This is in addition to the directory pages served at content paths
-(section 37), which remain browsable. The explorer is project-first: `/files`
-lists projects and `/files/{project}/...` browses one (section 65.4).
+explorer at `/{project}/files`, analogous to the collection data browser
+(section 35). There is no instance-level file root: `files` is a partition of
+each project (section 66.5). This is in addition to the directory pages served
+at content paths (section 37), which remain browsable. `/{project}/files` is
+the project's explorer root and `/{project}/files/{path}` browses a directory
+or serves an entry.
 
 - The explorer is a server-served shell that loads `/assets/clio.js` and uses
   the ClioJS component `Clio.FileBrowser.mount(element)` over the files and
@@ -4619,16 +4637,17 @@ lists projects and `/files/{project}/...` browses one (section 65.4).
   installation, or build step (section 43).
 - It presents the content tree using content-entry metadata (section 64.2):
   directories, pages and files with kind, size, content type and modified time.
-  Files link to `/f/{id}` for stable downloads and to their path URL; pages link
-  to their rendered path URL.
+  Files link to `/{project}/files/id/{id}` for stable downloads and to their
+  path URL; pages link to their rendered path URL.
 - Navigation uses breadcrumbs, and the current directory is reflected in the URL
   so browser history works and locations are shareable.
 - It exposes the light actions of the files API: create folder, upload, rename
   or move, and delete. Failures surface the API status and code, including
   `409 Conflict` when an entry is referenced by an attachment field
   (section 64.9).
-- It provides search over `GET /api/v1/search` (section 64.7). Snippets are
-  untrusted: the explorer escapes them before applying its own highlight mark.
+- It provides search over `GET /api/v1/{project}/search` (section 64.7).
+  Snippets are untrusted: the explorer escapes them before applying its own
+  highlight mark.
 - Entry names and record values are rendered as text, never as executable HTML.
 - WebDAV (section 64.10) remains the mechanism for bulk and drag-and-drop file
   operations; the explorer is a browsing and light-administration surface.
@@ -4734,7 +4753,7 @@ A project representation is:
   "description": "Household bills and documents",
   "order": 0,
   "created_at": "2026-09-27T12:00:00Z",
-  "url": "https://clio.example.com/p/bills",
+  "url": "https://clio.example.com/bills/",
   "api_url": "https://clio.example.com/api/v1/projects/bills"
 }
 ```
@@ -4919,8 +4938,8 @@ GET    /api/v1/{project}/search?q=...
 
 Semantics are those of section 64 with the project prefix mandatory. Values of
 `?path=` are relative to the project root. A page is created or replaced with
-`PUT /api/v1/{project}/files?path=/reports/weekly.md`, which is the former
-`POST /api/v1/pages` operation.
+`PUT /api/v1/{project}/files?path=/reports/weekly.md`, which replaces the former
+Page API create-or-replace operation (section 41).
 
 ## 66.8 WebDAV
 
@@ -4932,8 +4951,9 @@ routes and the projects API are not exposed over WebDAV.
 
 `/{project}/files/id/{id}` and `/api/v1/{project}/files/{id}/content` serve an
 entry's current bytes regardless of its path. A path URL changes when the entry
-is moved; an ID URL does not. Content-entry IDs are unique within their project;
-record IDs remain globally unique (section 14).
+is moved; an ID URL does not. Content-entry IDs and record IDs are globally
+unique across the instance (sections 14 and 64.2); `/{project}/files/id/{id}`
+resolves an ID only within its project.
 
 ## 66.10 Supersession and versioning
 
