@@ -373,7 +373,7 @@ func TestFilesDeleteByPathRemovesSubtree(t *testing.T) {
 
 func TestFilesUploadLimitAndTraversal(t *testing.T) {
 	a := newTestApp(t)
-	oversized := bytes.Repeat([]byte("a"), int(fileUploadLimit)+1)
+	oversized := bytes.Repeat([]byte("a"), int(defaultUploadLimit)+1)
 	assertAPIError(t, testRequest(t, a, http.MethodPut, filesURL("default", "/big.bin"), oversized, "application/octet-stream"), http.StatusRequestEntityTooLarge)
 
 	for _, bad := range []string{"/../escape.txt", "relative.txt", "/a//b.txt", "/a/./b.txt", "/id"} {

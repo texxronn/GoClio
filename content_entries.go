@@ -83,12 +83,24 @@ func contentKind(path string) string {
 	return "file"
 }
 
+// explicitMediaTypes pins the content types Clio stores most often (documents,
+// images, audio) so they do not depend on the base image shipping a
+// /etc/mime.types file (section 64.5).
+var explicitMediaTypes = map[string]string{
+	".flac": "audio/flac", ".mp3": "audio/mpeg", ".m4a": "audio/mp4",
+	".ogg": "audio/ogg", ".oga": "audio/ogg", ".opus": "audio/ogg", ".wav": "audio/wav",
+	".pdf": "application/pdf",
+}
+
 func contentMediaType(path string) string {
 	switch {
 	case strings.HasSuffix(path, ".md"):
 		return "text/markdown"
 	case strings.HasSuffix(path, ".html"):
 		return "text/html"
+	}
+	if mediaType, ok := explicitMediaTypes[strings.ToLower(filepath.Ext(path))]; ok {
+		return mediaType
 	}
 	mediaType := mime.TypeByExtension(filepath.Ext(path))
 	if mediaType == "" {

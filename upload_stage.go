@@ -6,6 +6,7 @@ import (
 	"errors"
 	"hash"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path"
@@ -179,4 +180,29 @@ func (a *app) storeContentStream(clean string, body io.Reader, contentType strin
 		return contentEntry{}, false, ae
 	}
 	return a.commitUpload(clean, stage, cw)
+}
+
+// stageFromDisk stages an existing content file for a copy. Copies are not
+// subject to the upload limit: the source is already stored. The caller holds
+// the content lock and commits through commitUploadLocked.
+func (a *app) stageFromDisk(src, clean, contentType string) (*uploadStage, contentWrite, *apiError) {
+	in, err := os.Open(src)
+	if err != nil {
+		return nil, contentWrite{}, errAPI(err)
+	}
+	defer in.Close()
+	stage, ae := a.newUploadStage(math.MaxInt64)
+	if ae != nil {
+		return nil, contentWrite{}, ae
+	}
+	if _, err = io.Copy(stage, in); err != nil {
+		stage.discard()
+		return nil, contentWrite{}, errAPI(err)
+	}
+	cw, ae := stage.finish(clean, contentType)
+	if ae != nil {
+		stage.discard()
+		return nil, contentWrite{}, ae
+	}
+	return stage, cw, nil
 }

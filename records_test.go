@@ -747,7 +747,7 @@ func TestFilePageRoundTripAndPathSafety(t *testing.T) {
 	if traversal.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("page traversal status = %d, want 422", traversal.Code)
 	}
-	tooLarge := testRequest(t, a, http.MethodPut, filesURL("default", "/reports/large.md"), strings.Repeat("x", int(fileUploadLimit+1)), "text/markdown")
+	tooLarge := testRequest(t, a, http.MethodPut, filesURL("default", "/reports/large.md"), strings.Repeat("x", int(defaultUploadLimit+1)), "text/markdown")
 	if tooLarge.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversized request status = %d, want 413", tooLarge.Code)
 	}

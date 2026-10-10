@@ -44,6 +44,9 @@ type app struct {
 	// smallBodyTimeout bounds how long a small (JSON) request body may take to
 	// arrive; a zero value means 30s (section 53).
 	smallBodyTimeout time.Duration
+	// maxUpload is the largest single file accepted by the files API and
+	// WebDAV (CLIO_MAX_UPLOAD_BYTES, section 64.12). Zero means the default.
+	maxUpload int64
 }
 
 // newHTTPServer builds the server with connection-level limits. There is no
@@ -77,6 +80,26 @@ func (a *app) contentLock() *sync.Mutex {
 		a.contentMu = &sync.Mutex{}
 	}
 	return a.contentMu
+}
+
+func (a *app) uploadLimit() int64 {
+	if a.maxUpload > 0 {
+		return a.maxUpload
+	}
+	return defaultUploadLimit
+}
+
+// parseUploadLimit reads CLIO_MAX_UPLOAD_BYTES: a positive integer byte count,
+// or empty for the defaultUploadLimit.
+func parseUploadLimit(value string) (int64, error) {
+	if value == "" {
+		return defaultUploadLimit, nil
+	}
+	n, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("CLIO_MAX_UPLOAD_BYTES must be a positive integer byte count")
+	}
+	return n, nil
 }
 
 func main() {
@@ -119,6 +142,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("CLIO_WEBDAV_ENABLED must be a boolean")
 	}
+	maxUpload, err := parseUploadLimit(os.Getenv("CLIO_MAX_UPLOAD_BYTES"))
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
 	baseURL := strings.TrimRight(env("CLIO_BASE_URL", "http://localhost:8080"), "/")
 	publicURL, err := url.Parse(baseURL)
 	if err != nil || (publicURL.Scheme != "http" && publicURL.Scheme != "https") || publicURL.Host == "" || (publicURL.Path != "" && publicURL.Path != "/") || publicURL.RawQuery != "" || publicURL.Fragment != "" || publicURL.User != nil {
@@ -136,7 +163,7 @@ func main() {
 		log.Fatalf("open database: %v", err)
 	}
 	defer db.Close()
-	a := &app{db: db, content: content, baseURL: baseURL, auth: auth, started: time.Now(), contentMu: &sync.Mutex{}, webdavEnabled: webdavEnabled}
+	a := &app{db: db, content: content, baseURL: baseURL, auth: auth, started: time.Now(), contentMu: &sync.Mutex{}, webdavEnabled: webdavEnabled, maxUpload: maxUpload}
 	if err = a.migrateContentLayout(); err != nil {
 		log.Fatalf("migrate content layout: %v", err)
 	}
