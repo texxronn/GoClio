@@ -4608,7 +4608,8 @@ Maximum extracted text per entry: 1 MiB
 The maximum individual file upload is configurable with `CLIO_MAX_UPLOAD_BYTES`
 (section 7); the default is 100 MiB and uploads are streamed to disk and are not
 held in memory. The extracted-text limit may be implemented as a constant.
-Exceeding the upload limit returns `413 Payload Too Large`.
+Exceeding the upload limit returns `413 Payload Too Large`. The built-in file
+explorer's staged upload tray applies the same configured limit.
 
 ## 64.13 API and product versioning
 

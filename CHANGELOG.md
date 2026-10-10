@@ -42,6 +42,8 @@ than the product.
   file (SPEC section 64.5).
 - The built-in `records` indexes now lead with `project`, matching every record
   query; the pre-2.3 group-leading indexes are dropped (SPEC section 52).
+- The built-in file explorer's staged upload tray now uses
+  `CLIO_MAX_UPLOAD_BYTES` instead of a fixed 16 MiB client-side cap.
 
 ### Fixed
 

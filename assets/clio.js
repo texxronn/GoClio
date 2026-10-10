@@ -1612,7 +1612,7 @@
         revalidateStaging();
         if (rejected > 0) {
           status.className = "fb-status fb-error";
-          status.textContent = `${rejected} file(s) were not staged: files must be no larger than 16 MiB and have a usable name.`;
+          status.textContent = `${rejected} file(s) were not staged: files must be no larger than ${formatBytes(uploadLimit)} and have a usable name.`;
         } else if (staged > 0) {
           status.className = "fb-status";
           status.textContent = `${staged} file(s) staged. Choose Upload to send them.`;
