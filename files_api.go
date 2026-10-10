@@ -954,11 +954,25 @@ func (a *app) copyDirectory(from, to, src, dst string) *apiError {
 	return nil
 }
 
-// rescanFiles serves POST /api/v1/{project}/files/rescan (section 64.4).
+// rescanFiles serves POST /api/v1/{project}/files/rescan (section 64.4). An
+// optional full=true re-hashes every entry and rebuilds its native index;
+// full=false (the default) trusts stored hashes for unchanged entries. Any
+// other full value is refused with 422.
 func (a *app) rescanFiles(w http.ResponseWriter, r *http.Request) {
+	full := false
+	if q := r.URL.Query(); q.Has("full") {
+		switch q.Get("full") {
+		case "true":
+			full = true
+		case "false":
+		default:
+			writeAPIError(w, invalid("full must be true or false"))
+			return
+		}
+	}
 	a.contentLock().Lock()
 	defer a.contentLock().Unlock()
-	summary, err := a.rescanContent()
+	summary, err := a.rescanContentMode(full)
 	if err != nil {
 		writeErr(w, errAPI(err))
 		return

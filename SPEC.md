@@ -4247,7 +4247,11 @@ filesystem (outside Clio) is observed as a removal and an addition and therefore
 receives a new ID; supported rename and move are performed through the files API
 (section 64.4) or WebDAV (section 64.10). Symbolic links are never followed.
 Reserved system names (section 36.1) are skipped during reconciliation; existing
-rows for them are removed, together with their derived index rows.
+rows for them are removed, together with their derived index rows. An entry whose
+size and modification time match the catalog is treated as unchanged: a normal
+rescan neither re-reads nor re-extracts it. `POST
+/api/v1/{project}/files/rescan?full=true` re-hashes every entry and rebuilds its
+native index.
 
 ## 64.3 Stable file URLs
 
@@ -4327,7 +4331,10 @@ Conventions and behavior:
   a file, page or directory. Copies receive new IDs; enrichment (section 64.8)
   is not copied. Status codes match `move`.
 - `POST /api/v1/files/rescan` reconciles the catalog with the filesystem and
-  returns a summary of added, removed and refreshed entries.
+  returns a summary of added, removed and refreshed entries. An optional
+  `full=true` re-hashes every entry and rebuilds its native index; the default
+  `full=false` trusts stored hashes for entries whose size and modification time
+  are unchanged. Any other `full` value returns `422 Unprocessable Entity`.
 
 A content-entry representation is:
 
@@ -4414,6 +4421,9 @@ Clio maintains a full-text index of extracted text over content entries.
 - PDF text is extracted natively when a text layer is present. Image-only or
   scanned content yields no native text; OCR is out of scope for the executable
   and is handled by sidecar agents (section 64.8).
+- An entry that cannot yield native text (a photo, audio, or a
+  scanned/image-only PDF), or that exceeds the read limit, is not read for
+  indexing and has no index row; a normal rescan does not retry it.
 - Extracted text is capped per entry (default 1 MiB) and never replaces the
   stored bytes.
 - The index is an implementation detail built on SQLite. It must not introduce

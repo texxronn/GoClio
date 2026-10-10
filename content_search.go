@@ -1,11 +1,14 @@
 package main
 
 import (
-	"io"
 	"os"
 	"path"
 	"strings"
 )
+
+// readContentFile reads an entry's bytes for native extraction. Tests replace
+// it to count how many files a rescan reads.
+var readContentFile = os.ReadFile
 
 // nativeSearchSource marks text extracted by Clio itself (section 64.7).
 const nativeSearchSource = "native"
@@ -72,20 +75,24 @@ func indexNativeText(exec sqlExecer, project, id, entryPath, kind, title, body s
 	return replaceNativeSearch(exec, project, id, entryPath, kind, title, body)
 }
 
-// indexContentFile reads a file within its limits and indexes its native text.
-// A file above the read limit, or one that cannot be read, yields no text.
+// indexContentFile indexes an entry's native text. Entries that cannot yield
+// text, or exceed the read limit, are not read and leave no index row; the
+// normal-rescan fast path in content_entries.go keeps them from being retried
+// on every start (section 64.6).
 func (a *app) indexContentFile(id, entryPath, kind, contentType, diskPath string) error {
-	f, err := os.Open(diskPath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, nativeExtractReadLimit+1))
-	if err != nil {
-		return err
-	}
-	if int64(len(data)) > nativeExtractReadLimit {
+	if !nativeExtractable(entryPath, contentType) {
 		return nil
+	}
+	info, err := os.Stat(diskPath)
+	if err != nil {
+		return err
+	}
+	if info.Size() > nativeExtractReadLimit {
+		return nil
+	}
+	data, err := readContentFile(diskPath)
+	if err != nil {
+		return err
 	}
 	title, body := nativeExtraction(entryPath, contentType, data)
 	return indexNativeText(a.db, a.project, id, entryPath, kind, title, body)

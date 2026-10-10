@@ -62,6 +62,13 @@ func nativeExtraction(entryPath, contentType string, data []byte) (string, strin
 	return title, capIndexedText(text)
 }
 
+// nativeExtractable reports whether native extraction can yield body text for
+// an entry. Other entries (photos, audio, archives) are never read for
+// indexing (section 64.6).
+func nativeExtractable(entryPath, contentType string) bool {
+	return isPDF(entryPath, contentType) || isTextLike(entryPath, contentType)
+}
+
 func isPDF(entryPath, contentType string) bool {
 	return strings.EqualFold(path.Ext(entryPath), ".pdf") ||
 		strings.EqualFold(strings.TrimSpace(contentType), "application/pdf")

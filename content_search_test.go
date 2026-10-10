@@ -194,12 +194,14 @@ func TestContentSearchRebuiltByRescan(t *testing.T) {
 		t.Errorf("reconciled html row = %#v, ok=%v", row, ok)
 	}
 
-	// The index is derived: dropping it and rescanning must rebuild it.
+	// The index is derived: dropping it and running a full rescan must rebuild
+	// it. A normal rescan trusts the stored hashes and does not re-extract an
+	// unchanged entry (section 64.6), so the repair uses full mode.
 	if _, err := a.db.Exec(`DELETE FROM content_search`); err != nil {
 		t.Fatal(err)
 	}
-	if err := scoped.reconcileContent(); err != nil {
-		t.Fatalf("second reconcile: %v", err)
+	if _, err := scoped.rescanContentMode(true); err != nil {
+		t.Fatalf("full rescan: %v", err)
 	}
 	if row, ok := contentSearchRow(t, a, "default", keep.ID); !ok || !strings.Contains(row["body"], "rebuilt") {
 		t.Errorf("rescan did not rebuild the index: %#v, ok=%v", row, ok)
