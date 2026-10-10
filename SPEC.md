@@ -2428,6 +2428,10 @@ Rules:
 * A regular file may not occupy an intermediate segment of a deeper path; such a
   request returns `409 Conflict`.
 * Symbolic links are not permitted in content paths.
+* Names beginning with `.clio-` or `._`, and the names `.DS_Store`, `Thumbs.db`,
+  `desktop.ini` and `__MACOSX`, are reserved for system files. They are never
+  created (`422`), listed, cataloged or indexed; reads of such paths return
+  `404`.
 * Paths are not silently renamed because of case changes or title changes.
 
 A page path includes its extension when supplied.
@@ -2989,6 +2993,10 @@ earlier entry, or place a file where another entry requires a directory are
 rejected before publication. Applying an archive that would replace an existing
 resource is also rejected with `409 Conflict` unless `overwrite=true`
 (section 44.3).
+
+Archive entries under a reserved system name (section 36.1) are skipped, not
+rejected: an archive that also carries `__MACOSX/` or `._` resource forks still
+publishes its real files.
 
 ## 44.2 Directory-tree upload limits
 
@@ -4238,6 +4246,8 @@ ID; a row whose path no longer exists is removed. A file renamed directly on the
 filesystem (outside Clio) is observed as a removal and an addition and therefore
 receives a new ID; supported rename and move are performed through the files API
 (section 64.4) or WebDAV (section 64.10). Symbolic links are never followed.
+Reserved system names (section 36.1) are skipped during reconciliation; existing
+rows for them are removed, together with their derived index rows.
 
 ## 64.3 Stable file URLs
 
@@ -4526,6 +4536,9 @@ project-first: `/dav` lists projects and `/dav/{project}/...` maps to content
   - `COPY` creates a new entry with a new ID.
   - `DELETE` enforces the same `409 Conflict` for referenced entries.
   - Writing `.md` or `.html` creates or replaces a page with page timestamps.
+- Reserved system names (section 36.1) are never stored: writes to them return
+  `403 Forbidden` and reads return `404 Not Found`; directory listings omit
+  them.
 - Locking is provided but is not persistent across restarts.
 - WebDAV exposes the entire content tree, including pages. Because a publisher
   can write `.html` through WebDAV, the trusted-publisher boundary of

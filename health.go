@@ -28,6 +28,12 @@ func (a *app) health() map[string]any {
 		if e != nil {
 			return nil
 		}
+		if p != a.content && ignoredContentName(d.Name()) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if d.IsDir() {
 			dirs++
 		} else if strings.HasSuffix(d.Name(), ".md") || strings.HasSuffix(d.Name(), ".html") {

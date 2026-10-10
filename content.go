@@ -27,6 +27,9 @@ func (a *app) createDirectory(raw string) (string, *apiError) {
 	if ae != nil {
 		return "", ae
 	}
+	if ae := rejectIgnoredContentPath(clean); ae != nil {
+		return "", ae
+	}
 	if clean == "/" {
 		return "", conflict("Root directory already exists")
 	}
@@ -80,6 +83,9 @@ func (a *app) directory(raw string) (map[string]any, *apiError) {
 	}
 	children := []map[string]any{}
 	for _, entry := range entries {
+		if ignoredContentName(entry.Name()) {
+			continue
+		}
 		name := entry.Name()
 		child := canonical
 		if child == "/" {
@@ -195,6 +201,11 @@ func (a *app) uploadZip(w http.ResponseWriter, r *http.Request, destination stri
 			continue
 		}
 		parts := strings.Split(clean, "/")
+		// macOS archives carry __MACOSX/ and ._ resource forks; skip them
+		// rather than rejecting the whole upload (section 44.1).
+		if ignoredContentPath(clean) {
+			continue
+		}
 		isDir := f.FileInfo().IsDir()
 		depth := len(parts)
 		if !isDir {

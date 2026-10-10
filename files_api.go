@@ -253,6 +253,9 @@ func (a *app) directoryRepresentation(clean, target string, limit, offset int) (
 	}
 	visible := make([]dirChild, 0, len(entries))
 	for _, de := range entries {
+		if ignoredContentName(de.Name()) {
+			continue
+		}
 		if de.Type()&os.ModeSymlink != 0 {
 			continue
 		}
@@ -503,6 +506,9 @@ func (a *app) putFile(w http.ResponseWriter, r *http.Request) {
 // API and the WebDAV mount share it so both apply the same 16 MiB limit,
 // timestamps and index updates (sections 64.2, 64.4 and 64.10).
 func (a *app) storeContentFile(clean string, body []byte, contentType string) (contentEntry, bool, *apiError) {
+	if ae := rejectIgnoredContentPath(clean); ae != nil {
+		return contentEntry{}, false, ae
+	}
 	if int64(len(body)) > fileUploadLimit {
 		return contentEntry{}, false, &apiError{http.StatusRequestEntityTooLarge, "body_too_large", "Request body is too large"}
 	}
@@ -761,6 +767,9 @@ func (a *app) transferFile(w http.ResponseWriter, r *http.Request, copying bool)
 // assigns new IDs (sections 64.2 and 64.4). The files API and the WebDAV mount
 // share it (section 64.10).
 func (a *app) transferContent(from, to string, copying bool) *apiError {
+	if ae := rejectIgnoredContentPath(to); ae != nil {
+		return ae
+	}
 	if from == "/" || to == "/" {
 		return invalid("The content root cannot be moved or copied")
 	}
