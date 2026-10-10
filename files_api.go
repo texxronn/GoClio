@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"mime"
 	"net/http"
@@ -11,8 +12,10 @@ import (
 	"time"
 )
 
-// fileUploadLimit is the maximum individual upload (section 64.12).
-const fileUploadLimit int64 = 16 * 1024 * 1024
+// defaultUploadLimit is the largest single file accepted by the files API and
+// WebDAV when CLIO_MAX_UPLOAD_BYTES is unset (section 64.12). It is sized for
+// scanned PDFs, high-resolution/RAW photos and lossless audio.
+const defaultUploadLimit int64 = 100 << 20
 
 // reservedFilesSegment is reserved directly under /{project}/files so a content
 // path cannot shadow the stable ID URL /{project}/files/id/{id} (section 66.5).
@@ -483,11 +486,11 @@ func (a *app) putFile(w http.ResponseWriter, r *http.Request) {
 	if contentKind(clean) == "file" {
 		contentType = requestMediaType(r)
 	}
-	if r.ContentLength > fileUploadLimit {
+	if r.ContentLength > a.uploadLimit() {
 		writeAPIError(w, &apiError{http.StatusRequestEntityTooLarge, "body_too_large", "Request body is too large"})
 		return
 	}
-	entry, existed, ae := a.storeContentStream(clean, r.Body, contentType, fileUploadLimit)
+	entry, existed, ae := a.storeContentStream(clean, r.Body, contentType, a.uploadLimit())
 	if ae != nil {
 		writeErr(w, ae)
 		return
@@ -802,28 +805,27 @@ func (a *app) moveDirectory(from, to, src, dst string) *apiError {
 }
 
 // copyRegularFile writes a new file at the destination and assigns a new entry
-// ID (section 64.4).
+// ID (section 64.4). The bytes are streamed from the source through an upload
+// stage, so a large file is not held in memory; the caller holds the content
+// lock.
 func (a *app) copyRegularFile(from, to, src, dst string) *apiError {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return errAPI(err)
-	}
 	contentType := ""
 	if entry, found, lookupErr := a.contentEntryByPath(from); lookupErr == nil && found {
 		contentType = entry.ContentType
 	}
-	if err = atomicWriteFile(dst, data); err != nil {
-		return errAPI(err)
+	stage, cw, ae := a.stageFromDisk(src, to, contentType)
+	if ae != nil {
+		return ae
 	}
-	if err = a.saveContentEntryTyped(to, data, "", contentType); err != nil {
-		_ = os.Remove(dst)
-		return errAPI(err)
-	}
-	return nil
+	_, _, ae = a.commitUploadLocked(to, stage, cw)
+	return ae
 }
 
 // copyDirectory recursively copies a subtree, assigning new IDs to every file
-// (section 64.4). Symbolic links are not followed.
+// (section 64.4). Symbolic links are not followed. Each file is streamed
+// through an upload stage and committed under the content lock that
+// transferContent already holds; native extraction for a copy therefore runs
+// under the lock, which is acceptable because copies are infrequent.
 func (a *app) copyDirectory(from, to, src, dst string) *apiError {
 	if err := os.MkdirAll(dst, 0755); err != nil {
 		return errAPI(err)
@@ -861,20 +863,17 @@ func (a *app) copyDirectory(from, to, src, dst string) *apiError {
 		if !info.Mode().IsRegular() {
 			return nil
 		}
-		data, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		if err = os.WriteFile(destPath, data, 0644); err != nil {
-			return err
-		}
 		contentType := ""
 		if entry, found, lookupErr := a.contentEntryByPath(joinContentPath(from, relSlash)); lookupErr == nil && found {
 			contentType = entry.ContentType
 		}
 		cleanDest := joinContentPath(to, relSlash)
-		if err = a.saveContentEntryTyped(cleanDest, data, "", contentType); err != nil {
-			return err
+		stage, cw, ae := a.stageFromDisk(p, cleanDest, contentType)
+		if ae != nil {
+			return errors.New(ae.Message)
+		}
+		if _, _, ae = a.commitUploadLocked(cleanDest, stage, cw); ae != nil {
+			return errors.New(ae.Message)
 		}
 		createdEntries = append(createdEntries, cleanDest)
 		return nil

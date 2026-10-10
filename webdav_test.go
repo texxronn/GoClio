@@ -72,7 +72,7 @@ func TestWebDAVPutUploadLimit(t *testing.T) {
 	const mount = "/api/v1/default/files/dav"
 
 	declared := httptest.NewRequest(http.MethodPut, mount+"/big.bin", strings.NewReader("tiny"))
-	declared.ContentLength = fileUploadLimit + 1
+	declared.ContentLength = defaultUploadLimit + 1
 	declaredRecorder := httptest.NewRecorder()
 	a.ServeHTTP(declaredRecorder, declared)
 	if declaredRecorder.Code != http.StatusRequestEntityTooLarge {

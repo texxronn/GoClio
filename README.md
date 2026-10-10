@@ -84,6 +84,7 @@ Configuration:
 | `CLIO_DATA_DIR` | `./data` | Data and content directory |
 | `CLIO_DB` | `$CLIO_DATA_DIR/clio.db` | SQLite database path |
 | `CLIO_BASE_URL` | `http://localhost:8080` | Canonical public HTTP(S) URL |
+| `CLIO_MAX_UPLOAD_BYTES` | `104857600` (100 MiB) | Maximum individual file upload in bytes for the files API and WebDAV |
 | `CLIO_AUTH_ENABLED` | `false` | Require HTTP Basic Authentication |
 | `CLIO_AUTH_USER` | `admin` | The single configured username |
 | `CLIO_AUTH_PASSWORD_HASH` | unset | Required when auth is enabled; bcrypt hash only |

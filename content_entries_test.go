@@ -370,3 +370,24 @@ func TestSymlinkedContentRootsAreRejected(t *testing.T) {
 		}
 	})
 }
+
+// TestContentMediaType pins the derived content type for the formats Clio
+// stores most often: explicit audio/document types do not depend on the base
+// image shipping /etc/mime.types, while common image types come from Go's
+// built-in table (section 64.5).
+func TestContentMediaType(t *testing.T) {
+	for _, tc := range []struct{ path, want string }{
+		{"/docs/note.md", "text/markdown"},
+		{"/docs/page.html", "text/html"},
+		{"/audio/song.flac", "audio/flac"},
+		{"/audio/song.mp3", "audio/mpeg"},
+		{"/audio/voice.wav", "audio/wav"},
+		{"/docs/report.pdf", "application/pdf"},
+		{"/photos/photo.jpg", "image/jpeg"},
+		{"/docs/blob.bin", "application/octet-stream"},
+	} {
+		if got := contentMediaType(tc.path); got != tc.want {
+			t.Errorf("contentMediaType(%q) = %q, want %q", tc.path, got, tc.want)
+		}
+	}
+}

@@ -56,7 +56,7 @@ func (a *app) webdavMount(w http.ResponseWriter, r *http.Request, prefix string)
 	// streamed into an upload stage, which stops at the limit and reports the
 	// overage so the response is still 413 (section 64.12).
 	if r.Method == http.MethodPut {
-		if r.ContentLength > fileUploadLimit {
+		if r.ContentLength > a.uploadLimit() {
 			writeAPIError(w, &apiError{http.StatusRequestEntityTooLarge, "body_too_large", "Request body is too large"})
 			return
 		}
@@ -269,7 +269,7 @@ func (fs davFileSystem) OpenFile(ctx context.Context, name string, flag int, per
 		if clean == "/" {
 			return nil, os.ErrExist
 		}
-		stage, ae := fs.a.newUploadStage(fileUploadLimit)
+		stage, ae := fs.a.newUploadStage(fs.a.uploadLimit())
 		if ae != nil {
 			return nil, apiErrorToOSError(ae)
 		}

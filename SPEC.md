@@ -99,6 +99,7 @@ Example payloads are illustrative unless a rule references them explicitly.
 - [6. Deployment](#6-deployment)
 - [7. Configuration](#7-configuration)
   - [7.1 CLIO_ADDR](#71-clio_addr)
+  - [7.2 CLIO_MAX_UPLOAD_BYTES](#72-clio_max_upload_bytes)
 - [8. Core data model](#8-core-data-model)
 - [9. Collection groups](#9-collection-groups)
   - [9.1 Identifier rules](#91-identifier-rules)
@@ -528,6 +529,16 @@ Example:
 CLIO_ADDR=0.0.0.0:8080
 CLIO_BASE_URL=https://clio.atrangi.com
 ```
+
+---
+
+## 7.2 CLIO_MAX_UPLOAD_BYTES
+
+`CLIO_MAX_UPLOAD_BYTES` sets the maximum individual file upload accepted by the
+files API and WebDAV (section 64.12). It is a positive integer byte count; the
+default is 100 MiB (`104857600`). Uploads are streamed to disk and are not held
+in memory. ZIP directory-tree uploads keep their separate per-entry limit
+(section 44.2).
 
 ---
 
@@ -4569,12 +4580,14 @@ backup.
 ## 64.12 Limits
 
 ```text
-Maximum individual file upload: 16 MiB
+Maximum individual file upload: CLIO_MAX_UPLOAD_BYTES, default 100 MiB (104857600)
 Maximum extracted text per entry: 1 MiB
 ```
 
-These are safety limits and may be implemented as constants. Exceeding the
-upload limit returns `413 Payload Too Large`.
+The maximum individual file upload is configurable with `CLIO_MAX_UPLOAD_BYTES`
+(section 7); the default is 100 MiB and uploads are streamed to disk and are not
+held in memory. The extracted-text limit may be implemented as a constant.
+Exceeding the upload limit returns `413 Payload Too Large`.
 
 ## 64.13 API and product versioning
 
