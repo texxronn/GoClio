@@ -944,7 +944,7 @@ func validateFilters(defs map[string]map[string]any, q url.Values) *apiError {
 		}
 		if op == "in" {
 			for _, v := range values {
-				if _, e := coerce(f, v); e != nil {
+				if _, e := coerceQueryValue(f, v); e != nil {
 					return e
 				}
 			}
@@ -959,7 +959,7 @@ func validateFilters(defs map[string]map[string]any, q url.Values) *apiError {
 		if len(values) == 0 {
 			return invalid("Filter value is required")
 		}
-		if _, e := coerce(f, values[len(values)-1]); e != nil {
+		if _, e := coerceQueryValue(f, values[len(values)-1]); e != nil {
 			return e
 		}
 	}
@@ -997,7 +997,7 @@ func matches(row map[string]any, defs map[string]map[string]any, q url.Values) (
 		if op == "in" {
 			found := false
 			for _, v := range values {
-				x, ae := coerce(defs[field], v)
+				x, ae := coerceQueryValue(defs[field], v)
 				if ae != nil {
 					return false, ae
 				}
@@ -1018,7 +1018,7 @@ func matches(row map[string]any, defs map[string]map[string]any, q url.Values) (
 			}
 			continue
 		}
-		expected, ae := coerce(defs[field], value)
+		expected, ae := coerceQueryValue(defs[field], value)
 		if ae != nil {
 			return false, ae
 		}
@@ -1233,6 +1233,25 @@ func coerce(f map[string]any, value any) (any, *apiError) {
 		return formatUTC(t), nil
 	}
 	return nil, invalid("Unsupported type: " + typ)
+}
+
+// coerceQueryValue coerces a URL query-string filter value for a field. Query
+// values are always Go strings, so boolean fields accept the case-insensitive
+// forms "true" and "false" (matching the isnull convention in SPEC section
+// 25.2). Every other type delegates to coerce, which implements the JSON
+// request-body rules of SPEC section 14.3 and must not be loosened.
+func coerceQueryValue(f map[string]any, value string) (any, *apiError) {
+	if fmt.Sprint(f["type"]) == "boolean" {
+		switch {
+		case strings.EqualFold(value, "true"):
+			return true, nil
+		case strings.EqualFold(value, "false"):
+			return false, nil
+		default:
+			return nil, invalid("Invalid boolean value for " + fmt.Sprint(f["name"]))
+		}
+	}
+	return coerce(f, value)
 }
 
 func validateConstraints(f map[string]any, value any) *apiError {

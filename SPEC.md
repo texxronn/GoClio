@@ -1747,6 +1747,8 @@ and per-type operator validation — are defined in section 25.
   null unless null is supplied, which URL query encoding cannot express.
 - `isnull` requires `true` (field is null) or `false` (field is not null); any
   other value is an error.
+- For `boolean` fields, the `eq`, `ne` and `in` values are the strings `true`
+  and `false`, matched case-insensitively; any other value is an error.
 
 Operators are validated against the field type: `contains` requires a string-like
 field, and the ordered operators `gt`/`gte`/`lt`/`lte` require an ordered field
