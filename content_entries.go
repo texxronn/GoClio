@@ -143,24 +143,43 @@ func (a *app) saveContentEntryTyped(path string, data []byte, createdAt, content
 	return saveContentEntryExec(a.db, a.project, path, data, createdAt, contentType)
 }
 
-func saveContentEntryExec(exec sqlExecer, project, path string, data []byte, createdAt, contentType string) error {
+// contentWrite carries what the catalog and the native text index need for
+// bytes about to be committed at a path. It is computed before the content
+// lock is taken, so slow extraction never blocks other writers (section 64.6).
+type contentWrite struct {
+	Size        int64
+	SHA256      string
+	ContentType string
+	Title       string
+	Body        string
+}
+
+// prepareContentWrite derives a contentWrite from in-memory bytes.
+func prepareContentWrite(clean string, data []byte, contentType string) contentWrite {
+	if contentKind(clean) == "page" || contentType == "" {
+		contentType = contentMediaType(clean)
+	}
+	sum := sha256.Sum256(data)
+	title, body := extractNative(clean, contentType, data)
+	return contentWrite{Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:]), ContentType: contentType, Title: title, Body: body}
+}
+
+// saveContentWrite upserts a content entry and its native index row. The
+// entry ID and created_at survive replacement (section 64.2); any agent
+// extraction is invalidated because the bytes changed (section 64.8).
+func saveContentWrite(exec sqlExecer, project, clean string, cw contentWrite, createdAt string) error {
 	now := formatUTC(time.Now())
 	if createdAt == "" {
 		createdAt = now
 	}
-	if contentKind(path) == "page" || contentType == "" {
-		contentType = contentMediaType(path)
-	}
-	sum := sha256.Sum256(data)
-	sha := hex.EncodeToString(sum[:])
 	if _, err := exec.Exec(
 		`INSERT INTO content_entries(id,project,path,kind,content_type,size,sha256,mtime,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'',?,?)
 		 ON CONFLICT(project,path) DO UPDATE SET kind=excluded.kind,content_type=excluded.content_type,size=excluded.size,sha256=excluded.sha256,mtime='',updated_at=excluded.updated_at`,
-		newID(), project, path, contentKind(path), contentType, len(data), sha, createdAt, now,
+		newID(), project, clean, contentKind(clean), cw.ContentType, cw.Size, cw.SHA256, createdAt, now,
 	); err != nil {
 		return err
 	}
-	id, err := contentEntryIDExec(exec, project, path)
+	id, err := contentEntryIDExec(exec, project, clean)
 	if err != nil {
 		return err
 	}
@@ -170,8 +189,11 @@ func saveContentEntryExec(exec sqlExecer, project, path string, data []byte, cre
 	if err = clearAgentSearch(exec, project, id); err != nil {
 		return err
 	}
-	title, body := nativeExtraction(path, contentType, data)
-	return indexNativeText(exec, project, id, path, contentKind(path), title, body)
+	return indexNativeText(exec, project, id, clean, contentKind(clean), cw.Title, cw.Body)
+}
+
+func saveContentEntryExec(exec sqlExecer, project, path string, data []byte, createdAt, contentType string) error {
+	return saveContentWrite(exec, project, path, prepareContentWrite(path, data, contentType), createdAt)
 }
 
 // contentEntryIDExec resolves the entry ID for a path after an upsert.

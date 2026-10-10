@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"io"
 	"mime"
 	"net/http"
 	"os"
@@ -480,16 +479,15 @@ func (a *app) putFile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, ae)
 		return
 	}
-	body, ae := readRawBody(r, fileUploadLimit)
-	if ae != nil {
-		writeErr(w, ae)
-		return
-	}
 	contentType := ""
 	if contentKind(clean) == "file" {
 		contentType = requestMediaType(r)
 	}
-	entry, existed, ae := a.storeContentFile(clean, body, contentType)
+	if r.ContentLength > fileUploadLimit {
+		writeAPIError(w, &apiError{http.StatusRequestEntityTooLarge, "body_too_large", "Request body is too large"})
+		return
+	}
+	entry, existed, ae := a.storeContentStream(clean, r.Body, contentType, fileUploadLimit)
 	if ae != nil {
 		writeErr(w, ae)
 		return
@@ -499,72 +497,6 @@ func (a *app) putFile(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusOK
 	}
 	writeJSON(w, status, a.contentEntryRepresentation(entry))
-}
-
-// storeContentFile writes bytes atomically at a canonical content path and
-// records the entry, preserving the ID and created_at on replace. The files
-// API and the WebDAV mount share it so both apply the same 16 MiB limit,
-// timestamps and index updates (sections 64.2, 64.4 and 64.10).
-func (a *app) storeContentFile(clean string, body []byte, contentType string) (contentEntry, bool, *apiError) {
-	if ae := rejectIgnoredContentPath(clean); ae != nil {
-		return contentEntry{}, false, ae
-	}
-	if int64(len(body)) > fileUploadLimit {
-		return contentEntry{}, false, &apiError{http.StatusRequestEntityTooLarge, "body_too_large", "Request body is too large"}
-	}
-	a.contentLock().Lock()
-	defer a.contentLock().Unlock()
-	target, ae := a.contentPath(clean)
-	if ae != nil {
-		return contentEntry{}, false, ae
-	}
-	existed := false
-	createdAt := ""
-	if info, e := os.Lstat(target); e == nil {
-		if info.IsDir() || !info.Mode().IsRegular() {
-			return contentEntry{}, false, conflict("An incompatible resource already exists at this path")
-		}
-		existed = true
-		entry, found, lookupErr := a.contentEntryByPath(clean)
-		if lookupErr != nil {
-			return contentEntry{}, false, errAPI(lookupErr)
-		}
-		if found {
-			createdAt = entry.CreatedAt
-		} else {
-			createdAt = info.ModTime().UTC().Format(time.RFC3339Nano)
-		}
-	} else if !os.IsNotExist(e) {
-		return contentEntry{}, false, errAPI(e)
-	}
-	if ae = a.checkNoFileParent(filepath.Dir(target)); ae != nil {
-		return contentEntry{}, false, ae
-	}
-	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-		return contentEntry{}, false, errAPI(err)
-	}
-	if err := atomicWriteFile(target, body); err != nil {
-		return contentEntry{}, false, errAPI(err)
-	}
-	if err := a.saveContentEntryTyped(clean, body, createdAt, contentType); err != nil {
-		return contentEntry{}, false, errAPI(err)
-	}
-	entry, found, err := a.contentEntryByPath(clean)
-	if err != nil || !found {
-		return contentEntry{}, false, errAPI(firstError(err, fmt.Errorf("content entry missing after write: %s", clean)))
-	}
-	return entry, existed, nil
-}
-
-func readRawBody(r *http.Request, limit int64) ([]byte, *apiError) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
-	if err != nil {
-		return nil, invalid("Malformed request body")
-	}
-	if int64(len(body)) > limit {
-		return nil, &apiError{http.StatusRequestEntityTooLarge, "body_too_large", "Request body is too large"}
-	}
-	return body, nil
 }
 
 func atomicWriteFile(target string, data []byte) error {

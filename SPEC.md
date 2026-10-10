@@ -4311,8 +4311,10 @@ Conventions and behavior:
   the raw bytes; the media type is taken from the `Content-Type` header,
   defaulting to `application/octet-stream`. It returns `201 Created` for a new
   path and `200 OK` when an existing file is replaced. Replacing preserves the
-  ID. A path that names a directory returns `409 Conflict`. Writes are atomic
-  (section 41) and subject to the limits of section 64.12.
+  ID. A path that names a directory returns `409 Conflict`. The body is
+  streamed; the entry, its index row and the bytes are committed together, so a
+  failed write leaves the previous bytes and catalog unchanged. Writes are
+  subject to the limits of section 64.12.
 - `POST /api/v1/files/directories` accepts `{"path": "/bills/archive"}` and
   creates a directory, returning `201 Created`. Creating over an existing node
   returns `409 Conflict`, and the root cannot be created. This is the same
