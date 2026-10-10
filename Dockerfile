@@ -2,7 +2,7 @@ FROM golang:1.25-bookworm AS build
 
 # Set VERSION at build time (for example --build-arg VERSION=$(git describe --tags --always | sed 's/^v//'))
 # so the image reports the release it was built from through /api/v1/health.
-ARG VERSION=2.3.0
+ARG VERSION=2.4.0
 
 WORKDIR /src
 COPY go.mod go.sum ./

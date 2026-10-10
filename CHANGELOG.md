@@ -9,7 +9,7 @@ in [`SPEC.md`](SPEC.md). The API version (`v1`) changes only for incompatible
 API changes, and the specification revision tracks the contract document rather
 than the product.
 
-## [Unreleased]
+## [2.4.0] - 2026-10-11
 
 ### Added
 
