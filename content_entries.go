@@ -23,6 +23,7 @@ type contentEntry struct {
 	ContentType string
 	Size        int64
 	SHA256      string
+	Mtime       string
 	CreatedAt   string
 	UpdatedAt   string
 }
@@ -110,9 +111,9 @@ func (a *app) contentEntryByID(id string) (contentEntry, bool, error) {
 func (a *app) contentEntryWhere(where string, args ...any) (contentEntry, bool, error) {
 	var entry contentEntry
 	err := a.db.QueryRow(
-		`SELECT id,project,path,kind,content_type,size,sha256,created_at,updated_at FROM content_entries WHERE `+where,
+		`SELECT id,project,path,kind,content_type,size,sha256,mtime,created_at,updated_at FROM content_entries WHERE `+where,
 		args...,
-	).Scan(&entry.ID, &entry.Project, &entry.Path, &entry.Kind, &entry.ContentType, &entry.Size, &entry.SHA256, &entry.CreatedAt, &entry.UpdatedAt)
+	).Scan(&entry.ID, &entry.Project, &entry.Path, &entry.Kind, &entry.ContentType, &entry.Size, &entry.SHA256, &entry.Mtime, &entry.CreatedAt, &entry.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return contentEntry{}, false, nil
 	}
@@ -153,8 +154,8 @@ func saveContentEntryExec(exec sqlExecer, project, path string, data []byte, cre
 	sum := sha256.Sum256(data)
 	sha := hex.EncodeToString(sum[:])
 	if _, err := exec.Exec(
-		`INSERT INTO content_entries(id,project,path,kind,content_type,size,sha256,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)
-		 ON CONFLICT(project,path) DO UPDATE SET kind=excluded.kind,content_type=excluded.content_type,size=excluded.size,sha256=excluded.sha256,updated_at=excluded.updated_at`,
+		`INSERT INTO content_entries(id,project,path,kind,content_type,size,sha256,mtime,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'',?,?)
+		 ON CONFLICT(project,path) DO UPDATE SET kind=excluded.kind,content_type=excluded.content_type,size=excluded.size,sha256=excluded.sha256,mtime='',updated_at=excluded.updated_at`,
 		newID(), project, path, contentKind(path), contentType, len(data), sha, createdAt, now,
 	); err != nil {
 		return err
@@ -221,22 +222,35 @@ func (a *app) reconcileContent() error {
 	return err
 }
 
+// hashContentFile hashes a file during reconciliation. Tests replace it to
+// count how many files a rescan reads.
+var hashContentFile = fileSHA256
+
 // rescanContent reconciles the catalog with the filesystem and reports how many
-// entries were added, removed and refreshed (section 64.4). A refreshed entry
-// is one whose stored size or content type no longer matches the file on disk;
-// its bytes are not re-hashed, so a stale sha256 is cleared. Native extracted
-// text is rebuilt for entries that are new, refreshed or missing an index row
-// (section 64.6); agent-supplied rows (section 64.8) are left in place.
-func (a *app) rescanContent() (contentRescan, error) {
+// entries were added, removed and refreshed (section 64.4). It trusts stored
+// hashes and metadata for unchanged entries; see rescanContentMode.
+func (a *app) rescanContent() (contentRescan, error) { return a.rescanContentMode(false) }
+
+// rescanContentMode reconciles the catalog with the filesystem and reports how
+// many entries were added, removed and refreshed (section 64.4). An entry whose
+// size and modification time match the catalog is treated as unchanged: a
+// normal rescan (full=false) neither re-reads nor re-extracts it when it also
+// has a stored hash. With full=true every entry is re-hashed and its native
+// index rebuilt. A refreshed entry is one whose stored bytes changed; its
+// sha256 and native text are refreshed and stale agent text is invalidated.
+// Native extracted text is rebuilt for entries that are new, refreshed, or
+// (on a normal rescan) unchanged but not yet known to be indexed (section
+// 64.6); agent-supplied rows (section 64.8) are left in place.
+func (a *app) rescanContentMode(full bool) (contentRescan, error) {
 	summary := contentRescan{}
 	existing := map[string]contentEntry{}
-	rows, err := a.db.Query(`SELECT id,path,kind,content_type,size,sha256,created_at FROM content_entries WHERE project=?`, a.project)
+	rows, err := a.db.Query(`SELECT id,path,kind,content_type,size,sha256,mtime,created_at FROM content_entries WHERE project=?`, a.project)
 	if err != nil {
 		return summary, err
 	}
 	for rows.Next() {
 		var entry contentEntry
-		if err = rows.Scan(&entry.ID, &entry.Path, &entry.Kind, &entry.ContentType, &entry.Size, &entry.SHA256, &entry.CreatedAt); err != nil {
+		if err = rows.Scan(&entry.ID, &entry.Path, &entry.Kind, &entry.ContentType, &entry.Size, &entry.SHA256, &entry.Mtime, &entry.CreatedAt); err != nil {
 			rows.Close()
 			return summary, err
 		}
@@ -310,26 +324,46 @@ func (a *app) rescanContent() (contentRescan, error) {
 		if entry, ok := existing[clean]; ok {
 			// Change detection is byte-based, not type-based: an upload may
 			// declare a custom content type, so the stored type must not be
-			// treated as a change signal. Compare size and kind; when those
-			// match, compare the content hash (backfilling it for entries that
-			// do not have one yet). Only genuinely changed bytes refresh
+			// treated as a change signal. Compare size, kind and modification
+			// time; a normal rescan that finds all three unchanged and a
+			// stored hash trusts them without reading the file. Otherwise
+			// compare the content hash (backfilling it for entries that do not
+			// have one yet). Only genuinely changed bytes refresh
 			// content_type/size/sha256 and invalidate agent text; an unchanged
 			// path preserves its declared type and agent row (sections 64.2,
 			// 64.6 and 64.8).
+			mtime := formatUTC(info.ModTime())
 			changed := entry.Size != info.Size() || entry.Kind != kind
+			if !changed && !full && entry.SHA256 != "" && entry.Mtime == mtime {
+				// Same size, kind and modification time as when the bytes
+				// were last hashed: trust the stored hash and index (section
+				// 64.2). A normal rescan never re-reads or re-extracts an
+				// unchanged entry; `full=true` does.
+				return nil
+			}
 			if !changed {
-				sum, hashErr := fileSHA256(p)
+				sum, hashErr := hashContentFile(p)
 				if hashErr != nil {
 					return hashErr
 				}
 				if entry.SHA256 == "" {
-					// Backfill the hash; this is not a content change.
-					if _, err = a.db.Exec(`UPDATE content_entries SET sha256=? WHERE id=?`, sum, entry.ID); err != nil {
+					// Backfill the hash and stamp the time; this is not a
+					// content change.
+					if _, err = a.db.Exec(`UPDATE content_entries SET sha256=?, mtime=? WHERE id=?`, sum, mtime, entry.ID); err != nil {
 						return err
 					}
 					entry.SHA256 = sum
+					entry.Mtime = mtime
 				}
 				changed = entry.SHA256 != sum
+				if !changed && entry.Mtime != mtime {
+					// The bytes match the stored hash but the file was touched;
+					// stamp the new time so the next rescan can trust it.
+					if _, err = a.db.Exec(`UPDATE content_entries SET mtime=? WHERE id=?`, mtime, entry.ID); err != nil {
+						return err
+					}
+					entry.Mtime = mtime
+				}
 			}
 			if !changed {
 				// Unchanged: rebuild the derived text only when it is missing.
@@ -340,13 +374,13 @@ func (a *app) rescanContent() (contentRescan, error) {
 				}
 				return nil
 			}
-			sum, hashErr := fileSHA256(p)
+			sum, hashErr := hashContentFile(p)
 			if hashErr != nil {
 				return hashErr
 			}
 			if _, err = a.db.Exec(
-				`UPDATE content_entries SET kind=?,content_type=?,size=?,sha256=?,updated_at=? WHERE id=?`,
-				kind, contentType, info.Size(), sum, formatUTC(time.Now()), entry.ID,
+				`UPDATE content_entries SET kind=?,content_type=?,size=?,sha256=?,mtime=?,updated_at=? WHERE id=?`,
+				kind, contentType, info.Size(), sum, mtime, formatUTC(time.Now()), entry.ID,
 			); err != nil {
 				return err
 			}
