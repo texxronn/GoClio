@@ -1,7 +1,7 @@
 # GoClio
 
 GoClio is a Go implementation of the frozen Clio v1 contract in `SPEC.md`
-(specification revision 1.8; product version 2.3.0; API version v1). It uses Go's
+(specification revision 1.9; product version 2.3.0; API version v1). It uses Go's
 standard HTTP server, one SQLite database in WAL mode, and the filesystem for
 published content. `SPEC-CONFORMANCE.md` maps specification areas to automated
 tests.
@@ -256,7 +256,7 @@ GoClio tracks three independent identifiers, described in `SPEC.md`:
 
 | Identifier | Current | Where it appears |
 | --- | --- | --- |
-| Specification revision | `1.8` | `SPEC.md` header |
+| Specification revision | `1.9` | `SPEC.md` header |
 | Product version | `2.3.0` (source default) | `version` in `/api/v1/health` |
 | API version | `v1` | `/api/v1/` route prefix |
 

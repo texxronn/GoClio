@@ -1,6 +1,6 @@
 # Clio
 
-## Consolidated Specification v1.8 — Go implementation contract
+## Consolidated Specification v1.9 — Go implementation contract
 
 **Status: FROZEN**
 
@@ -17,7 +17,7 @@ These version identifiers are independent and must not be conflated:
 
 | Identifier | Value | Where it appears |
 | --- | --- | --- |
-| Specification revision | `1.8` | This document |
+| Specification revision | `1.9` | This document |
 | Product version | `2.3.0` | `version` in `/api/v1/health` |
 | API version | `v1` | `/api/v1/` route prefix |
 
@@ -91,6 +91,11 @@ Example payloads are illustrative unless a rule references them explicitly.
   with a 100 MiB default (sections 7.2 and 64.12); the in-memory credential
   memo (section 54.1); `health?deep=true` and the `files` count (section 47);
   and record indexes that lead with `project` (section 52).
+- **v1.9** — project landing pages: a content-root `index.html` makes
+  `GET /{project}/` redirect to `/{project}/files/index.html`, with the
+  generated overview at the new `/{project}/overview` escape route
+  (section 66.5.1); and boolean filter values are stated as the query strings
+  `true`/`false` for `eq`/`ne`/`in` (section 25.2).
 
 ### Table of contents
 
