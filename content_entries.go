@@ -281,6 +281,12 @@ func (a *app) rescanContent() (contentRescan, error) {
 			}
 			return walkErr
 		}
+		if p != root && ignoredContentName(d.Name()) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if d.IsDir() {
 			return nil
 		}

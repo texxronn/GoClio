@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"strings"
@@ -37,6 +38,18 @@ func (a *app) davLockSystem() webdav.LockSystem {
 func (a *app) webdavMount(w http.ResponseWriter, r *http.Request, prefix string) {
 	if !a.webdavEnabled {
 		writeAPIError(w, missing("Endpoint"))
+		return
+	}
+	// Desktop clients probe and write metadata files (._*, .DS_Store) beside
+	// every file. They are never stored: reads see 404, writes 403
+	// (sections 36.1 and 64.10).
+	if ignoredContentPath(davCleanName(strings.TrimPrefix(r.URL.Path, prefix))) || a.davDestinationIgnored(r, prefix) {
+		switch r.Method {
+		case http.MethodGet, http.MethodHead, http.MethodOptions, "PROPFIND", http.MethodDelete:
+			writeAPIError(w, missing("Resource"))
+		default:
+			writeErr(w, &apiError{http.StatusForbidden, "forbidden", "This name is reserved for system files"})
+		}
 		return
 	}
 	// Bound a PUT body to the 16 MiB upload limit before the handler buffers
@@ -86,6 +99,20 @@ func (a *app) webdavMount(w http.ResponseWriter, r *http.Request, prefix string)
 		LockSystem: a.davLockSystem(),
 	}
 	handler.ServeHTTP(w, r)
+}
+
+// davDestinationIgnored reports whether a COPY or MOVE Destination names an
+// ignored path under this mount.
+func (a *app) davDestinationIgnored(r *http.Request, prefix string) bool {
+	destination := r.Header.Get("Destination")
+	if destination == "" {
+		return false
+	}
+	parsed, err := url.Parse(destination)
+	if err != nil {
+		return false
+	}
+	return ignoredContentPath(davCleanName(strings.TrimPrefix(parsed.Path, prefix)))
 }
 
 // webdavDeleteConflict resolves a DELETE target to its entry IDs and enforces
@@ -227,7 +254,24 @@ func (fs davFileSystem) OpenFile(ctx context.Context, name string, flag int, per
 	if err != nil {
 		return nil, err
 	}
+	if info, statErr := f.Stat(); statErr == nil && info.IsDir() {
+		return davDir{File: f}, nil
+	}
 	return f, nil
+}
+
+// davDir filters ignored names from WebDAV directory listings (section 36.1).
+type davDir struct{ *os.File }
+
+func (d davDir) Readdir(count int) ([]os.FileInfo, error) {
+	infos, err := d.File.Readdir(count)
+	kept := infos[:0]
+	for _, info := range infos {
+		if !ignoredContentName(info.Name()) {
+			kept = append(kept, info)
+		}
+	}
+	return kept, err
 }
 
 func (fs davFileSystem) RemoveAll(ctx context.Context, name string) error {
