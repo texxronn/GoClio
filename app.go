@@ -94,9 +94,9 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if r.URL.Path == "/health" {
-			a.healthHTML(w)
+			a.healthHTML(w, r)
 		} else {
-			a.healthJSON(w)
+			a.healthJSON(w, r)
 		}
 		return
 	}
@@ -184,7 +184,7 @@ func (a *app) projectUI(w http.ResponseWriter, r *http.Request) {
 	switch rest[0] {
 	case "health":
 		if len(rest) == 1 && r.Method == http.MethodGet {
-			scoped.healthHTML(w)
+			scoped.healthHTML(w, r)
 			return
 		}
 	case "help":

@@ -272,8 +272,8 @@ and `content/`. If `CLIO_DB` points outside `CLIO_DATA_DIR`, back up that
 database and its WAL/SHM files as well. Restore by stopping Clio, replacing the
 data directory and any separately located database with the backup, then
 starting Clio with the same `CLIO_DB` and `CLIO_DATA_DIR` configuration.
-Confirm recovery through `/health`; SQLite runs `quick_check` as part of that
-endpoint.
+Confirm recovery through `/api/v1/health?deep=true`; that request runs SQLite
+`quick_check`.
 
 A one-command path is also available. It is **not** coordinated with live
 writers: stop Clio before running `clio backup`, exactly as for the stop-copy
