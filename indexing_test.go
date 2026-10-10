@@ -138,3 +138,38 @@ func TestOpenDatabaseAddsIndexMetadataToExistingSchema(t *testing.T) {
 		t.Fatalf("indexes migration default = %v", defaultValue)
 	}
 }
+
+func TestRecordIndexesLeadWithProject(t *testing.T) {
+	a := newTestApp(t)
+	names := map[string]bool{}
+	rows, err := a.db.Query(`SELECT name FROM pragma_index_list('records')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var name string
+		_ = rows.Scan(&name)
+		names[name] = true
+	}
+	rows.Close()
+	for _, old := range []string{"records_table_idx", "records_created_idx", "records_timeseries_idx", "records_created_query_idx", "records_timeseries_query_idx", "records_temporal_page_idx"} {
+		if names[old] {
+			t.Errorf("legacy index %s still present", old)
+		}
+	}
+	var plan strings.Builder
+	planRows, err := a.db.Query(`EXPLAIN QUERY PLAN SELECT id FROM records WHERE project=? AND group_name=? AND table_name=?`, "default", "g", "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for planRows.Next() {
+		var id, parent, unused int
+		var detail string
+		_ = planRows.Scan(&id, &parent, &unused, &detail)
+		plan.WriteString(detail + "\n")
+	}
+	planRows.Close()
+	if !strings.Contains(plan.String(), "records_scope_") {
+		t.Fatalf("query plan does not use a project-leading index:\n%s", plan.String())
+	}
+}

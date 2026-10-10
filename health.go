@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,19 +12,42 @@ import (
 	"time"
 )
 
-func (a *app) health() map[string]any {
+// integrityCheck runs SQLite's quick_check. It is O(database size), so it runs
+// only for /health?deep=true (section 47). Tests replace it to count calls.
+var integrityCheck = func(db *sql.DB) bool {
+	var check string
+	return db.QueryRow(`PRAGMA quick_check`).Scan(&check) == nil && strings.EqualFold(check, "ok")
+}
+
+// healthDeep reads the deep query parameter; ok is false for an invalid value.
+func healthDeep(r *http.Request) (deep bool, ok bool) {
+	switch r.URL.Query().Get("deep") {
+	case "", "false":
+		return false, true
+	case "true":
+		return true, true
+	}
+	return false, false
+}
+
+func (a *app) health(deep bool) map[string]any {
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
 	dbStatus := "ok"
-	var check string
-	if e := a.db.QueryRow(`PRAGMA quick_check`).Scan(&check); e != nil || !strings.EqualFold(check, "ok") {
+	if deep {
+		if !integrityCheck(a.db) {
+			dbStatus = "error"
+		}
+	} else if a.db.Ping() != nil {
 		dbStatus = "error"
 	}
 	groups := a.count("groups_meta")
 	tables := a.count("tables_meta")
 	records := a.count("records")
 	projects := a.count("projects")
-	pages, dirs := int64(0), int64(0)
+	pages := a.countWhere(`SELECT count(*) FROM content_entries WHERE kind='page'`)
+	files := a.countWhere(`SELECT count(*) FROM content_entries WHERE kind='file'`)
+	dirs := int64(0)
 	_ = filepath.WalkDir(a.content, func(p string, d os.DirEntry, e error) error {
 		if e != nil {
 			return nil
@@ -36,13 +60,11 @@ func (a *app) health() map[string]any {
 		}
 		if d.IsDir() {
 			dirs++
-		} else if strings.HasSuffix(d.Name(), ".md") || strings.HasSuffix(d.Name(), ".html") {
-			pages++
 		}
 		return nil
 	})
 	status := dbStatus
-	return map[string]any{"status": status, "version": version, "uptime_seconds": int64(time.Since(a.started).Seconds()), "memory": map[string]any{"alloc_bytes": mem.Alloc, "sys_bytes": mem.Sys, "heap_alloc_bytes": mem.HeapAlloc, "heap_inuse_bytes": mem.HeapInuse}, "database": map[string]any{"status": dbStatus}, "projects": projects, "groups": groups, "tables": tables, "records": records, "pages": pages, "directories": dirs}
+	return map[string]any{"status": status, "version": version, "uptime_seconds": int64(time.Since(a.started).Seconds()), "memory": map[string]any{"alloc_bytes": mem.Alloc, "sys_bytes": mem.Sys, "heap_alloc_bytes": mem.HeapAlloc, "heap_inuse_bytes": mem.HeapInuse}, "database": map[string]any{"status": dbStatus}, "projects": projects, "groups": groups, "tables": tables, "records": records, "pages": pages, "files": files, "directories": dirs}
 }
 func (a *app) count(table string) int64 {
 	var n int64
@@ -51,9 +73,28 @@ func (a *app) count(table string) int64 {
 	}
 	return n
 }
-func (a *app) healthJSON(w http.ResponseWriter) { writeJSON(w, 200, a.health()) }
-func (a *app) healthHTML(w http.ResponseWriter) {
-	info := a.health()
+func (a *app) countWhere(query string) int64 {
+	var n int64
+	if a.db.QueryRow(query).Scan(&n) != nil {
+		return 0
+	}
+	return n
+}
+func (a *app) healthJSON(w http.ResponseWriter, r *http.Request) {
+	deep, ok := healthDeep(r)
+	if !ok {
+		writeAPIError(w, invalid("deep must be true or false"))
+		return
+	}
+	writeJSON(w, 200, a.health(deep))
+}
+func (a *app) healthHTML(w http.ResponseWriter, r *http.Request) {
+	deep, ok := healthDeep(r)
+	if !ok {
+		writeAPIError(w, invalid("deep must be true or false"))
+		return
+	}
+	info := a.health(deep)
 	database, _ := info["database"].(map[string]any)
 	status := fmt.Sprint(info["status"])
 	statusClass, statusLabel := "health-badge health-ok", "All systems operational"
@@ -69,6 +110,7 @@ func (a *app) healthHTML(w http.ResponseWriter) {
 		{"Tables", fmt.Sprint(info["tables"])},
 		{"Records", fmt.Sprint(info["records"])},
 		{"Published pages", fmt.Sprint(info["pages"])},
+		{"Files", fmt.Sprint(info["files"])},
 		{"Folders", fmt.Sprint(info["directories"])},
 		{"Database", fmt.Sprint(database["status"])},
 	}

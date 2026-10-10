@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"net/http"
 	"strings"
 	"testing"
@@ -160,4 +161,28 @@ func TestMethodRestrictionsAndReservedRoutes(t *testing.T) {
 	if favicon.Code != http.StatusOK || !strings.HasPrefix(favicon.Header().Get("Content-Type"), "image/svg+xml") {
 		t.Errorf("GET /favicon.svg = %d %q", favicon.Code, favicon.Header().Get("Content-Type"))
 	}
+}
+
+func TestHealthFilesCountAndDeepCheck(t *testing.T) {
+	a := newTestApp(t)
+	putFile(t, a, "default", "/a.bin", "x", "application/octet-stream")
+	putFile(t, a, "default", "/b.md", "# B", "text/markdown")
+	checks := 0
+	original := integrityCheck
+	integrityCheck = func(db *sql.DB) bool { checks++; return original(db) }
+	t.Cleanup(func() { integrityCheck = original })
+
+	var health map[string]any
+	testJSON(t, testRequest(t, a, http.MethodGet, "/api/v1/health", nil, ""), &health)
+	if health["files"] != float64(1) || health["pages"] != float64(1) {
+		t.Fatalf("files/pages = %v/%v, want 1/1", health["files"], health["pages"])
+	}
+	if checks != 0 {
+		t.Fatalf("default health ran %d integrity check(s), want 0", checks)
+	}
+	testJSON(t, testRequest(t, a, http.MethodGet, "/api/v1/health?deep=true", nil, ""), &health)
+	if checks != 1 || health["database"].(map[string]any)["status"] != "ok" {
+		t.Fatalf("deep health: checks=%d database=%v", checks, health["database"])
+	}
+	assertAPIError(t, testRequest(t, a, http.MethodGet, "/api/v1/health?deep=yes", nil, ""), http.StatusUnprocessableEntity)
 }

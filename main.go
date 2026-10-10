@@ -356,12 +356,19 @@ func migrateSchema(db *sql.DB) error {
 		}
 	}
 	indexes := []string{
-		`CREATE INDEX IF NOT EXISTS records_table_idx ON records(group_name,table_name)`,
-		`CREATE INDEX IF NOT EXISTS records_created_idx ON records(group_name,table_name,created_at)`,
-		`CREATE INDEX IF NOT EXISTS records_timeseries_idx ON records(group_name,table_name,timestamp_value)`,
-		`CREATE INDEX IF NOT EXISTS records_created_query_idx ON records(group_name,table_name,created_at COLLATE CLIO_DATETIME DESC)`,
-		`CREATE INDEX IF NOT EXISTS records_timeseries_query_idx ON records(group_name,table_name,timestamp_value COLLATE CLIO_DATETIME)`,
-		`CREATE INDEX IF NOT EXISTS records_temporal_page_idx ON records(group_name,table_name,timestamp_value COLLATE CLIO_DATETIME DESC,id DESC)`,
+		// Every record query filters by project, group and table
+		// (section 65.7); the indexes lead with project accordingly. The
+		// pre-2.3 group-leading indexes are dropped.
+		`DROP INDEX IF EXISTS records_table_idx`,
+		`DROP INDEX IF EXISTS records_created_idx`,
+		`DROP INDEX IF EXISTS records_timeseries_idx`,
+		`DROP INDEX IF EXISTS records_created_query_idx`,
+		`DROP INDEX IF EXISTS records_timeseries_query_idx`,
+		`DROP INDEX IF EXISTS records_temporal_page_idx`,
+		`CREATE INDEX IF NOT EXISTS records_scope_table_idx ON records(project,group_name,table_name)`,
+		`CREATE INDEX IF NOT EXISTS records_scope_created_query_idx ON records(project,group_name,table_name,created_at COLLATE CLIO_DATETIME DESC)`,
+		`CREATE INDEX IF NOT EXISTS records_scope_timeseries_query_idx ON records(project,group_name,table_name,timestamp_value COLLATE CLIO_DATETIME)`,
+		`CREATE INDEX IF NOT EXISTS records_scope_temporal_page_idx ON records(project,group_name,table_name,timestamp_value COLLATE CLIO_DATETIME DESC,id DESC)`,
 	}
 	for _, statement := range indexes {
 		if _, err = conn.ExecContext(ctx, statement); err != nil {

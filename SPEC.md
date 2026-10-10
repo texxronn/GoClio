@@ -3219,9 +3219,13 @@ Health should answer:
 * Number of files?
 * Number of projects?
 
-`database.status` is `ok` only when a SQLite integrity check (`PRAGMA
-quick_check`) returns `ok`; otherwise it is `error` and the top-level `status`
-becomes `error`. The resource counts describe the whole instance. `version`
+`database.status` reports whether SQLite answers a ping: `ok` when it does,
+`error` otherwise, in which case the top-level `status` becomes `error`. `GET
+/api/v1/health?deep=true` (and `/health?deep=true`) additionally runs a SQLite
+integrity check (`PRAGMA quick_check`); `status` is `ok` only when it returns
+`ok`, otherwise it is `error` and the top-level `status` becomes `error`. `deep`
+accepts `true` or `false`; other values return `422`. The resource counts
+describe the whole instance. `version`
 reports the product version; release builds inject the exact version at build
 time, while the document header records the version this specification was
 written against (currently `2.2.0`).
@@ -3675,8 +3679,8 @@ tree.
 
 Restoring replaces the complete database (with its WAL sidecars as captured) and
 the content directory, then starts Clio with the same configuration. Recovery is
-confirmed through `/health`, whose `database.status` runs a SQLite integrity
-check (section 47).
+confirmed through `/api/v1/health?deep=true`, whose `database.status` runs a
+SQLite integrity check (section 47).
 
 No external backup system is part of Clio.
 
