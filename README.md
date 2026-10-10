@@ -1,7 +1,7 @@
 # GoClio
 
 GoClio is a Go implementation of the frozen Clio v1 contract in `SPEC.md`
-(specification revision 1.8; product version 2.3.0; API version v1). It uses Go's
+(specification revision 1.9; product version 2.3.0; API version v1). It uses Go's
 standard HTTP server, one SQLite database in WAL mode, and the filesystem for
 published content. `SPEC-CONFORMANCE.md` maps specification areas to automated
 tests.
@@ -12,9 +12,13 @@ Feature summary:
   time-series tables, with filtering, sorting, paging, grouping and aggregation.
 - Named **projects** that scope their own structured data and content; the
   implicit `default` project always exists. The default project's overview at
-  `/{default}/` lists, creates and deletes projects through the public projects
-  API, and server-renders the project list without JavaScript; every other
-  project offers only a Home link back to the default project.
+  `/{default}/overview` lists, creates and deletes projects through the public
+  projects API, and server-renders the project list without JavaScript; every
+  other project offers only a Home link back to the default project.
+- Self-contained **project portals**: when a project's content root has
+  `index.html`, `GET /{project}/` redirects to `/{project}/files/index.html`, so
+  a custom HTML front end can sit next to the project's data and files. The
+  generated overview stays reachable at `/{project}/overview`.
 - Two partitions per project: `data` (groups, tables, records, metadata) and
   `files` (unified directories, pages and files with stable IDs).
 - Optional full-text search over extracted page/file text (SQLite FTS5, native
@@ -159,15 +163,15 @@ and bare `/api/v1` redirects to `/api/v1/default`. The only instance-level
 routes are `/health`, `/help`, `/api/v1/health`, `/api/v1/help`,
 `/api/v1/projects`, `/assets/...` and `/favicon.svg`.
 
-The default project's overview at `/default/` is the human projects manager. It
-lists the projects, links to each `/{name}/`, and creates and deletes projects
-through the public `GET`/`POST /api/v1/projects` and
+The default project's overview at `/default/overview` is the human projects
+manager. It lists the projects, links to each `/{name}/overview`, and creates and
+deletes projects through the public `GET`/`POST /api/v1/projects` and
 `DELETE /api/v1/projects/{project}` API; `default` is never deletable and a
 non-empty project returns `409`. Without JavaScript the overview server-renders
 the project list with project-scoped links. There is deliberately no human
 `/projects` route (section 66.3): the manager lives inside the existing
-project-scoped pages, and every URL it generates is `/{name}/`. The browser
-client exposes it as `Clio.Projects.mount(element)` (ClioJS 1.6.0).
+project-scoped pages, and every URL it generates is `/{name}/overview`. The
+browser client exposes it as `Clio.Projects.mount(element)` (ClioJS 1.6.0).
 
 Only the default project exposes cross-project navigation. While you are in any
 other project the single cross-project affordance is a **Home** link to bare `/`
@@ -176,6 +180,22 @@ In the default project the data browser and file explorer toolbars carry a
 compact project switcher that navigates the same sub-path under the chosen
 project; in any other project those toolbars show the Home link instead and the
 project manager is not mounted.
+
+A project can also act as a self-contained portal. When a project's content root
+contains `index.html`, `GET /{project}/` responds `302 Found` to
+`/{project}/files/index.html` instead of rendering the overview: the portal's
+relative CSS, script, image and `clio.js`/data-API URLs then resolve under
+`/{project}/files/`, and its bytes are never rewritten. The rule is automatic
+and root-only — a directory-level `index.html` under `/{project}/files/...` does
+not trigger it and directory URLs keep their listing behavior. The generated
+overview is always available at `/{project}/overview`, and Clio-generated
+project-overview links (breadcrumbs, project navigation, the projects panel and
+the shared page shell) use that escape route. Deleting `index.html` restores the
+overview at `/{project}/`. Because bare `/` redirects to `/{default}/`, a
+`default` project with `index.html` becomes the instance landing page (SPEC
+sections 66.5 and 66.5.1). Subresources under `/{project}/files/...` keep the
+download protections of section 64.5 (`Content-Disposition: attachment` and
+`X-Content-Type-Options: nosniff`) with a correct `Content-Type`.
 
 Each project is divided into two partitions:
 
@@ -236,7 +256,7 @@ GoClio tracks three independent identifiers, described in `SPEC.md`:
 
 | Identifier | Current | Where it appears |
 | --- | --- | --- |
-| Specification revision | `1.8` | `SPEC.md` header |
+| Specification revision | `1.9` | `SPEC.md` header |
 | Product version | `2.3.0` (source default) | `version` in `/api/v1/health` |
 | API version | `v1` | `/api/v1/` route prefix |
 

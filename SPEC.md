@@ -1,6 +1,6 @@
 # Clio
 
-## Consolidated Specification v1.8 — Go implementation contract
+## Consolidated Specification v1.9 — Go implementation contract
 
 **Status: FROZEN**
 
@@ -17,7 +17,7 @@ These version identifiers are independent and must not be conflated:
 
 | Identifier | Value | Where it appears |
 | --- | --- | --- |
-| Specification revision | `1.8` | This document |
+| Specification revision | `1.9` | This document |
 | Product version | `2.3.0` | `version` in `/api/v1/health` |
 | API version | `v1` | `/api/v1/` route prefix |
 
@@ -91,6 +91,11 @@ Example payloads are illustrative unless a rule references them explicitly.
   with a 100 MiB default (sections 7.2 and 64.12); the in-memory credential
   memo (section 54.1); `health?deep=true` and the `files` count (section 47);
   and record indexes that lead with `project` (section 52).
+- **v1.9** — project landing pages: a content-root `index.html` makes
+  `GET /{project}/` redirect to `/{project}/files/index.html`, with the
+  generated overview at the new `/{project}/overview` escape route
+  (section 66.5.1); and boolean filter values are stated as the query strings
+  `true`/`false` for `eq`/`ne`/`in` (section 25.2).
 
 ### Table of contents
 
@@ -4869,7 +4874,8 @@ follow section 65.2.
 ## 66.5 Human URLs
 
 ```text
-/{project}/                              project overview
+/{project}/                              landing page (`index.html`) or project overview
+/{project}/overview                      project overview
 /{project}/health
 /{project}/help
 
@@ -4888,6 +4894,35 @@ follow section 65.2.
 
 `id` is a reserved segment directly under `/{project}/files`. A path that does
 not exist returns `404 Not Found`.
+
+### 66.5.1 Project landing page
+
+When a project's content root contains a regular `index.html`, `GET /{project}/`
+responds `302 Found` to `/{project}/files/index.html` instead of rendering the
+generated overview. This is automatic: there is no flag and no per-project
+setting. The redirect is used rather than serving the bytes at `/{project}/`
+because it keeps the browser's base URL at `/{project}/files/`, so relative CSS,
+script, image and data URLs in the portal resolve next to the published content,
+and the stored bytes are never rewritten.
+
+The landing rule applies only to the exact content-root `/index.html`. A
+directory-level `index.html` under `/{project}/files/...` does not trigger the
+redirect, and directory URLs keep their ordinary listing behavior.
+
+The generated overview is always reachable at `/{project}/overview`, whether or
+not `index.html` exists. Clio-generated links that mean "project overview"
+(breadcrumbs, project navigation, the projects panel and the brand link in the
+shared page shell) point at `/{project}/overview`, so the built-in UI never lands
+in a portal by accident; links that mean "open this project" may keep using
+`/{project}/`. Because bare `/` redirects to `/{default}/` (section 66.1), a
+`default` project with `index.html` becomes the instance landing page.
+
+Subresources referenced by a portal are served from `/{project}/files/...` under
+the existing download protections (section 64.5). Browsers ignore
+`Content-Disposition: attachment` for `<script>`, `<link>` and `<img>`, but
+`X-Content-Type-Options: nosniff` requires a correct `Content-Type`
+(`text/javascript`, `text/css`, `image/*`), which the content type table
+provides.
 
 ## 66.6 Data API
 

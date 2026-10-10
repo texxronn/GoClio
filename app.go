@@ -178,10 +178,26 @@ func (a *app) projectUI(w http.ResponseWriter, r *http.Request) {
 	scoped := a.withProject(project)
 	rest := segments[1:]
 	if len(rest) == 0 {
+		// Landing rule (section 66.5.1): when the project content root has an
+		// index.html, /{project}/ redirects to it so relative URLs resolve
+		// under /{project}/files/; otherwise the generated overview renders as
+		// before. The check is dynamic, so deleting index.html restores the
+		// overview.
+		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && scoped.projectHasLandingIndex() {
+			http.Redirect(w, r, scoped.projectPath("files", "index.html"), http.StatusFound)
+			return
+		}
 		scoped.projectOverview(w, r)
 		return
 	}
 	switch rest[0] {
+	case "overview":
+		// The overview escape route always renders the generated project
+		// overview, whether or not index.html exists (section 66.5).
+		if len(rest) == 1 {
+			scoped.projectOverview(w, r)
+			return
+		}
 	case "health":
 		if len(rest) == 1 && r.Method == http.MethodGet {
 			scoped.healthHTML(w, r)

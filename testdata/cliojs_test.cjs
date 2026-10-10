@@ -913,8 +913,8 @@ async function main() {
   const listRequest = requests.filter((request) => request.url.endsWith("/api/v1/projects") && (request.options.method || "GET") === "GET").at(-1);
   assert.ok(listRequest, "the project list comes from GET /api/v1/projects");
   const projectLinks = collectByTag(projectsHost, "a").map((link) => link.href);
-  assert.ok(projectLinks.includes("/default/"), "default links to /default/");
-  assert.ok(projectLinks.includes("/bills/"), "a project links to /{name}/");
+  assert.ok(projectLinks.includes("/default/overview"), "default links to /default/overview");
+  assert.ok(projectLinks.includes("/bills/overview"), "a project links to /{name}/overview");
   const defaultRow = collectByTag(projectsHost, "li").find((item) => item.attributes["data-project"] === "default");
   assert.ok(defaultRow, "default is listed");
   assert.equal(collectByTag(defaultRow, "button").filter((button) => button.className === "projects-danger").length, 0, "default has no delete action");
