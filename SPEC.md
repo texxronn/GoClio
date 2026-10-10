@@ -18,7 +18,7 @@ These version identifiers are independent and must not be conflated:
 | Identifier | Value | Where it appears |
 | --- | --- | --- |
 | Specification revision | `1.8` | This document |
-| Product version | `2.2.0` | `version` in `/api/v1/health` |
+| Product version | `2.3.0` | `version` in `/api/v1/health` |
 | API version | `v1` | `/api/v1/` route prefix |
 
 A specification revision does not imply a product or API version change. An
@@ -3190,7 +3190,7 @@ Example:
 ```json
 {
   "status": "ok",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "uptime_seconds": 12345,
   "memory": {
     "alloc_bytes": 18432000,
@@ -3237,7 +3237,7 @@ accepts `true` or `false`; other values return `422`. The resource counts
 describe the whole instance. `version`
 reports the product version; release builds inject the exact version at build
 time, while the document header records the version this specification was
-written against (currently `2.2.0`).
+written against (currently `2.3.0`).
 
 ---
 
