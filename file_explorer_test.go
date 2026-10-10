@@ -10,6 +10,7 @@ import (
 // the retained server-rendered directory pages (section 64.14).
 func TestFileExplorerShellRoutes(t *testing.T) {
 	a := newTestApp(t)
+	a.maxUpload = 7 << 20 // exercise a non-default limit in the shell
 	if _, ae := a.createDirectory("/notes"); ae != nil {
 		t.Fatalf("create directory: %v", ae)
 	}
@@ -18,7 +19,7 @@ func TestFileExplorerShellRoutes(t *testing.T) {
 	if shell.Code != http.StatusOK {
 		t.Fatalf("GET /default/files status=%d: %s", shell.Code, shell.Body.String())
 	}
-	for _, want := range []string{"File explorer", "assets/clio.js", "Clio.FileBrowser.mount", "clio-file-browser", "<noscript>", "notes", ".fb-tree{", ".fb-tree-pane{", ".fb-staging{", ".fb-staging-row{", ".fb-menu{", ".fb-menu-danger{", ".fb-sort{", "clio-theme-toggle", "clio-theme", ":root{color-scheme:light", `:root[data-theme="dark"]`, "var(--page)", "var(--on-accent)", "var(--danger)"} {
+	for _, want := range []string{"File explorer", "assets/clio.js", "Clio.FileBrowser.mount", "uploadLimit: 7340032", "clio-file-browser", "<noscript>", "notes", ".fb-tree{", ".fb-tree-pane{", ".fb-staging{", ".fb-staging-row{", ".fb-menu{", ".fb-menu-danger{", ".fb-sort{", "clio-theme-toggle", "clio-theme", ":root{color-scheme:light", `:root[data-theme="dark"]`, "var(--page)", "var(--on-accent)", "var(--danger)"} {
 		if !strings.Contains(shell.Body.String(), want) {
 			t.Errorf("GET /default/files missing %q", want)
 		}

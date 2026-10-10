@@ -208,8 +208,9 @@ actions live in a **right-click / kebab context menu** (Open; Download for files
 via the stable ID URL; Rename; Delete in the danger colour) rather than inline
 buttons. Uploads are **staged, not immediate**: choosing files or dropping them
 on the listing adds them to a staging tray that shows each name, size, type,
-target path and status, rejects files over the 16 MiB limit, marks a name that
-already exists as "will replace", and only sends anything when **Upload** is
+target path and status, rejects files over the configured upload limit
+(`CLIO_MAX_UPLOAD_BYTES`), marks a name that already exists as "will replace",
+and only sends anything when **Upload** is
 chosen (asking for confirmation before replacing existing names). There is no
 icon or grid view.
 
