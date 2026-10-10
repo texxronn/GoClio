@@ -154,11 +154,20 @@ path segment after /api/v1/ or after the site root. Bare / redirects to
   has name, label, description and order. ` + "`default`" + ` is reserved and cannot be
   created, renamed or deleted; DELETE removes only an empty project (204) and a
   non-empty project returns 409. Reserved names: api, health, help, projects,
-  assets, favicon.svg. Only the default project's overview at /default/ manages
-  projects in the browser through this API; without JavaScript it server-renders
-  the project list with links. Every other project offers only a Home link to /
-  (the default project), so cross-project navigation stays on the default
-  project. No human /projects route exists (section 66.3).
+  assets, favicon.svg. Only the default project's overview at /default/overview
+  manages projects in the browser through this API; without JavaScript it
+  server-renders the project list with links. Every other project offers only a
+  Home link to / (the default project), so cross-project navigation stays on the
+  default project. No human /projects route exists (section 66.3).
+- A project is a self-contained portal when its content root contains
+  index.html: GET /{project}/ redirects (302) to /{project}/files/index.html so
+  relative URLs resolve under /{project}/files/, and the generated overview
+  stays reachable at /{project}/overview. The rule checks the root index.html
+  only, so a directory-level index.html does not trigger it and deleting
+  index.html restores the overview at /{project}/. Because bare / redirects to
+  /{default}/, a default project with index.html becomes the instance landing
+  page. Clio-generated project-overview links use /{project}/overview
+  (sections 66.5 and 66.5.1).
 - A project is divided into two partitions. The ` + "`data`" + ` partition holds groups,
   tables, fields, records and metadata under /api/v1/{project}/data/... and
   /{project}/data/.... The ` + "`files`" + ` partition holds the unified content tree
@@ -208,7 +217,7 @@ When CLIO_WEBDAV_ENABLED=true (default false), a project's content tree is mount
 ## Browser JavaScript client
 - Load /assets/clio.js for the optional, dependency-free ClioJS v1 client (library version 1.6.0; also available at /assets/clio/v1/clio.js). It uses same-origin fetch() by default and HTTP Basic Authentication supported by the browser.
 - Example: const clio = new Clio(); (scope another project with new Clio({project: "bills"})) const table = clio.table("pool", "measurements"); const recent = await table.query({limit: 20, sort: "timestamp", order: "desc"});
-- ClioJS supports metadata, groups/tables, records, query paging/async iteration, files and directory listing, search, and the projects API. Clio.DataBrowser.mount(element) powers the built-in data browser at /{project}/data, which reads collections/tables and can create a collection and a table (New collection / New table) through the public API, including enum and reference fields; Clio.FileBrowser.mount(element) powers the file explorer at /{project}/files: a lazy, sessionStorage-persisted folder tree with keyboard navigation, a single uniform list with a right-click/kebab context menu (Open, Download for files, Rename, Delete), and a staged upload tray that only sends files when Upload is chosen. Only the default project exposes cross-project navigation: in the default project both toolbars carry a compact project switcher that navigates the same sub-path under another project, while any other project shows a single Home link to / and no switcher. Clio.Projects.mount(element) powers the project manager on the default project's /default/ overview and lists, creates and deletes projects (never deleting default); mounted elsewhere it shows only the Home link. Decimal values remain strings; errors expose status, code, and message.
+- ClioJS supports metadata, groups/tables, records, query paging/async iteration, files and directory listing, search, and the projects API. Clio.DataBrowser.mount(element) powers the built-in data browser at /{project}/data, which reads collections/tables and can create a collection and a table (New collection / New table) through the public API, including enum and reference fields; Clio.FileBrowser.mount(element) powers the file explorer at /{project}/files: a lazy, sessionStorage-persisted folder tree with keyboard navigation, a single uniform list with a right-click/kebab context menu (Open, Download for files, Rename, Delete), and a staged upload tray that only sends files when Upload is chosen. Only the default project exposes cross-project navigation: in the default project both toolbars carry a compact project switcher that navigates the same sub-path under another project, while any other project shows a single Home link to / and no switcher. Clio.Projects.mount(element) powers the project manager on the default project's overview at /default/overview and lists, creates and deletes projects (never deleting default); mounted elsewhere it shows only the Home link. Decimal values remain strings; errors expose status, code, and message.
 - Load /assets/clio-markdown.js separately to use Clio.Markdown.render(page.content).
 
 Content paths are canonical, case-sensitive UTF-8 paths relative to the project root. They reject traversal, empty segments, backslashes, control characters and the reserved segments id and dav directly under the project files tree. The files endpoints return entry metadata; the stored source is served as raw bytes from the stable ID URL, and pages render at their path URL.

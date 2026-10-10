@@ -11,6 +11,23 @@ than the product.
 
 ## [Unreleased]
 
+### Added
+
+- A project can now be a self-contained portal: when its content root contains
+  `index.html`, `GET /{project}/` responds `302 Found` to
+  `/{project}/files/index.html`, so a custom HTML front end can live next to the
+  project's data and files. The generated overview stays reachable at the
+  `/{project}/overview` escape route, and Clio-generated project-overview links
+  use it; deleting `index.html` restores the overview at `/{project}/`. A
+  `default` project with `index.html` becomes the instance landing page (SPEC
+  sections 66.5 and 66.5.1).
+
+### Changed
+
+- The content type table pins `.css`, `.js`/`.mjs` and common image types so a
+  portal's subresources get a correct `Content-Type` under `nosniff` on a base
+  image without `/etc/mime.types` (SPEC section 64.5).
+
 ### Fixed
 
 - Record list filters on `boolean` fields accept the query values `true` and

@@ -60,6 +60,20 @@ func (a *app) contentRootChecked() (string, *apiError) {
 	return root, nil
 }
 
+// projectHasLandingIndex reports whether the project's content root contains a
+// regular index.html, so /{project}/ can redirect to it (section 66.5.1). It
+// checks the exact root path only: a directory-level index.html under
+// /{project}/files/... never triggers the redirect. The check reads the
+// filesystem each time, so deleting index.html restores the overview.
+func (a *app) projectHasLandingIndex() bool {
+	target, ae := a.contentPath("/index.html")
+	if ae != nil {
+		return false
+	}
+	info, err := os.Stat(target)
+	return err == nil && info.Mode().IsRegular()
+}
+
 // fileSHA256 returns the lowercase hex SHA-256 of a file's bytes (section
 // 64.2). It streams the file so a rescan can compare content without holding
 // the whole file in memory.
@@ -90,6 +104,15 @@ var explicitMediaTypes = map[string]string{
 	".flac": "audio/flac", ".mp3": "audio/mpeg", ".m4a": "audio/mp4",
 	".ogg": "audio/ogg", ".oga": "audio/ogg", ".opus": "audio/ogg", ".wav": "audio/wav",
 	".pdf": "application/pdf",
+	// Portal subresources (section 66.5.1) need a correct Content-Type under
+	// nosniff: a browser ignores Content-Disposition for <script>, <link> and
+	// <img>, but refuses a script/stylesheet whose type it cannot confirm.
+	".css": "text/css", ".js": "text/javascript", ".mjs": "text/javascript",
+	// Common image types are pinned for the same reason, so a portal renders on
+	// a minimal base image without /etc/mime.types.
+	".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+	".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml",
+	".avif": "image/avif",
 }
 
 func contentMediaType(path string) string {

@@ -2361,7 +2361,7 @@
           const row = element("li", null, "projects-item");
           row.setAttribute("data-project", name);
           const link = element("a", item.label || name);
-          link.href = `/${encodeURIComponent(name)}/`;
+          link.href = `/${encodeURIComponent(name)}/overview`;
           row.appendChild(link);
           if (name !== "default") {
             row.appendChild(text(" "));

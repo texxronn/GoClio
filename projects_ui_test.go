@@ -42,7 +42,7 @@ func TestProjectOverviewManagesProjects(t *testing.T) {
 	// The server-rendered fallback lists default and the new project with
 	// project-scoped links.
 	noscript := noscriptSection(t, body)
-	for _, want := range []string{`href="/default/"`, "Default", `href="/bills/"`, "Bills &amp; &lt;Invoices&gt;"} {
+	for _, want := range []string{`href="/default/overview"`, "Default", `href="/bills/overview"`, "Bills &amp; &lt;Invoices&gt;"} {
 		if !strings.Contains(noscript, want) {
 			t.Errorf("noscript fallback missing %q: %s", want, noscript)
 		}
@@ -75,7 +75,7 @@ func TestProjectOverviewWithOnlyDefaultProject(t *testing.T) {
 		t.Fatalf("GET /default/ status=%d: %s", response.Code, response.Body.String())
 	}
 	body := response.Body.String()
-	for _, want := range []string{`id="clio-projects"`, "Clio.Projects.mount", `href="/default/"`} {
+	for _, want := range []string{`id="clio-projects"`, "Clio.Projects.mount", `href="/default/overview"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("single-project overview missing %q", want)
 		}
@@ -130,7 +130,8 @@ func TestNonDefaultProjectNavHasHomeLink(t *testing.T) {
 }
 
 // TestDefaultProjectNavKeepsClioLink confirms the default project keeps its
-// "Clio" brand link to /{default}/ and does not gain a Home link.
+// "Clio" brand link to the /{default}/overview escape route and does not gain a
+// Home link.
 func TestDefaultProjectNavKeepsClioLink(t *testing.T) {
 	a := newTestApp(t)
 	response := testRequest(t, a, http.MethodGet, "/default/", nil, "")
@@ -138,8 +139,8 @@ func TestDefaultProjectNavKeepsClioLink(t *testing.T) {
 		t.Fatalf("GET /default/ status=%d: %s", response.Code, response.Body.String())
 	}
 	body := response.Body.String()
-	if !strings.Contains(body, `href='/default/'>Clio</a>`) {
-		t.Errorf("default nav missing the Clio link to /default/: %s", body)
+	if !strings.Contains(body, `href='/default/overview'>Clio</a>`) {
+		t.Errorf("default nav missing the Clio link to /default/overview: %s", body)
 	}
 	if strings.Contains(body, `href='/'>Home</a>`) {
 		t.Errorf("default nav must not contain a Home link: %s", body)

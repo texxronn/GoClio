@@ -588,7 +588,11 @@ body{max-width:none;margin:0 auto;padding:0 1.4rem;background:var(--page);color:
 }
 
 func (a *app) pageShell(body, title string) string {
-	home := a.projectPath() + "/"
+	// The brand link means "this project's overview", so it uses the escape
+	// route rather than /{project}/, which a portal's index.html would capture
+	// (section 66.5.1). A non-default project keeps its single Home link to
+	// bare "/" (the default project), which is not a project overview.
+	home := a.projectPath("overview")
 	homeLabel := "Clio"
 	if a.projectName() != defaultProject {
 		// A non-default project exposes no cross-project links beyond a single
@@ -623,9 +627,11 @@ func (a *app) dataBrowserURL(group, table string) string {
 	return u
 }
 
-// projectOverview renders /{project}/: the project home that links the data
-// browser, the file explorer and search (sections 64.14 and 66.5). It replaces
-// the former redirect to /{project}/data.
+// projectOverview renders the project home that links the data browser, the
+// file explorer and search (sections 64.14 and 66.5). It is served at
+// /{project}/ when the content root has no index.html, and always at the
+// /{project}/overview escape route (section 66.5.1). It replaces the former
+// redirect to /{project}/data.
 func (a *app) projectOverview(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		writeAPIError(w, methodNotAllowed())
@@ -659,17 +665,19 @@ func homeLinkPanelHTML() string {
 	return `<style>.home-panel{max-width:1120px;margin:2rem auto 4rem;padding:clamp(1.2rem,3vw,2rem);border:1px solid var(--line);border-radius:14px;background:var(--surface);color:var(--text)}.home-panel h2{margin:0 0 .35rem;font-size:1.3rem;letter-spacing:-.03em}.home-panel-intro{margin:0 0 1rem;color:var(--muted);font-size:.9rem}.home-panel-link{display:inline-flex;align-items:center;gap:.55rem;padding:.6rem .9rem;border-radius:7px;background:var(--accent);color:var(--on-accent);font-weight:650;text-decoration:none}.home-panel-link:hover{background:var(--accent);filter:brightness(.92)}</style><section class="home-panel"><h2>Home</h2><p class="home-panel-intro">Go to the default project.</p><a class="home-panel-link" href="/">Open Home <span aria-hidden="true">→</span></a></section>`
 }
 
-// projectHref is the human URL of a project overview: /{name}/. It is absolute
-// (not based on the current project) and keeps every generated URL
-// project-scoped, so the projects UI never links to an instance route.
-func projectHref(name string) string { return "/" + urlPath(name) + "/" }
+// projectHref is the human URL of a project overview: /{name}/overview. It is
+// absolute (not based on the current project) and keeps every generated URL
+// project-scoped, so the projects UI never links to an instance route. The
+// escape route means a project overview never lands in a portal's index.html
+// (section 66.5.1).
+func projectHref(name string) string { return "/" + urlPath(name) + "/overview" }
 
 // projectsPanelHTML renders the project manager mounted on the project overview
-// /{project}/ (section 65.5 and section 66.5). The list is server-rendered
-// inside a <noscript> fallback from listProjects so the overview stays useful
-// without JavaScript, and Clio.Projects.mount drives create and delete through
-// the existing public projects API. No human projects route is introduced
-// (section 66.3): every link points at /{name}/.
+// /{project}/overview (section 65.5 and section 66.5). The list is
+// server-rendered inside a <noscript> fallback from listProjects so the
+// overview stays useful without JavaScript, and Clio.Projects.mount drives
+// create and delete through the existing public projects API. No human projects
+// route is introduced (section 66.3): every link points at /{name}/overview.
 func (a *app) projectsPanelHTML() string {
 	projects, _ := a.listProjects()
 	var b strings.Builder
