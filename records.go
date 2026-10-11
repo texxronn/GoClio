@@ -248,15 +248,21 @@ func (a *app) deleteRecord(group, table, id string) *apiError {
 	if _, e := a.getRecord(group, table, id); e != nil {
 		return e
 	}
-	rows, e := a.db.Query(`SELECT group_name,table_name,name,definition FROM fields_meta WHERE project=?`, a.project)
+	tx, err := a.db.Begin()
+	if err != nil {
+		return errAPI(err)
+	}
+	defer tx.Rollback()
+	rows, e := tx.Query(`SELECT group_name,table_name,name,definition FROM fields_meta WHERE project=?`, a.project)
 	if e != nil {
 		return errAPI(e)
 	}
-	type referenceField struct{ group, table, name string }
+	type referenceField struct{ group, table, name, onDelete string }
 	references := []referenceField{}
 	for rows.Next() {
 		var sg, st, name, raw string
 		if e = rows.Scan(&sg, &st, &name, &raw); e != nil {
+			rows.Close()
 			return errAPI(e)
 		}
 		f := map[string]any{}
@@ -264,10 +270,12 @@ func (a *app) deleteRecord(group, table, id string) *apiError {
 			rows.Close()
 			return errAPI(e)
 		}
-		if f["group"] == group && f["table"] == table {
-			if f["type"] == "reference" {
-				references = append(references, referenceField{sg, st, name})
+		if f["type"] == "reference" && f["group"] == group && f["table"] == table {
+			onDelete := "restrict"
+			if od, ok := f["on_delete"].(string); ok && od == "set_null" {
+				onDelete = "set_null"
 			}
+			references = append(references, referenceField{sg, st, name, onDelete})
 		}
 	}
 	if e = rows.Err(); e != nil {
@@ -275,10 +283,14 @@ func (a *app) deleteRecord(group, table, id string) *apiError {
 		return errAPI(e)
 	}
 	rows.Close()
+	// Restrict references block the delete before anything is changed.
 	for _, ref := range references {
+		if ref.onDelete == "set_null" {
+			continue
+		}
 		var one int
 		expression := "json_extract(data, " + indexJSONPathSQL(ref.name) + ")"
-		e = a.db.QueryRow(`SELECT 1 FROM records WHERE project=? AND group_name=? AND table_name=? AND `+expression+`=? LIMIT 1`, a.project, ref.group, ref.table, id).Scan(&one)
+		e = tx.QueryRow(`SELECT 1 FROM records WHERE project=? AND group_name=? AND table_name=? AND `+expression+`=? LIMIT 1`, a.project, ref.group, ref.table, id).Scan(&one)
 		if e == nil {
 			return conflict("Record is referenced by another record")
 		}
@@ -286,9 +298,21 @@ func (a *app) deleteRecord(group, table, id string) *apiError {
 			return errAPI(e)
 		}
 	}
-	_, e = a.db.Exec(`DELETE FROM records WHERE project=? AND group_name=? AND table_name=? AND id=?`, a.project, group, table, id)
-	if e != nil {
-		return errAPI(e)
+	now := formatUTC(time.Now())
+	for _, ref := range references {
+		if ref.onDelete != "set_null" {
+			continue
+		}
+		expression := "json_extract(data, " + indexJSONPathSQL(ref.name) + ")"
+		if _, err = tx.Exec(`UPDATE records SET data=json_set(data, `+indexJSONPathSQL(ref.name)+`, NULL), updated_at=? WHERE project=? AND group_name=? AND table_name=? AND `+expression+`=?`, now, a.project, ref.group, ref.table, id); err != nil {
+			return errAPI(err)
+		}
+	}
+	if _, err = tx.Exec(`DELETE FROM records WHERE project=? AND group_name=? AND table_name=? AND id=?`, a.project, group, table, id); err != nil {
+		return errAPI(err)
+	}
+	if err = tx.Commit(); err != nil {
+		return errAPI(err)
 	}
 	return nil
 }
@@ -332,6 +356,13 @@ func (a *app) queryRecords(group, table string, q url.Values) (map[string]any, *
 	if ae != nil {
 		return nil, ae
 	}
+	spec, ae := a.resolveExpand(group, table, defs, q)
+	if ae != nil {
+		return nil, ae
+	}
+	if spec != nil && (q.Has("distinct") || q.Has("bucket") || q.Has("group_by") || q.Has("aggregate")) {
+		return nil, invalid("expand is only valid for record reads without distinct, group_by, aggregate or bucket")
+	}
 	if q.Has("distinct") {
 		return a.distinctRecordValues(group, table, by, q, timeseries, meta, from, to, numeric)
 	}
@@ -365,7 +396,17 @@ func (a *app) queryRecords(group, table string, q url.Values) (map[string]any, *
 	if ae != nil {
 		return nil, ae
 	}
-	return a.queryRecordPage(group, table, by, q, timeseries, meta, from, to, limit, offset, sortField, order, numeric)
+	result, ae := a.queryRecordPage(group, table, by, q, timeseries, meta, from, to, limit, offset, sortField, order, numeric)
+	if ae != nil {
+		return nil, ae
+	}
+	if spec != nil {
+		page, _ := result["data"].([]map[string]any)
+		if ae = a.applyExpand(spec, page, numeric); ae != nil {
+			return nil, ae
+		}
+	}
+	return result, nil
 }
 
 type recordCandidate struct {

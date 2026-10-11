@@ -584,15 +584,35 @@ func (a *app) groupsAPI(w http.ResponseWriter, r *http.Request, s []string) {
 		id := s[5]
 		switch method {
 		case "GET":
-			numeric, x := decimalFormat(queryValues(r))
+			q := queryValues(r)
+			numeric, x := decimalFormat(q)
 			if x != nil {
 				writeErr(w, x)
 				return
+			}
+			var spec *expandSpec
+			if q.Has("expand") {
+				defs, e := a.fields(group, table)
+				if e != nil {
+					writeErr(w, e)
+					return
+				}
+				spec, e = a.resolveExpand(group, table, defs, q)
+				if e != nil {
+					writeErr(w, e)
+					return
+				}
 			}
 			item, x := a.getRecordFormatted(group, table, id, numeric)
 			if x != nil {
 				writeErr(w, x)
 				return
+			}
+			if spec != nil {
+				if x = a.applyExpand(spec, []map[string]any{item}, numeric); x != nil {
+					writeErr(w, x)
+					return
+				}
 			}
 			writeJSON(w, 200, item)
 		case "PATCH":
@@ -859,6 +879,9 @@ func normalizeFields(raw any) ([]map[string]any, *apiError) {
 		if contains([]string{"id", "created_at", "updated_at"}, name) {
 			return nil, invalid("Field name is reserved for record metadata: " + name)
 		}
+		if name == "expanded" {
+			return nil, invalid("Field name is reserved for record expansion: " + name)
+		}
 		if seen[name] {
 			return nil, invalid("Duplicate field: " + name)
 		}
@@ -934,6 +957,20 @@ func normalizeFields(raw any) ([]map[string]any, *apiError) {
 			}
 			f["group"] = g
 			f["table"] = t
+			onDelete := "restrict"
+			if v, ok := f["on_delete"]; ok && v != nil {
+				s, ok := v.(string)
+				if !ok || (s != "restrict" && s != "set_null") {
+					return nil, invalid("on_delete must be restrict or set_null for field " + name)
+				}
+				onDelete = s
+			}
+			if onDelete == "set_null" && f["required"] == true {
+				return nil, invalid("set_null requires a nullable field: " + name)
+			}
+			f["on_delete"] = onDelete
+		} else {
+			delete(f, "on_delete")
 		}
 		if typ == "attachment" {
 			if raw, ok := f["accept"]; ok && raw != nil {

@@ -199,6 +199,7 @@ List records with limit and offset. Sort with sort={field}&order=asc|desc. Filte
 Operators: eq, ne, gt, gte, lt, lte, contains, in, isnull. Repeated in parameters are ORed; different filters are ANDed. Nulls sort last in both directions.
 Distinct values: ?distinct=type. Aggregates: ?aggregate=count,cost:sum,cost:avg. Grouping: ?group_by=type&aggregate=count,cost:sum. Functions: count, sum, avg, min, max. Results are pageable where grouped/distinct.
 Time-series records additionally accept RFC 3339 from (inclusive) and to (exclusive), and bucket=hour|day|week|month. Time comparisons and buckets use UTC; weeks start Monday; empty buckets are omitted.
+Record reads accept expand=<reference-field>[,<path>...] to embed referenced records under expanded (dotted paths nest to depth 3; non-reference or unknown fields return 422). Reference fields accept on_delete=restrict|set_null (restrict is the default; set_null nulls referencing values when the referenced record is deleted).
 
 ## Content filesystem (files partition)
 Pages and files are content entries with stable opaque IDs under /api/v1/{project}/files. List the paged catalog (prefix, content_type and kind filters) with GET /api/v1/{project}/files, read an entry or directory listing with GET /api/v1/{project}/files?path=/reports, and read a single entry by ID with GET /api/v1/{project}/files/{id}.

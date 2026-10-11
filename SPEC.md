@@ -1,6 +1,6 @@
 # Clio
 
-## Consolidated Specification v1.9 — Go implementation contract
+## Consolidated Specification v1.10 — Go implementation contract
 
 **Status: FROZEN**
 
@@ -17,7 +17,7 @@ These version identifiers are independent and must not be conflated:
 
 | Identifier | Value | Where it appears |
 | --- | --- | --- |
-| Specification revision | `1.9` | This document |
+| Specification revision | `1.10` | This document |
 | Product version | `2.4.0` | `version` in `/api/v1/health` |
 | API version | `v1` | `/api/v1/` route prefix |
 
@@ -96,6 +96,11 @@ Example payloads are illustrative unless a rule references them explicitly.
   generated overview at the new `/{project}/overview` escape route
   (section 66.5.1); and boolean filter values are stated as the query strings
   `true`/`false` for `eq`/`ne`/`in` (section 25.2).
+- **v1.10** — reference expansion: record reads accept an optional `?expand=`
+  parameter that embeds referenced records under `expanded` (section 14.7);
+  and a `reference` field may declare `on_delete` as `restrict` (default) or
+  `set_null`, which nulls referencing values when the referenced record is
+  deleted (sections 13.3 and 13.4).
 
 ### Table of contents
 
@@ -133,6 +138,7 @@ Example payloads are illustrative unless a rule references them explicitly.
   - [14.4 Missing and null values](#144-missing-and-null-values)
   - [14.5 Unknown and readonly fields](#145-unknown-and-readonly-fields)
   - [14.6 Numeric decimal output](#146-numeric-decimal-output)
+  - [14.7 Expanding references](#147-expanding-references)
 - [15. Metadata](#15-metadata)
 - [16. Metadata API](#16-metadata-api)
 - [17. Group API](#17-group-api)
@@ -811,7 +817,8 @@ normalized to lowercase on creation, are unique within a table, and must not
 contain `.` (section 22.1).
 
 The system-managed record fields `id`, `created_at` and `updated_at` are
-reserved: a field may not use those names.
+reserved: a field may not use those names. The field name `expanded` is also
+reserved because record reads may add an `expanded` object (section 14.7).
 
 ## 13.2 Field properties
 
@@ -847,7 +854,8 @@ reserved: a field may not use those names.
   field definition must include `group` and `table` properties naming the target
   table. The stored value is the target record ID (section 14.1), and Clio
   validates that the target exists on create, update and default application.
-  References are enforced as described in section 13.4.
+  A reference field may also declare an optional `on_delete` property; its
+  semantics are described in section 13.4.
 - An `attachment` field stores a content-entry ID (section 64.9). Clio validates
   that the target entry exists on create, update and default application, and a
   referenced entry cannot be deleted until the referencing value is cleared.
@@ -869,7 +877,16 @@ non-existent record is rejected.
 
 References are enforced by Clio.
 
-Deleting a record that is referenced by another record returns:
+A `reference` field may declare an optional `on_delete` property that controls
+what happens to referencing values when the referenced record is deleted:
+
+```text
+"on_delete": "restrict"   (default) deletion returns 409 Conflict
+"on_delete": "set_null"   referencing values are nulled
+```
+
+`restrict` is the default when the property is absent or null. Deleting a record
+that is referenced by another record then returns:
 
 ```text
 409 Conflict
@@ -877,15 +894,26 @@ Deleting a record that is referenced by another record returns:
 
 unless all referencing values are cleared first.
 
+`set_null` requires the reference field to be nullable (it must not be
+`required`). When the referenced record is deleted, Clio nulls the referencing
+values in the same transaction before the record is removed. A `set_null` on a
+required field, and any value other than `restrict` or `set_null`, is rejected as
+an invalid field definition:
+
+```text
+422 Unprocessable Entity
+```
+
+`cascade` is not available in v1.
+
 Deleting a table that is referenced by another table returns:
 
 ```text
 409 Conflict
 ```
 
-unless those references are removed first.
-
-There is no automatic cascade deletion in v1.
+unless those references are removed first. Table deletion ignores `on_delete`;
+only record deletion honors `set_null`.
 
 A nullable reference may be explicitly set to `null`.
 
@@ -1111,6 +1139,76 @@ response unchanged.
 Consumers that need exact decimal arithmetic should still prefer the default
 string form or a decimal-aware parser, because a JSON number may be read as a
 binary floating-point value by some clients.
+
+## 14.7 Expanding references
+
+Record reads accept an optional `expand` query parameter that embeds referenced
+records alongside the `reference` field's target record ID:
+
+```text
+expand=field1,field2.subfield
+```
+
+It is valid on:
+
+```text
+GET /api/v1/{project}/data/groups/{group}/tables/{table}/records
+GET /api/v1/{project}/data/groups/{group}/tables/{table}/records/{id}
+```
+
+The value is a comma-separated list of dotted paths. Each path names a
+`reference` field in the read table. A bare field name expands that reference by
+one level; a dotted path expands each successive reference in the target table,
+to a maximum depth of three:
+
+```text
+customer              depth 1
+customer.region       depth 2
+customer.region.zone  depth 3
+```
+
+A path deeper than three levels, an unknown field, a field that is not a
+`reference` field, an empty value, and an empty segment (for example `a,,b` or a
+trailing comma) return:
+
+```text
+422 Unprocessable Entity
+```
+
+`expand` is accepted only on the record list and single-record reads above.
+Combining it with `distinct`, `group_by`, `aggregate` or `bucket` returns
+`422 Unprocessable Entity`.
+
+Only `reference` fields may appear in a path. The reference field keeps its
+target record ID in the response; expansion is additive and backward compatible.
+For each resolved field an `expanded` object is added to the record, with one
+entry per requested field:
+
+```text
+"expanded": { "customer": { ...target record... } }
+```
+
+A dotted path nests an `expanded` object inside each embedded record. An embedded
+record includes its `id`, `created_at`, `updated_at` and every defined target
+field except target fields marked `hidden: true`. A null reference, and a
+reference whose target does not exist, is omitted from `expanded`. The
+`expanded` object is present only when at least one reference resolves. List and
+single reads share the same shape, `page` is unchanged, and `decimal_format`
+applies to embedded records as well (section 14.6).
+
+To bound response size, a response embeds at most 1000 distinct records across
+all paths; exceeding that budget returns:
+
+```text
+422 Unprocessable Entity
+```
+
+Only records that are found and embedded count toward the budget; a null or
+missing reference contributes nothing.
+
+Expansion is batched: Clio issues one query per distinct target table at each
+expansion level, so the work is proportional to the number of tables and levels,
+never one query per referencing row.
 
 ---
 
@@ -1464,6 +1562,10 @@ timeseries
 
 tables.
 
+The two read endpoints accept `expand` to embed referenced records under
+`expanded` (section 14.7) and `decimal_format` to return decimals as JSON
+numbers (section 14.6).
+
 ---
 
 # 22. Querying
@@ -1511,6 +1613,7 @@ from
 to
 bucket
 decimal_format
+expand
 ```
 
 Because filters are namespaced under `filter.`, a field named `limit` or `sort`

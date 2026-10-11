@@ -9,6 +9,23 @@ in [`SPEC.md`](SPEC.md). The API version (`v1`) changes only for incompatible
 API changes, and the specification revision tracks the contract document rather
 than the product.
 
+## [Unreleased]
+
+### Added
+
+- Record reads accept an optional `?expand=` query parameter that embeds
+  referenced records under an `expanded` object. The value is a comma-separated
+  list of dotted reference paths (depth 1 by default, up to depth 3); a
+  non-`reference`, unknown, empty or too-deep path returns `422`. Expansion is
+  additive and backward compatible (the reference keeps its target ID), hidden
+  target fields are excluded, and a response embeds at most 1000 distinct
+  records (SPEC section 14.7).
+- A `reference` field may declare `on_delete` as `restrict` (the default) or
+  `set_null`. `set_null` requires a nullable field and nulls the referencing
+  values in the same transaction when the referenced record is deleted;
+  `restrict` keeps returning `409 Conflict`, `cascade` is unavailable, and
+  referenced table deletion still returns `409` (SPEC sections 13.3 and 13.4).
+
 ## [2.4.0] - 2026-10-11
 
 ### Added
