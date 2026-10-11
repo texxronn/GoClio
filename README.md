@@ -1,7 +1,7 @@
 # GoClio
 
 GoClio is a Go implementation of the frozen Clio v1 contract in `SPEC.md`
-(specification revision 1.9; product version 2.4.0; API version v1). It uses Go's
+(specification revision 1.10; product version 2.4.0; API version v1). It uses Go's
 standard HTTP server, one SQLite database in WAL mode, and the filesystem for
 published content. `SPEC-CONFORMANCE.md` maps specification areas to automated
 tests.
@@ -209,7 +209,11 @@ Each project is divided into two partitions:
   types plus `enum` (a comma-separated list of values) and `reference` (a target
   group and table in the same project); enum values and reference targets belong
   to the individual field definition in the individual table, not a shared
-  registry.
+  registry. Record reads accept `?expand=<field[,field...]>` (dotted paths to
+  depth 3) to embed referenced records under `expanded`; a non-reference,
+  unknown or too-deep path returns `422`. A `reference` field declares
+  `on_delete` as `restrict` (default) or `set_null`, which nulls referencing
+  values when the referenced record is deleted.
 - **`files`** — the content tree. The API lives under
   `/api/v1/{project}/files...` (list, read, create/replace, move, copy, delete,
   rescan, search, extraction and WebDAV); the human file explorer is at
@@ -256,7 +260,7 @@ GoClio tracks three independent identifiers, described in `SPEC.md`:
 
 | Identifier | Current | Where it appears |
 | --- | --- | --- |
-| Specification revision | `1.9` | `SPEC.md` header |
+| Specification revision | `1.10` | `SPEC.md` header |
 | Product version | `2.4.0` (source default) | `version` in `/api/v1/health` |
 | API version | `v1` | `/api/v1/` route prefix |
 
